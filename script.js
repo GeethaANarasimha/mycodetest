@@ -42,6 +42,11 @@ const NODE_HIT_RADIUS = 10;
 const ALIGN_HINT_COLOR = '#e74c3c';
 const MAX_HISTORY = 50;
 const INTERSECTION_TOLERANCE = 5;
+const DEFAULT_WALL_COLOR = '#2c3e50';
+const DEFAULT_DOOR_LINE = '#8b5a2b';
+const DEFAULT_DOOR_FILL = '#e6c9a8';
+const DEFAULT_WINDOW_LINE = '#3b83bd';
+const DEFAULT_WINDOW_FILL = 'rgba(135, 206, 250, 0.4)';
 
 // ---------------- STATE ----------------
 let currentTool = 'wall';
@@ -1085,6 +1090,9 @@ function init() {
     wallThicknessFeetInput.value = '0';
     wallThicknessInchesInput.value = '6';
 
+    document.getElementById('lineColorPreview').style.backgroundColor = lineColorInput.value || DEFAULT_WALL_COLOR;
+    document.getElementById('fillColorPreview').style.backgroundColor = fillColorInput.value || '#d9d9d9';
+
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {
         // Only process left clicks in mousedown
@@ -1291,6 +1299,8 @@ function moveSelectedObjects(dx, dy) {
 
         if (obj.type === 'door' && typeof window.snapDoorToNearestWall === 'function') {
             window.snapDoorToNearestWall(obj, walls, scale);
+        } else if (obj.type === 'window' && typeof window.snapWindowToNearestWall === 'function') {
+            window.snapWindowToNearestWall(obj, walls, scale);
         }
     });
 
@@ -1325,7 +1335,7 @@ function createWall(n1, n2) {
         id: nextWallId++,
         startNodeId: n1.id,
         endNodeId: n2.id,
-        lineColor: lineColorInput.value,
+        lineColor: lineColorInput.value || DEFAULT_WALL_COLOR,
         outlineWidth: parseInt(lineWidthInput.value, 10) || 2,
         thicknessPx
     };
@@ -1629,6 +1639,21 @@ function handleMouseDown(e) {
     isDrawing = true;
 }
 
+function getDefaultStyleForType(type) {
+    const baseLine = lineColorInput.value || DEFAULT_WALL_COLOR;
+    const baseFill = fillColorInput.value || '#d9d9d9';
+
+    if (type === 'door') {
+        return { lineColor: DEFAULT_DOOR_LINE, fillColor: DEFAULT_DOOR_FILL };
+    }
+
+    if (type === 'window') {
+        return { lineColor: DEFAULT_WINDOW_LINE, fillColor: DEFAULT_WINDOW_FILL };
+    }
+
+    return { lineColor: baseLine, fillColor: baseFill };
+}
+
 function handleMouseMove(e) {
     const rect = canvas.getBoundingClientRect();
     let x = e.clientX - rect.left;
@@ -1652,6 +1677,8 @@ function handleMouseMove(e) {
 
             if (obj.type === 'door' && typeof window.snapDoorToNearestWall === 'function') {
                 window.snapDoorToNearestWall(obj, walls, scale);
+            } else if (obj.type === 'window' && typeof window.snapWindowToNearestWall === 'function') {
+                window.snapWindowToNearestWall(obj, walls, scale);
             }
 
             coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}`;
@@ -1792,6 +1819,8 @@ function handleMouseUp() {
 
     pushUndoState();
 
+    const styles = getDefaultStyleForType(currentTool);
+
     const x = Math.min(startX, currentX);
     const y = Math.min(startY, currentY);
     const w = Math.abs(currentX - startX);
@@ -1803,8 +1832,8 @@ function handleMouseUp() {
         width: w,
         height: h,
         lineWidth: parseInt(lineWidthInput.value, 10) || 2,
-        lineColor: lineColorInput.value,
-        fillColor: fillColorInput.value,
+        lineColor: styles.lineColor,
+        fillColor: styles.fillColor,
         rotation: 0,
         flipH: false,
         flipV: false
@@ -1814,6 +1843,10 @@ function handleMouseUp() {
         newObj.doorType = doorTypeSelect ? doorTypeSelect.value : 'normal';
         if (typeof window.initializeDoorObject === 'function') {
             window.initializeDoorObject(newObj, walls, scale);
+        }
+    } else if (currentTool === 'window') {
+        if (typeof window.initializeWindowObject === 'function') {
+            window.initializeWindowObject(newObj, walls, scale);
         }
     }
 
@@ -2155,11 +2188,13 @@ function drawObjects() {
         ctx.fillStyle = obj.fillColor;
 
         if (obj.type === 'door') {
+            ctx.fillRect(localX, localY, width, height);
             ctx.strokeRect(localX, localY, width, height);
             ctx.beginPath();
             ctx.arc(localX + width, localY + height / 2, width, Math.PI, Math.PI * 1.5);
             ctx.stroke();
         } else if (obj.type === 'window') {
+            ctx.fillRect(localX, localY, width, height);
             ctx.strokeRect(localX, localY, width, height);
             ctx.beginPath();
             ctx.moveTo(localX + width / 2, localY);
@@ -2194,17 +2229,21 @@ function drawCurrentDragObject() {
     const w = Math.abs(currentX - startX);
     const h = Math.abs(currentY - startY);
 
+    const previewStyles = getDefaultStyleForType(currentTool);
+
     ctx.save();
-    ctx.strokeStyle = lineColorInput.value;
-    ctx.fillStyle = fillColorInput.value;
+    ctx.strokeStyle = previewStyles.lineColor;
+    ctx.fillStyle = previewStyles.fillColor;
     ctx.lineWidth = parseInt(lineWidthInput.value, 10) || 2;
 
     if (currentTool === 'door') {
+        ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
         ctx.beginPath();
         ctx.arc(x + w, y + h / 2, w, Math.PI, Math.PI * 1.5);
         ctx.stroke();
     } else if (currentTool === 'window') {
+        ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
         ctx.beginPath();
         ctx.moveTo(x + w / 2, y);
