@@ -1133,6 +1133,28 @@ function snapToInchAlongDirection(t) {
     return Math.round(t / inchPx) * inchPx;
 }
 
+function moveSelectedWalls(dx, dy) {
+    if (selectedWalls.size === 0) return;
+
+    pushUndoState();
+
+    const affectedNodeIds = new Set();
+    selectedWalls.forEach(wall => {
+        affectedNodeIds.add(wall.startNodeId);
+        affectedNodeIds.add(wall.endNodeId);
+    });
+
+    affectedNodeIds.forEach(nodeId => {
+        const node = getNodeById(nodeId);
+        if (!node) return;
+        const { x, y } = snapPointToInch(node.x + dx, node.y + dy);
+        node.x = x;
+        node.y = y;
+    });
+
+    redrawCanvas();
+}
+
 function getThicknessPx() {
     const ft = parseInt(wallThicknessFeetInput.value, 10) || 0;
     const inch = parseInt(wallThicknessInchesInput.value, 10) || 0;
@@ -1210,16 +1232,17 @@ function startNodeDrag(node, mouseX, mouseY) {
     pushUndoState();
 
     // Find a wall that contains this node
-    const attachedWalls = walls.filter(w => 
+    const attachedWalls = walls.filter(w =>
         w.startNodeId === node.id || w.endNodeId === node.id
     );
-    
+
     if (attachedWalls.length === 0) return;
-    
-    const wall = attachedWalls[0];
+
+    // Prefer a wall that is currently selected so dragging honours the intended segment
+    const wall = attachedWalls.find(w => selectedWalls.has(w)) || attachedWalls[0];
     const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
     const other = getNodeById(otherNodeId);
-    
+
     if (!other) return;
 
     const dx = node.x - other.x;
@@ -2006,6 +2029,35 @@ function handleKeyDown(e) {
                 e.preventDefault();
                 selectAllEntities();
                 return;
+        }
+    }
+
+    // Arrow keys to nudge selected walls
+    if (!e.ctrlKey && !e.metaKey && selectedWalls.size > 0) {
+        const inchPx = scale / 12;
+        const step = e.shiftKey ? scale : inchPx; // Shift for 1ft, otherwise 1in
+        let dx = 0;
+        let dy = 0;
+
+        switch (e.key) {
+            case 'ArrowUp':
+                dy = -step;
+                break;
+            case 'ArrowDown':
+                dy = step;
+                break;
+            case 'ArrowLeft':
+                dx = -step;
+                break;
+            case 'ArrowRight':
+                dx = step;
+                break;
+        }
+
+        if (dx !== 0 || dy !== 0) {
+            e.preventDefault();
+            moveSelectedWalls(dx, dy);
+            return;
         }
     }
 
