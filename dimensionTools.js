@@ -89,10 +89,10 @@ window.getWallThicknessPx = function(wall) {
  */
 window.handleDimensionMouseDown = function(e) {
     if (currentTool !== 'dimension') return;
-    
-    const rect = canvas.getBoundingClientRect();
-    let x = e.clientX - rect.left;
-    let y = e.clientY - rect.top;
+
+    const { x: rawX, y: rawY } = window.getCanvasCoordsFromEvent(e);
+    let x = rawX;
+    let y = rawY;
     
     // Check for double click - manual dimension mode
     if (e.detail === 2) {
@@ -269,10 +269,10 @@ window.createManualDimension = function(startX, startY, endX, endY) {
  */
 window.handleDimensionMouseMove = function(e) {
     if (currentTool !== 'dimension') return;
-    
-    const rect = canvas.getBoundingClientRect();
-    let x = e.clientX - rect.left;
-    let y = e.clientY - rect.top;
+
+    const { x: rawX, y: rawY } = window.getCanvasCoordsFromEvent(e);
+    let x = rawX;
+    let y = rawY;
     
     // Update hovered wall
     window.hoveredWall = findNearestWall(x, y, 20);

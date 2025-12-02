@@ -10,6 +10,7 @@
 <div class="toolbar">
     <button class="tool-btn" data-tool="select">Select</button>
     <button class="tool-btn" data-tool="wall">Wall</button>
+    <button class="tool-btn" data-tool="pan">Pan</button>
     <button class="tool-btn" data-tool="door">Door</button>
 
     <!-- NEW — Door Type Dropdown -->
@@ -31,6 +32,12 @@
         <button id="rotateRight" class="tool-btn secondary-btn" type="button">Rotate ⟳</button>
         <button id="flipHorizontal" class="tool-btn secondary-btn" type="button">Flip H</button>
         <button id="flipVertical" class="tool-btn secondary-btn" type="button">Flip V</button>
+    </div>
+
+    <div class="view-menu">
+        <span class="transform-title">View</span>
+        <button id="zoomOut" class="tool-btn secondary-btn" type="button">−</button>
+        <button id="zoomIn" class="tool-btn secondary-btn" type="button">+</button>
     </div>
 
     <div class="tool-info"></div>
@@ -61,7 +68,9 @@
     <button id="toggleGrid">Toggle Grid</button>
 </div>
 
-<canvas id="drawingCanvas" width="1000" height="700"></canvas>
+<div class="canvas-container">
+    <canvas id="drawingCanvas" width="1000" height="700"></canvas>
+</div>
 
 <div id="floorTextureModal" class="modal hidden">
     <div class="modal-content">
