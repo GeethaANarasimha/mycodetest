@@ -356,11 +356,17 @@ function copySelection() {
         }
     });
 
-    // Copy selected floors
+    // Copy selected floors (strip non-serializable pattern)
     selectedFloorIds.forEach(floorId => {
         const floor = floors.find(f => f.id === floorId);
         if (!floor) return;
-        clipboard.floors.push(JSON.parse(JSON.stringify(floor)));
+        const floorCopy = JSON.parse(JSON.stringify({
+            ...floor,
+            texture: floor.texture
+                ? { ...floor.texture, pattern: null }
+                : undefined
+        }));
+        clipboard.floors.push(floorCopy);
         (floor.nodeIds || []).forEach(id => selectedNodeIds.add(id));
     });
 
@@ -549,6 +555,14 @@ function performPaste() {
             id: nextFloorId++,
             nodeIds: remappedNodeIds
         };
+        if (newFloor.texture) {
+            newFloor.texture.pattern = null;
+            if (!newFloor.texture.color && !newFloor.texture.imageSrc) {
+                newFloor.texture.color = fillColorInput.value || '#d9d9d9';
+            }
+        } else {
+            newFloor.texture = { type: 'color', color: fillColorInput.value || '#d9d9d9' };
+        }
         floors.push(newFloor);
         selectedFloorIds.add(newFloor.id);
     });
@@ -1984,32 +1998,120 @@ function maintainDoorAttachmentForSelection() {
     });
 }
 
+function getSelectionNodeIds() {
+    const nodeIds = new Set();
+    selectedWalls.forEach(wall => {
+        nodeIds.add(wall.startNodeId);
+        nodeIds.add(wall.endNodeId);
+    });
+    selectedFloorIds.forEach(floorId => {
+        const floor = floors.find(f => f.id === floorId);
+        (floor?.nodeIds || []).forEach(id => nodeIds.add(id));
+    });
+    return nodeIds;
+}
+
+function getSelectionCenter() {
+    const points = [];
+    getSelectionNodeIds().forEach(id => {
+        const node = getNodeById(id);
+        if (node) points.push({ x: node.x, y: node.y });
+    });
+    selectedObjectIndices.forEach(index => {
+        const obj = objects[index];
+        if (!obj) return;
+        points.push({ x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 });
+    });
+
+    if (points.length === 0) return null;
+
+    const minX = Math.min(...points.map(p => p.x));
+    const maxX = Math.max(...points.map(p => p.x));
+    const minY = Math.min(...points.map(p => p.y));
+    const maxY = Math.max(...points.map(p => p.y));
+
+    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}
+
 function rotateSelection(angle) {
-    if (selectedObjectIndices.size === 0) {
-        alert('Please select an object to rotate');
+    const center = getSelectionCenter();
+    if (!center) {
+        alert('Please select something to rotate');
         return;
     }
 
     pushUndoState();
+
+    const angleRad = (angle * Math.PI) / 180;
+
+    // Rotate nodes belonging to selected walls/floors
+    getSelectionNodeIds().forEach(id => {
+        const node = getNodeById(id);
+        if (!node) return;
+        const dx = node.x - center.x;
+        const dy = node.y - center.y;
+        node.x = center.x + dx * Math.cos(angleRad) - dy * Math.sin(angleRad);
+        node.y = center.y + dx * Math.sin(angleRad) + dy * Math.cos(angleRad);
+    });
+
+    // Rotate objects and their orientation
     if (typeof rotateSelectedObjects === 'function') {
         rotateSelectedObjects(objects, selectedObjectIndices, angle);
     }
+    selectedObjectIndices.forEach(index => {
+        const obj = objects[index];
+        if (!obj) return;
+        const cx = obj.x + obj.width / 2;
+        const cy = obj.y + obj.height / 2;
+        const dx = cx - center.x;
+        const dy = cy - center.y;
+        const newCx = center.x + dx * Math.cos(angleRad) - dy * Math.sin(angleRad);
+        const newCy = center.y + dx * Math.sin(angleRad) + dy * Math.cos(angleRad);
+        obj.x = newCx - obj.width / 2;
+        obj.y = newCy - obj.height / 2;
+    });
+
     maintainDoorAttachmentForSelection();
     redrawCanvas();
 }
 
 function flipSelection(direction) {
-    if (selectedObjectIndices.size === 0) {
-        alert('Please select an object to flip');
+    const center = getSelectionCenter();
+    if (!center) {
+        alert('Please select something to flip');
         return;
     }
 
     pushUndoState();
+
+    // Flip nodes
+    getSelectionNodeIds().forEach(id => {
+        const node = getNodeById(id);
+        if (!node) return;
+        if (direction === 'horizontal') {
+            node.x = center.x - (node.x - center.x);
+        } else {
+            node.y = center.y - (node.y - center.y);
+        }
+    });
+
+    // Flip objects (position + orientation flags)
     if (direction === 'horizontal' && typeof flipSelectedObjectsHorizontal === 'function') {
         flipSelectedObjectsHorizontal(objects, selectedObjectIndices);
     } else if (direction === 'vertical' && typeof flipSelectedObjectsVertical === 'function') {
         flipSelectedObjectsVertical(objects, selectedObjectIndices);
     }
+    selectedObjectIndices.forEach(index => {
+        const obj = objects[index];
+        if (!obj) return;
+        const cx = obj.x + obj.width / 2;
+        const cy = obj.y + obj.height / 2;
+        const newCx = direction === 'horizontal' ? center.x - (cx - center.x) : cx;
+        const newCy = direction === 'vertical' ? center.y - (cy - center.y) : cy;
+        obj.x = newCx - obj.width / 2;
+        obj.y = newCy - obj.height / 2;
+    });
+
     maintainDoorAttachmentForSelection();
     redrawCanvas();
 }
