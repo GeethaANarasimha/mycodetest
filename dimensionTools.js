@@ -562,7 +562,7 @@ window.drawDimensions = function() {
         if (len > 0) {
             const nx = -dy / len;
             const ny = dx / len;
-            const offset = 10;
+            const offset = 6;
             
             // Extension lines
             ctx.beginPath();
@@ -584,8 +584,8 @@ window.drawDimensions = function() {
             
             const midX = (dim.startX + dim.endX) / 2;
             const midY = (dim.startY + dim.endY) / 2;
-            const textX = midX + nx * 15;
-            const textY = midY + ny * 15;
+            const textX = midX + nx * 8;
+            const textY = midY + ny * 8;
             
             // Text background
             const textWidth = ctx.measureText(dim.text).width;
