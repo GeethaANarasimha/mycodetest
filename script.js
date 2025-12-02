@@ -87,6 +87,12 @@ let selectAllMode = false;
 // Prevent paste mode from being cancelled when switching tools programmatically
 let suppressPasteCancel = false;
 
+// Track last interaction points for immediate paste placement
+let lastContextMenuCanvasX = null;
+let lastContextMenuCanvasY = null;
+let lastPointerCanvasX = null;
+let lastPointerCanvasY = null;
+
 // undo / redo
 let undoStack = [];
 let redoStack = [];
@@ -182,7 +188,7 @@ function handleContextMenuAction(action) {
             copySelection();
             break;
         case 'paste':
-            startPasteMode();
+            startPasteMode(lastContextMenuCanvasX, lastContextMenuCanvasY);
             break;
         case 'undo':
             undo();
@@ -317,7 +323,7 @@ function cutSelection() {
     deleteSelection();
 }
 
-function startPasteMode() {
+function startPasteMode(targetX = null, targetY = null) {
     if (clipboard.walls.length === 0 && clipboard.objects.length === 0) {
         alert('Clipboard is empty');
         return;
@@ -338,11 +344,19 @@ function startPasteMode() {
     // Clear current selection
     selectedWalls.clear();
     selectedObjectIndices.clear();
-    
+
     // Update tool info
     updateToolInfo();
-    
-    console.log('Paste mode activated. Right-click to set paste point.');
+
+    // If a target point is already known (e.g., context-menu location or last pointer), paste immediately
+    const immediateX = targetX !== null ? targetX : lastContextMenuCanvasX ?? lastPointerCanvasX;
+    const immediateY = targetY !== null ? targetY : lastContextMenuCanvasY ?? lastPointerCanvasY;
+
+    if (immediateX !== null && immediateY !== null) {
+        setPastePoint(immediateX, immediateY);
+    } else {
+        console.log('Paste mode activated. Right-click or left-click to set paste point.');
+    }
 }
 
 function setPastePoint(x, y) {
@@ -1063,11 +1077,15 @@ function init() {
 // ============================================================
 function handleCanvasContextMenu(e) {
     e.preventDefault();
-    
+
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    
+
+    // Remember where the context menu was opened so paste can occur immediately
+    lastContextMenuCanvasX = x;
+    lastContextMenuCanvasY = y;
+
     // If in paste mode, set paste point at right-click position
     if (isPasteMode) {
         setPastePoint(x, y);
@@ -1230,6 +1248,10 @@ function handleMouseDown(e) {
     let x = e.clientX - rect.left;
     let y = e.clientY - rect.top;
 
+    // Keep pointer tracking in sync with clicks
+    lastPointerCanvasX = x;
+    lastPointerCanvasY = y;
+
     // FIXED: Only process left clicks (button 0)
     // Right clicks are handled by contextmenu event
     if (e.button !== 0) return;
@@ -1375,10 +1397,14 @@ function handleMouseMove(e) {
     let x = e.clientX - rect.left;
     let y = e.clientY - rect.top;
 
+    // Track last pointer position for quick paste placement
+    lastPointerCanvasX = x;
+    lastPointerCanvasY = y;
+
     // Update coordinates display
     if (isPasteMode) {
         ({ x, y } = snapPointToInch(x, y));
-        coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Right-click to set paste point | ESC to cancel`;
+        coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to set paste point | ESC to cancel`;
         redrawCanvas();
         return;
     }
@@ -2093,11 +2119,11 @@ function updateToolInfo() {
         case 'erase': name = 'Eraser'; break;
         case 'dimension': name = 'Dimension'; break;
     }
-    
+
     if (isPasteMode) {
-        name = 'Paste Mode (Right-click to set point)';
+        name = 'Paste Mode (click to set point)';
     }
-    
+
     toolInfoDisplay.textContent = `Current Tool: ${name}`;
 }
 
