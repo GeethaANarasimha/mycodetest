@@ -153,11 +153,22 @@ let pasteTargetX = null;
 let pasteTargetY = null;
 
 // View helpers
-function screenToWorld(clientX, clientY) {
+function getCanvasPixelScale() {
     const rect = canvas.getBoundingClientRect();
     return {
-        x: (clientX - rect.left - viewOffsetX) / viewScale,
-        y: (clientY - rect.top - viewOffsetY) / viewScale
+        x: rect.width / canvas.width,
+        y: rect.height / canvas.height
+    };
+}
+
+function screenToWorld(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const scale = getCanvasPixelScale();
+    const canvasX = (clientX - rect.left) / scale.x;
+    const canvasY = (clientY - rect.top) / scale.y;
+    return {
+        x: (canvasX - viewOffsetX) / viewScale,
+        y: (canvasY - viewOffsetY) / viewScale
     };
 }
 
