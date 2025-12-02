@@ -319,22 +319,25 @@ function startPasteMode() {
         alert('Clipboard is empty');
         return;
     }
-    
+
     isPasteMode = true;
-    pasteTargetX = null;
-    pasteTargetY = null;
-    
+    pasteTargetX = clipboard.referenceX;
+    pasteTargetY = clipboard.referenceY;
+
     // Clear current selection
     selectedWalls.clear();
     selectedObjectIndices.clear();
-    
+
     // Switch to select tool for better visual feedback
     document.querySelector('.tool-btn[data-tool="select"]').click();
-    
+
     // Update tool info
     updateToolInfo();
-    
-    console.log('Paste mode activated. Right-click to set paste point.');
+
+    console.log('Paste mode activated. Pasting at original location and allowing reposition if needed.');
+
+    // Immediately paste at the original reference point
+    performPaste(true);
 }
 
 function setPastePoint(x, y) {
@@ -352,7 +355,7 @@ function setPastePoint(x, y) {
     performPaste();
 }
 
-function performPaste() {
+function performPaste(keepPasteMode = false) {
     if (!isPasteMode || pasteTargetX === null || pasteTargetY === null) {
         alert('Please set a paste point first (right-click)');
         return;
@@ -405,8 +408,8 @@ function performPaste() {
         selectedObjectIndices.add(newIndex);
     });
     
-    // Exit paste mode
-    isPasteMode = false;
+    // Exit paste mode unless we are keeping it active for further placement
+    isPasteMode = keepPasteMode;
     pasteTargetX = null;
     pasteTargetY = null;
     
