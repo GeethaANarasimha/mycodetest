@@ -553,7 +553,7 @@ function jointSelectedWalls() {
         alert('Please select at least 2 walls to join (hold Shift + click)');
         return;
     }
-    
+
     pushUndoState();
     
     // Get all selected walls
@@ -561,12 +561,12 @@ function jointSelectedWalls() {
     
     // Check if all selected walls are collinear and connected
     const canJoint = checkWallsForJoining(wallsArray);
-    
+
     if (!canJoint) {
         alert('Selected walls must be collinear and connected end-to-end');
         return;
     }
-    
+
     // Sort walls by their position
     const sortedWalls = sortConnectedWalls(wallsArray);
     
@@ -581,31 +581,99 @@ function jointSelectedWalls() {
     
     const firstNode = getNodeById(firstWall.startNodeId);
     const lastNode = getNodeById(lastWall.endNodeId);
-    
+
     if (!firstNode || !lastNode) {
         alert('Cannot find wall endpoints');
         return;
     }
+
+    // Preserve intermediate junction nodes that are connected to unselected walls
+    const nodeSequence = buildWallNodeSequence(sortedWalls);
+    const preservedNodeIds = new Set();
+
+    nodeSequence.forEach((node, idx) => {
+        if (idx === 0 || idx === nodeSequence.length - 1) {
+            preservedNodeIds.add(node.id);
+            return;
+        }
+
+        const connected = getWallsConnectedToNode(node.id);
+        const hasExternalConnection = connected.some(w => !selectedWalls.has(w));
+
+        if (hasExternalConnection) {
+            preservedNodeIds.add(node.id);
+        }
+    });
     
     // Remove all selected walls
     walls = walls.filter(wall => !selectedWalls.has(wall));
-    
-    // Create a new joint wall
-    const newWall = {
-        id: nextWallId++,
-        startNodeId: firstNode.id,
-        endNodeId: lastNode.id,
-        lineColor: firstWall.lineColor,
-        outlineWidth: firstWall.outlineWidth,
-        thicknessPx: firstWall.thicknessPx
-    };
-    
-    walls.push(newWall);
-    
+
+    // Rebuild the chain while keeping preserved nodes as junctions
+    const rebuildNodes = nodeSequence.filter((node, idx) => {
+        return preservedNodeIds.has(node.id) || idx === 0 || idx === nodeSequence.length - 1;
+    });
+
+    for (let i = 0; i < rebuildNodes.length - 1; i++) {
+        const start = rebuildNodes[i];
+        const end = rebuildNodes[i + 1];
+
+        walls.push({
+            id: nextWallId++,
+            startNodeId: start.id,
+            endNodeId: end.id,
+            lineColor: firstWall.lineColor,
+            outlineWidth: firstWall.outlineWidth,
+            thicknessPx: firstWall.thicknessPx
+        });
+    }
+
     // Clear selection
     selectedWalls.clear();
-    
+
     redrawCanvas();
+}
+
+function buildWallNodeSequence(sortedWalls) {
+    if (sortedWalls.length === 0) return [];
+
+    // Determine orientation using the first two walls if available
+    const firstWall = sortedWalls[0];
+    const sequence = [];
+
+    let currentStart = getNodeById(firstWall.startNodeId);
+    let currentEnd = getNodeById(firstWall.endNodeId);
+
+    if (sortedWalls.length > 1) {
+        const secondWall = sortedWalls[1];
+        const sharesStart = secondWall.startNodeId === firstWall.startNodeId || secondWall.endNodeId === firstWall.startNodeId;
+        const sharesEnd = secondWall.startNodeId === firstWall.endNodeId || secondWall.endNodeId === firstWall.endNodeId;
+
+        if (sharesEnd && !sharesStart) {
+            // Keep as is
+        } else if (sharesStart && !sharesEnd) {
+            // Flip orientation to follow the chain
+            [currentStart, currentEnd] = [currentEnd, currentStart];
+        }
+    }
+
+    sequence.push(currentStart, currentEnd);
+
+    for (let i = 1; i < sortedWalls.length; i++) {
+        const wall = sortedWalls[i];
+        const lastNode = sequence[sequence.length - 1];
+        const nextNodeId = wall.startNodeId === lastNode.id ? wall.endNodeId : wall.startNodeId;
+        const nextNode = getNodeById(nextNodeId);
+
+        if (nextNode) {
+            sequence.push(nextNode);
+        }
+    }
+
+    return sequence;
+}
+
+function getWallsConnectedToNode(nodeId) {
+    return walls.filter(w => w.startNodeId === nodeId || w.endNodeId === nodeId);
 }
 
 function checkWallsForJoining(wallsArray) {
