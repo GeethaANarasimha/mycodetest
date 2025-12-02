@@ -18,6 +18,10 @@ const showDimensionsCheckbox = document.getElementById('showDimensions');
 const toggleGridButton = document.getElementById('toggleGrid');
 const coordinatesDisplay = document.querySelector('.coordinates');
 const toolInfoDisplay = document.querySelector('.tool-info');
+const rotateLeftButton = document.getElementById('rotateLeft');
+const rotateRightButton = document.getElementById('rotateRight');
+const flipHorizontalButton = document.getElementById('flipHorizontal');
+const flipVerticalButton = document.getElementById('flipVertical');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -68,6 +72,12 @@ let objects = [];
 
 let selectedWalls = new Set(); // MULTIPLE wall selection
 let rightClickedWall = null;
+
+// Selection box
+let isSelectionBoxActive = false;
+let selectionBoxStart = null;
+let selectionBoxEnd = null;
+let selectionBoxAdditive = false;
 
 // WALL CHAINING
 let isWallDrawing = false;
@@ -1162,10 +1172,25 @@ function init() {
             selectedWalls.clear();
             selectedObjectIndices.clear();
             selectAllMode = false;
+            isSelectionBoxActive = false;
+            selectionBoxStart = null;
+            selectionBoxEnd = null;
             hideContextMenu();
             updateToolInfo();
             redrawCanvas();
         });
+    });
+
+    const transformActions = [
+        { button: rotateLeftButton, handler: () => rotateSelection(-15) },
+        { button: rotateRightButton, handler: () => rotateSelection(15) },
+        { button: flipHorizontalButton, handler: () => flipSelection('horizontal') },
+        { button: flipVerticalButton, handler: () => flipSelection('vertical') },
+    ];
+
+    transformActions.forEach(({ button, handler }) => {
+        if (!button) return;
+        button.addEventListener('click', handler);
     });
 
     wallThicknessFeetInput.addEventListener('input', redrawCanvas);
@@ -1483,6 +1508,184 @@ function stopObjectDrag() {
 }
 
 // ============================================================
+// SELECTION BOX HELPERS
+// ============================================================
+function getSelectionRect() {
+    if (!selectionBoxStart || !selectionBoxEnd) return null;
+    const minX = Math.min(selectionBoxStart.x, selectionBoxEnd.x);
+    const minY = Math.min(selectionBoxStart.y, selectionBoxEnd.y);
+    const width = Math.abs(selectionBoxStart.x - selectionBoxEnd.x);
+    const height = Math.abs(selectionBoxStart.y - selectionBoxEnd.y);
+    return { x: minX, y: minY, width, height };
+}
+
+function drawSelectionBoxOverlay() {
+    const rect = getSelectionRect();
+    if (!isSelectionBoxActive || !rect) return;
+
+    ctx.save();
+    ctx.strokeStyle = '#3498db';
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+    ctx.fillStyle = 'rgba(52, 152, 219, 0.12)';
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    ctx.restore();
+}
+
+function rectContainsPoint(rect, x, y) {
+    return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+}
+
+function rectsOverlap(a, b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function segmentsIntersect(p1, p2, p3, p4) {
+    const d = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+    if (d === 0) return false;
+
+    const ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / d;
+    const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / d;
+
+    return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
+}
+
+function rectIntersectsSegment(rect, x1, y1, x2, y2) {
+    if (rectContainsPoint(rect, x1, y1) || rectContainsPoint(rect, x2, y2)) return true;
+
+    const corners = [
+        { x: rect.x, y: rect.y },
+        { x: rect.x + rect.width, y: rect.y },
+        { x: rect.x + rect.width, y: rect.y + rect.height },
+        { x: rect.x, y: rect.y + rect.height }
+    ];
+
+    const edges = [
+        [corners[0], corners[1]],
+        [corners[1], corners[2]],
+        [corners[2], corners[3]],
+        [corners[3], corners[0]]
+    ];
+
+    return edges.some(([a, b]) => segmentsIntersect(a, b, { x: x1, y: y1 }, { x: x2, y: y2 }));
+}
+
+function finalizeSelectionBox() {
+    const rect = getSelectionRect();
+    isSelectionBoxActive = false;
+    selectionBoxAdditive = false;
+    selectionBoxStart = null;
+    selectionBoxEnd = null;
+
+    if (!rect || (rect.width < 3 && rect.height < 3)) {
+        redrawCanvas();
+        return;
+    }
+
+    if (!selectionBoxAdditive) {
+        selectedWalls.clear();
+        selectedObjectIndices.clear();
+        selectedNode = null;
+        selectAllMode = false;
+    }
+
+    walls.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) return;
+        if (rectIntersectsSegment(rect, n1.x, n1.y, n2.x, n2.y)) {
+            selectedWalls.add(wall);
+        }
+    });
+
+    objects.forEach((obj, index) => {
+        const objRect = { x: obj.x, y: obj.y, width: obj.width, height: obj.height };
+        if (rectsOverlap(rect, objRect)) {
+            selectedObjectIndices.add(index);
+        }
+    });
+
+    redrawCanvas();
+}
+
+// ============================================================
+// TRANSFORM HELPERS
+// ============================================================
+function projectPointToWallSegment(px, py, x1, y1, x2, y2) {
+    const ax = px - x1;
+    const ay = py - y1;
+    const bx = x2 - x1;
+    const by = y2 - y1;
+    const lenSq = bx * bx + by * by || 1;
+    const t = Math.max(0, Math.min(1, (ax * bx + ay * by) / lenSq));
+    return {
+        x: x1 + t * bx,
+        y: y1 + t * by,
+        t
+    };
+}
+
+function maintainDoorAttachmentForSelection() {
+    selectedObjectIndices.forEach(index => {
+        const obj = objects[index];
+        if (!obj || obj.type !== 'door' || !obj.attachedWallId) return;
+
+        const wall = walls.find(w => w.id === obj.attachedWallId);
+        if (!wall) return;
+
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) return;
+
+        const projection = projectPointToWallSegment(
+            obj.x + obj.width / 2,
+            obj.y + obj.height / 2,
+            n1.x,
+            n1.y,
+            n2.x,
+            n2.y
+        );
+
+        const orientation = Math.abs(n2.x - n1.x) >= Math.abs(n2.y - n1.y) ? 'horizontal' : 'vertical';
+
+        if (typeof sizeDoorToWall === 'function') {
+            sizeDoorToWall(obj, { wall, n1, n2, projection, orientation }, scale);
+        }
+    });
+}
+
+function rotateSelection(angle) {
+    if (selectedObjectIndices.size === 0) {
+        alert('Please select an object to rotate');
+        return;
+    }
+
+    pushUndoState();
+    if (typeof rotateSelectedObjects === 'function') {
+        rotateSelectedObjects(objects, selectedObjectIndices, angle);
+    }
+    maintainDoorAttachmentForSelection();
+    redrawCanvas();
+}
+
+function flipSelection(direction) {
+    if (selectedObjectIndices.size === 0) {
+        alert('Please select an object to flip');
+        return;
+    }
+
+    pushUndoState();
+    if (direction === 'horizontal' && typeof flipSelectedObjectsHorizontal === 'function') {
+        flipSelectedObjectsHorizontal(objects, selectedObjectIndices);
+    } else if (direction === 'vertical' && typeof flipSelectedObjectsVertical === 'function') {
+        flipSelectedObjectsVertical(objects, selectedObjectIndices);
+    }
+    maintainDoorAttachmentForSelection();
+    redrawCanvas();
+}
+
+// ============================================================
 // MOUSE HANDLERS (WITH MULTIPLE WALL SELECTION)
 // ============================================================
 function handleMouseDown(e) {
@@ -1590,14 +1793,20 @@ function handleMouseDown(e) {
         }
 
         // Click on empty space - clear selection unless Shift is held
-        if (!e.shiftKey) {
+        isSelectionBoxActive = true;
+        selectionBoxStart = { x, y };
+        selectionBoxEnd = { x, y };
+        selectionBoxAdditive = e.shiftKey;
+
+        if (!selectionBoxAdditive) {
             selectedWalls.clear();
             selectedNode = null;
             selectedObjectIndices.clear();
             selectAllMode = false;
-            redrawCanvas();
         }
 
+        redrawCanvas();
+        drawSelectionBoxOverlay();
         return;
     }
 
@@ -1663,6 +1872,14 @@ function handleMouseMove(e) {
     // Track last pointer position for quick paste placement
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
+
+    if (isSelectionBoxActive) {
+        selectionBoxEnd = { x, y };
+        coordinatesDisplay.textContent = `Select box: ${Math.abs(selectionBoxEnd.x - selectionBoxStart.x).toFixed(1)} x ${Math.abs(selectionBoxEnd.y - selectionBoxStart.y).toFixed(1)}`;
+        redrawCanvas();
+        drawSelectionBoxOverlay();
+        return;
+    }
 
     if (draggingObjectIndex !== null && objectDragOffset) {
         const obj = objects[draggingObjectIndex];
@@ -1802,6 +2019,12 @@ function handleMouseUp() {
         redrawCanvas();
         return;
     }
+
+    if (isSelectionBoxActive) {
+        finalizeSelectionBox();
+        return;
+    }
+
     if (isDraggingNode) {
         isDraggingNode = false;
         selectedNode = null;
@@ -2285,6 +2508,7 @@ function redrawCanvas() {
     drawWalls();
     drawObjects();
     drawDimensions();
+    drawSelectionBoxOverlay();
 }
 
 // ============================================================
@@ -2426,6 +2650,9 @@ function handleKeyDown(e) {
             isDraggingNode = false;
             selectedObjectIndices.clear();
             selectAllMode = false;
+            isSelectionBoxActive = false;
+            selectionBoxStart = null;
+            selectionBoxEnd = null;
             hideContextMenu();
             redrawCanvas();
         }
@@ -2470,6 +2697,7 @@ function handleKeyDown(e) {
             if (typeof flipSelectedObjectsHorizontal === 'function') {
                 flipSelectedObjectsHorizontal(objects, selectedObjectIndices);
             }
+            maintainDoorAttachmentForSelection();
             redrawCanvas();
             return;
         }
@@ -2478,6 +2706,7 @@ function handleKeyDown(e) {
             if (typeof flipSelectedObjectsVertical === 'function') {
                 flipSelectedObjectsVertical(objects, selectedObjectIndices);
             }
+            maintainDoorAttachmentForSelection();
             redrawCanvas();
             return;
         }
@@ -2487,6 +2716,7 @@ function handleKeyDown(e) {
             if (typeof rotateSelectedObjects === 'function') {
                 rotateSelectedObjects(objects, selectedObjectIndices, angle);
             }
+            maintainDoorAttachmentForSelection();
             redrawCanvas();
             return;
         }
