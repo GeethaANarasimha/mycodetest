@@ -22,6 +22,8 @@ const rotateLeftButton = document.getElementById('rotateLeft');
 const rotateRightButton = document.getElementById('rotateRight');
 const flipHorizontalButton = document.getElementById('flipHorizontal');
 const flipVerticalButton = document.getElementById('flipVertical');
+const zoomInButton = document.getElementById('zoomIn');
+const zoomOutButton = document.getElementById('zoomOut');
 const floorTextureModal = document.getElementById('floorTextureModal');
 const floorTextureFileInput = document.getElementById('floorTextureFile');
 const textureWidthFeetInput = document.getElementById('textureWidthFeet');
@@ -59,6 +61,9 @@ const DEFAULT_DOOR_LINE = '#8b5a2b';
 const DEFAULT_DOOR_FILL = '#e6c9a8';
 const DEFAULT_WINDOW_LINE = '#3b83bd';
 const DEFAULT_WINDOW_FILL = '#ffffff';
+const MIN_VIEW_SCALE = 0.5;
+const MAX_VIEW_SCALE = 3;
+const VIEW_ZOOM_STEP = 1.2;
 
 // ---------------- STATE ----------------
 let currentTool = 'wall';
@@ -79,6 +84,11 @@ let floors = [];
 let nextFloorId = 1;
 
 let objects = [];
+
+// View transform
+let viewScale = 1;
+let viewOffsetX = 0;
+let viewOffsetY = 0;
 
 let selectedWalls = new Set(); // MULTIPLE wall selection
 let rightClickedWall = null;
@@ -140,6 +150,53 @@ let clipboard = {
 let isPasteMode = false;
 let pasteTargetX = null;
 let pasteTargetY = null;
+
+// View helpers
+function screenToWorld(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (clientX - rect.left - viewOffsetX) / viewScale,
+        y: (clientY - rect.top - viewOffsetY) / viewScale
+    };
+}
+
+function worldToScreen(x, y) {
+    return {
+        x: x * viewScale + viewOffsetX,
+        y: y * viewScale + viewOffsetY
+    };
+}
+
+window.getCanvasCoordsFromEvent = screenToWorld;
+
+let isViewPanning = false;
+let panOrigin = null;
+let panStartOffset = null;
+
+function applyViewZoom(factor, anchor = null) {
+    const newScale = Math.min(MAX_VIEW_SCALE, Math.max(MIN_VIEW_SCALE, viewScale * factor));
+    if (anchor) {
+        // Keep anchor point stable while zooming
+        const screenAnchor = worldToScreen(anchor.x, anchor.y);
+        viewOffsetX = screenAnchor.x - anchor.x * newScale;
+        viewOffsetY = screenAnchor.y - anchor.y * newScale;
+    }
+    viewScale = newScale;
+    redrawCanvas();
+}
+
+function panView(deltaX, deltaY) {
+    viewOffsetX += deltaX;
+    viewOffsetY += deltaY;
+    redrawCanvas();
+}
+
+function getCanvasCenterWorld() {
+    return {
+        x: (canvas.width / 2 - viewOffsetX) / viewScale,
+        y: (canvas.height / 2 - viewOffsetY) / viewScale
+    };
+}
 
 // ============================================================
 // CONTEXT MENU FUNCTIONS
@@ -1399,6 +1456,13 @@ function init() {
         button.addEventListener('click', handler);
     });
 
+    if (zoomInButton) {
+        zoomInButton.addEventListener('click', () => applyViewZoom(VIEW_ZOOM_STEP, getCanvasCenterWorld()));
+    }
+    if (zoomOutButton) {
+        zoomOutButton.addEventListener('click', () => applyViewZoom(1 / VIEW_ZOOM_STEP, getCanvasCenterWorld()));
+    }
+
     wallThicknessFeetInput.addEventListener('input', redrawCanvas);
     wallThicknessInchesInput.addEventListener('input', redrawCanvas);
     lineWidthInput.addEventListener('input', redrawCanvas);
@@ -1436,9 +1500,7 @@ function init() {
 function handleCanvasContextMenu(e) {
     e.preventDefault();
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = screenToWorld(e.clientX, e.clientY);
 
     // Remember where the context menu was opened so paste can occur immediately
     lastContextMenuCanvasX = x;
@@ -1897,10 +1959,10 @@ function flipSelection(direction) {
 function handleMouseDown(e) {
     // Hide context menu on any click
     hideContextMenu();
-    
-    const rect = canvas.getBoundingClientRect();
-    let x = e.clientX - rect.left;
-    let y = e.clientY - rect.top;
+
+    const { x: worldX, y: worldY } = screenToWorld(e.clientX, e.clientY);
+    let x = worldX;
+    let y = worldY;
 
     // Keep pointer tracking in sync with clicks
     lastPointerCanvasX = x;
@@ -1909,6 +1971,13 @@ function handleMouseDown(e) {
     // FIXED: Only process left clicks (button 0)
     // Right clicks are handled by contextmenu event
     if (e.button !== 0) return;
+
+    if (currentTool === 'pan') {
+        isViewPanning = true;
+        panOrigin = { x: e.clientX, y: e.clientY };
+        panStartOffset = { x: viewOffsetX, y: viewOffsetY };
+        return;
+    }
 
     startX = x;
     startY = y;
@@ -2133,13 +2202,18 @@ function getDefaultStyleForType(type) {
 }
 
 function handleMouseMove(e) {
-    const rect = canvas.getBoundingClientRect();
-    let x = e.clientX - rect.left;
-    let y = e.clientY - rect.top;
+    let { x, y } = screenToWorld(e.clientX, e.clientY);
 
     // Track last pointer position for quick paste placement
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
+
+    if (isViewPanning && panOrigin && panStartOffset) {
+        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x);
+        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y);
+        redrawCanvas();
+        return;
+    }
 
     if (isSelectionBoxActive) {
         selectionBoxEnd = { x, y };
@@ -2333,6 +2407,13 @@ function handleMouseMove(e) {
 }
 
 function handleMouseUp() {
+    if (isViewPanning) {
+        isViewPanning = false;
+        panOrigin = null;
+        panStartOffset = null;
+        return;
+    }
+
     if (draggingObjectIndex !== null) {
         stopObjectDrag();
         redrawCanvas();
@@ -2415,9 +2496,7 @@ function handleCanvasClick(e) {
         return;
     }
 
-    const rect = canvas.getBoundingClientRect();
-    let x = e.clientX - rect.left;
-    let y = e.clientY - rect.top;
+    let { x, y } = screenToWorld(e.clientX, e.clientY);
     ({ x, y } = snapPointToInch(x, y));
 
     if (!isWallDrawing) {
@@ -2479,9 +2558,7 @@ function handleCanvasClick(e) {
 }
 
 function handleCanvasDoubleClick(e) {
-    const rect = canvas.getBoundingClientRect();
-    let x = e.clientX - rect.left;
-    let y = e.clientY - rect.top;
+    let { x, y } = screenToWorld(e.clientX, e.clientY);
 
     if (!isWallDrawing) {
         const floor = getFloorAt(x, y);
@@ -2533,17 +2610,24 @@ function handleCanvasDoubleClick(e) {
 // ============================================================
 function drawGrid() {
     if (!showGrid) return;
+    const visibleStartX = -viewOffsetX / viewScale;
+    const visibleStartY = -viewOffsetY / viewScale;
+    const visibleEndX = visibleStartX + canvas.width / viewScale;
+    const visibleEndY = visibleStartY + canvas.height / viewScale;
+    const startX = Math.floor(visibleStartX / gridSize) * gridSize;
+    const startY = Math.floor(visibleStartY / gridSize) * gridSize;
+
     ctx.beginPath();
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 0.5 / viewScale;
     ctx.strokeStyle = '#e0e0e0';
 
-    for (let x = 0; x <= canvas.width; x += gridSize) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
+    for (let x = startX; x <= visibleEndX; x += gridSize) {
+        ctx.moveTo(x, visibleStartY);
+        ctx.lineTo(x, visibleEndY);
     }
-    for (let y = 0; y <= canvas.height; y += gridSize) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
+    for (let y = startY; y <= visibleEndY; y += gridSize) {
+        ctx.moveTo(visibleStartX, y);
+        ctx.lineTo(visibleEndX, y);
     }
     ctx.stroke();
 }
@@ -2905,13 +2989,20 @@ function drawCurrentDragObject() {
 }
 
 function redrawCanvas() {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    ctx.save();
+    ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
     drawGrid();
     drawFloors();
     drawWalls();
     drawObjects();
     drawDimensions();
     drawSelectionBoxOverlay();
+    ctx.restore();
 }
 
 // ============================================================
