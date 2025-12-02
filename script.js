@@ -899,26 +899,72 @@ function splitWallAtPointWithNode(wall, splitX, splitY) {
     walls.splice(wallIndex, 1);
     
     // Add first segment
-    walls.push({
+    const firstSegment = {
         id: nextWallId++,
         startNodeId: n1.id,
         endNodeId: splitNode.id,
         lineColor: wall.lineColor,
         outlineWidth: wall.outlineWidth,
         thicknessPx: wall.thicknessPx
-    });
-    
+    };
+
     // Add second segment
-    walls.push({
+    const secondSegment = {
         id: nextWallId++,
         startNodeId: splitNode.id,
         endNodeId: n2.id,
         lineColor: wall.lineColor,
         outlineWidth: wall.outlineWidth,
         thicknessPx: wall.thicknessPx
-    });
-    
+    };
+
+    walls.push(firstSegment, secondSegment);
+
+    // Track created wall segments for downstream processing
+    splitNode.createdWalls = [firstSegment, secondSegment];
+
     return splitNode;
+}
+
+function getWallIntersectionPoints(wallA, wallB) {
+    const n1 = getNodeById(wallA.startNodeId);
+    const n2 = getNodeById(wallA.endNodeId);
+    const n3 = getNodeById(wallB.startNodeId);
+    const n4 = getNodeById(wallB.endNodeId);
+
+    if (!n1 || !n2 || !n3 || !n4) return null;
+
+    const result = getSegmentIntersection(n1.x, n1.y, n2.x, n2.y, n3.x, n3.y, n4.x, n4.y);
+    if (!result) return null;
+
+    const EPS = 0.02;
+    if (result.t1 <= EPS || result.t1 >= 1 - EPS) return null;
+    if (result.t2 <= EPS || result.t2 >= 1 - EPS) return null;
+
+    return {
+        x: result.x,
+        y: result.y,
+        tA: result.t1,
+        tB: result.t2
+    };
+}
+
+function getSegmentIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
+    const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (Math.abs(den) < 1e-6) return null;
+
+    const pre = x1 * y2 - y1 * x2;
+    const post = x3 * y4 - y3 * x4;
+
+    const x = (pre * (x3 - x4) - (x1 - x2) * post) / den;
+    const y = (pre * (y3 - y4) - (y1 - y2) * post) / den;
+
+    const t1 = (Math.abs(x2 - x1) > Math.abs(y2 - y1)) ? (x - x1) / (x2 - x1) : (y - y1) / (y2 - y1);
+    const t2 = (Math.abs(x4 - x3) > Math.abs(y4 - y3)) ? (x - x3) / (x4 - x3) : (y - y3) / (y4 - y3);
+
+    if (t1 < 0 || t1 > 1 || t2 < 0 || t2 > 1) return null;
+
+    return { x, y, t1, t2 };
 }
 
 function distanceToSegment(px, py, x1, y1, x2, y2) {
@@ -1255,9 +1301,63 @@ function createWall(n1, n2) {
         outlineWidth: parseInt(lineWidthInput.value, 10) || 2,
         thicknessPx
     };
-    
+
     walls.push(newWall);
+
+    autoSplitWallIntersections(newWall);
     return newWall;
+}
+
+function autoSplitWallIntersections(targetWall) {
+    const wallStart = getNodeById(targetWall.startNodeId);
+    const wallEnd = getNodeById(targetWall.endNodeId);
+    if (!wallStart || !wallEnd) return;
+
+    const intersectionsForNewWall = [];
+    const intersectionsByWall = new Map();
+
+    for (const wall of walls) {
+        if (wall.id === targetWall.id) continue;
+
+        const intersection = getWallIntersectionPoints(targetWall, wall);
+        if (!intersection) continue;
+
+        intersectionsForNewWall.push({ x: intersection.x, y: intersection.y, t: intersection.tA });
+
+        const list = intersectionsByWall.get(wall.id) || [];
+        list.push({ x: intersection.x, y: intersection.y, t: intersection.tB });
+        intersectionsByWall.set(wall.id, list);
+    }
+
+    // Split all intersecting existing walls first
+    intersectionsByWall.forEach((points, wallId) => {
+        points.sort((a, b) => a.t - b.t);
+        let candidateWallIds = [wallId];
+
+        for (const point of points) {
+            const currentWall = walls.find(w => candidateWallIds.includes(w.id));
+            if (!currentWall) break;
+
+            const splitNode = splitWallAtPointWithNode(currentWall, point.x, point.y);
+            if (splitNode && splitNode.createdWalls) {
+                candidateWallIds = splitNode.createdWalls.map(w => w.id);
+            }
+        }
+    });
+
+    // Now split the newly created wall along all intersections
+    intersectionsForNewWall.sort((a, b) => a.t - b.t);
+    let newWallCandidates = [targetWall.id];
+
+    for (const point of intersectionsForNewWall) {
+        const currentWall = walls.find(w => newWallCandidates.includes(w.id));
+        if (!currentWall) break;
+
+        const splitNode = splitWallAtPointWithNode(currentWall, point.x, point.y);
+        if (splitNode && splitNode.createdWalls) {
+            newWallCandidates = splitNode.createdWalls.map(w => w.id);
+        }
+    }
 }
 
 function getWallAt(x, y) {
