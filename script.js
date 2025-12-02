@@ -1,3 +1,4 @@
+
 /* ============================================================
    APZOK — 2D WALL DESIGNER ENGINE (WITH SPLIT & JOINT WALLS)
 ============================================================ */
@@ -166,31 +167,6 @@ function worldToScreen(x, y) {
         x: x * viewScale + viewOffsetX,
         y: y * viewScale + viewOffsetY
     };
-}
-
-function updateCanvasSize() {
-    const container = document.querySelector('.canvas-container');
-    if (!container) return;
-
-    const previousCenter = getCanvasCenterWorld();
-    const deviceRatio = window.devicePixelRatio || 1;
-
-    const cssWidth = container.clientWidth;
-    const cssHeight = container.clientHeight;
-
-    canvas.width = cssWidth * deviceRatio;
-    canvas.height = cssHeight * deviceRatio;
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(deviceRatio, deviceRatio);
-
-    const newCenterScreen = { x: cssWidth / 2, y: cssHeight / 2 };
-    viewOffsetX = newCenterScreen.x - previousCenter.x * viewScale;
-    viewOffsetY = newCenterScreen.y - previousCenter.y * viewScale;
-
-    redrawCanvas();
 }
 
 window.getCanvasCoordsFromEvent = screenToWorld;
@@ -1433,9 +1409,6 @@ function init() {
 
     document.getElementById('lineColorPreview').style.backgroundColor = lineColorInput.value || DEFAULT_WALL_COLOR;
     document.getElementById('fillColorPreview').style.backgroundColor = fillColorInput.value || '#d9d9d9';
-
-    updateCanvasSize();
-    window.addEventListener('resize', updateCanvasSize);
 
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {
