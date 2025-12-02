@@ -10,6 +10,7 @@ window.dimensionPreviewY = null;
 window.dimensions = [];
 window.nextDimensionId = 1;
 window.hoveredWall = null;
+window.hoveredSpaceSegment = null;
 
 // Blue color for dimensions
 const DIMENSION_COLOR = '#3498db';
@@ -102,8 +103,16 @@ window.handleDimensionMouseDown = function(e) {
     // SINGLE CLICK - Auto wall dimension
     const nearestWall = findNearestWall(x, y, 20);
     if (nearestWall) {
+        const spaceData = findAvailableSpacesOnWall(nearestWall, x, y);
+
         pushUndoState();
-        createWallDimension(nearestWall);
+
+        if (spaceData) {
+            createSpaceDimension(spaceData);
+        } else {
+            createWallDimension(nearestWall);
+        }
+
         redrawCanvas();
         return;
     }
@@ -267,10 +276,13 @@ window.handleDimensionMouseMove = function(e) {
     
     // Update hovered wall
     window.hoveredWall = findNearestWall(x, y, 20);
+    window.hoveredSpaceSegment = hoveredWall ? findAvailableSpacesOnWall(hoveredWall, x, y) : null;
     
     if (!isDimensionDrawing) {
         // Hover mode
-        if (hoveredWall) {
+        if (hoveredSpaceSegment) {
+            coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click: Add Space Dimension | Double-click: Manual Dimension`;
+        } else if (hoveredWall) {
             const length = Math.hypot(hoveredWall.n2.x - hoveredWall.n1.x, hoveredWall.n2.y - hoveredWall.n1.y);
             const totalInches = Math.round((length / scale) * 12);
             const feet = Math.floor(totalInches / 12);
@@ -392,6 +404,55 @@ window.drawHoverWallDimension = function(wallData) {
 };
 
 /**
+ * Draw hover preview for a space segment on a wall
+ */
+window.drawHoverSpaceDimension = function(spaceData) {
+    if (!spaceData) return;
+
+    const { leftBoundary, rightBoundary, text, wallY } = spaceData;
+    const dimensionY = wallY + 35;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(155, 89, 182, 0.7)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([2, 2]);
+
+    // Dimension line
+    ctx.beginPath();
+    ctx.moveTo(leftBoundary, dimensionY);
+    ctx.lineTo(rightBoundary, dimensionY);
+    ctx.stroke();
+
+    // Extension lines
+    ctx.beginPath();
+    ctx.moveTo(leftBoundary, wallY);
+    ctx.lineTo(leftBoundary, dimensionY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(rightBoundary, wallY);
+    ctx.lineTo(rightBoundary, dimensionY);
+    ctx.stroke();
+
+    // Text
+    const midX = (leftBoundary + rightBoundary) / 2;
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const textWidth = ctx.measureText(text).width;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(midX - textWidth/2 - 2, dimensionY - 8, textWidth + 4, 16);
+
+    ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+    ctx.fillText(text, midX, dimensionY);
+
+    ctx.restore();
+};
+
+/**
  * Draw manual dimension preview
  */
 window.drawDimensionPreview = function() {
@@ -463,8 +524,12 @@ window.drawDimensionPreview = function() {
  */
 window.drawDimensions = function() {
     // Draw hover preview first
-    if (currentTool === 'dimension' && !isDimensionDrawing && hoveredWall) {
-        drawHoverWallDimension(hoveredWall);
+    if (currentTool === 'dimension' && !isDimensionDrawing) {
+        if (hoveredSpaceSegment) {
+            drawHoverSpaceDimension(hoveredSpaceSegment);
+        } else if (hoveredWall) {
+            drawHoverWallDimension(hoveredWall);
+        }
     }
     
     // Draw permanent dimensions
@@ -587,6 +652,7 @@ window.resetDimensionTool = function() {
     dimensionPreviewX = null;
     dimensionPreviewY = null;
     hoveredWall = null;
+    hoveredSpaceSegment = null;
 };
 
 /**
@@ -655,10 +721,17 @@ window.findIntersectingWalls = function(targetWall) {
  * Find available spaces on a horizontal wall between vertical walls
  */
 window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
-    const { wall, n1, n2 } = wallData;
+    const { wall } = wallData;
+    const wallN1 = getNodeById(wall.startNodeId);
+    const wallN2 = getNodeById(wall.endNodeId);
+
+    if (!wallN1 || !wallN2) return null;
+
+    const leftNode = wallN1.x <= wallN2.x ? wallN1 : wallN2;
+    const rightNode = wallN1.x <= wallN2.x ? wallN2 : wallN1;
     
     // Only process horizontal walls for space measurement
-    if (!isWallHorizontal(n1, n2)) return null;
+    if (!isWallHorizontal(wallN1, wallN2)) return null;
     
     const wallThickness = getWallThicknessPx(wall);
     const intersectingWalls = findIntersectingWalls(wall);
@@ -683,8 +756,8 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
     if (verticalWalls.length > 0) {
         const firstVerticalWall = verticalWalls[0];
         const firstVerticalNode = getNodeById(firstVerticalWall.startNodeId);
-        
-        const leftSpaceStart = n1.x + (wallThickness / 2);
+
+        const leftSpaceStart = leftNode.x + (wallThickness / 2);
         const leftSpaceEnd = firstVerticalNode.x - (wallThickness / 2);
         const leftSpaceLength = leftSpaceEnd - leftSpaceStart;
         
@@ -702,7 +775,7 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 feet: feet,
                 inches: inches,
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
-                wallY: n1.y,
+                wallY: wallN1.y,
                 wallThickness: wallThickness,
                 type: 'left_space'
             });
@@ -716,7 +789,7 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
         
         const leftWallNode = getNodeById(leftWall.startNodeId);
         const rightWallNode = getNodeById(rightWall.startNodeId);
-        
+
         const spaceStart = leftWallNode.x + (wallThickness / 2);
         const spaceEnd = rightWallNode.x - (wallThickness / 2);
         const spaceLength = spaceEnd - spaceStart;
@@ -735,7 +808,7 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 feet: feet,
                 inches: inches,
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
-                wallY: n1.y,
+                wallY: wallN1.y,
                 wallThickness: wallThickness,
                 type: 'middle_space'
             });
@@ -746,9 +819,9 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
     if (verticalWalls.length > 0) {
         const lastVerticalWall = verticalWalls[verticalWalls.length - 1];
         const lastVerticalNode = getNodeById(lastVerticalWall.startNodeId);
-        
+
         const rightSpaceStart = lastVerticalNode.x + (wallThickness / 2);
-        const rightSpaceEnd = n2.x - (wallThickness / 2);
+        const rightSpaceEnd = rightNode.x - (wallThickness / 2);
         const rightSpaceLength = rightSpaceEnd - rightSpaceStart;
         
         if (rightSpaceLength > 0) {
@@ -765,7 +838,7 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 feet: feet,
                 inches: inches,
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
-                wallY: n1.y,
+                wallY: wallN1.y,
                 wallThickness: wallThickness,
                 type: 'right_space'
             });
