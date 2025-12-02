@@ -123,7 +123,7 @@ let draggingObjectIndex = null;
 let objectDragOffset = null;
 let objectDragUndoApplied = false;
 let windowHandleDrag = null;
-let selectedFloorId = null;
+let selectedFloorIds = new Set();
 let floorTextureTargetId = null;
 
 // Prevent paste mode from being cancelled when switching tools programmatically
@@ -143,6 +143,7 @@ let redoStack = [];
 let clipboard = {
     walls: [],
     objects: [],
+    floors: [],
     nodes: [],
     referenceX: 0,
     referenceY: 0
@@ -305,15 +306,16 @@ function hideContextMenu() {
 // ============================================================
 
 function copySelection() {
-    if (selectedWalls.size === 0 && selectedObjectIndices.size === 0) {
+    if (selectedWalls.size === 0 && selectedObjectIndices.size === 0 && selectedFloorIds.size === 0) {
         alert('Please select items to copy');
         return;
     }
-    
+
     // Clear clipboard
     clipboard = {
         walls: [],
         objects: [],
+        floors: [],
         nodes: [],
         referenceX: 0,
         referenceY: 0
@@ -322,7 +324,7 @@ function copySelection() {
     // Collect selected walls and their nodes
     const selectedWallIds = new Set();
     const selectedNodeIds = new Set();
-    
+
     // Copy selected walls
     selectedWalls.forEach(wall => {
         selectedWallIds.add(wall.id);
@@ -353,7 +355,15 @@ function copySelection() {
             clipboard.objects.push(objCopy);
         }
     });
-    
+
+    // Copy selected floors
+    selectedFloorIds.forEach(floorId => {
+        const floor = floors.find(f => f.id === floorId);
+        if (!floor) return;
+        clipboard.floors.push(JSON.parse(JSON.stringify(floor)));
+        (floor.nodeIds || []).forEach(id => selectedNodeIds.add(id));
+    });
+
     // Calculate reference point (center of selection)
     let minX = Infinity, minY = Infinity;
     let maxX = -Infinity, maxY = -Infinity;
@@ -384,23 +394,36 @@ function copySelection() {
         maxX = Math.max(maxX, obj.x + obj.width);
         maxY = Math.max(maxY, obj.y + obj.height);
     });
+
+    // Find bounds from floors (via their nodes)
+    clipboard.floors.forEach(floor => {
+        (floor.nodeIds || []).forEach(nodeId => {
+            const node = clipboard.nodes.find(n => n.id === nodeId);
+            if (!node) return;
+            minX = Math.min(minX, node.x);
+            minY = Math.min(minY, node.y);
+            maxX = Math.max(maxX, node.x);
+            maxY = Math.max(maxY, node.y);
+        });
+    });
     
     // Calculate reference point (center)
     if (minX !== Infinity && maxX !== -Infinity) {
         clipboard.referenceX = (minX + maxX) / 2;
         clipboard.referenceY = (minY + maxY) / 2;
     }
-    
+
     console.log('Copied:', {
         walls: clipboard.walls.length,
         objects: clipboard.objects.length,
+        floors: clipboard.floors.length,
         nodes: clipboard.nodes.length,
         reference: { x: clipboard.referenceX, y: clipboard.referenceY }
     });
 }
 
 function cutSelection() {
-    if (selectedWalls.size === 0 && selectedObjectIndices.size === 0) {
+    if (selectedWalls.size === 0 && selectedObjectIndices.size === 0 && selectedFloorIds.size === 0) {
         alert('Please select items to cut');
         return;
     }
@@ -413,7 +436,7 @@ function cutSelection() {
 }
 
 function startPasteMode(targetX = null, targetY = null) {
-    if (clipboard.walls.length === 0 && clipboard.objects.length === 0) {
+    if (clipboard.walls.length === 0 && clipboard.objects.length === 0 && clipboard.floors.length === 0) {
         alert('Clipboard is empty');
         return;
     }
@@ -433,6 +456,7 @@ function startPasteMode(targetX = null, targetY = null) {
     // Clear current selection
     selectedWalls.clear();
     selectedObjectIndices.clear();
+    selectedFloorIds.clear();
 
     // Update tool info
     updateToolInfo();
@@ -514,6 +538,19 @@ function performPaste() {
         };
         const newIndex = objects.push(newObj) - 1;
         selectedObjectIndices.add(newIndex);
+    });
+
+    // Paste floors with remapped node IDs
+    clipboard.floors.forEach(oldFloor => {
+        const remappedNodeIds = (oldFloor.nodeIds || []).map(id => nodeIdMap.get(id)).filter(Boolean);
+        if (remappedNodeIds.length < 3) return;
+        const newFloor = {
+            ...JSON.parse(JSON.stringify(oldFloor)),
+            id: nextFloorId++,
+            nodeIds: remappedNodeIds
+        };
+        floors.push(newFloor);
+        selectedFloorIds.add(newFloor.id);
     });
     
     // Exit paste mode
@@ -603,7 +640,7 @@ function drawPastePreview() {
 }
 
 function deleteSelection() {
-    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorId) {
+    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0) {
         pushUndoState();
         if (selectedWalls.size > 0) {
             walls = walls.filter(w => !selectedWalls.has(w));
@@ -613,9 +650,9 @@ function deleteSelection() {
             objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
             selectedObjectIndices.clear();
         }
-        if (selectedFloorId) {
-            floors = floors.filter(f => f.id !== selectedFloorId);
-            selectedFloorId = null;
+        if (selectedFloorIds.size > 0) {
+            floors = floors.filter(f => !selectedFloorIds.has(f.id));
+            selectedFloorIds.clear();
         }
         redrawCanvas();
     }
@@ -1290,7 +1327,7 @@ function restoreState(state) {
         window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
     }
 
-    clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], nodes: [], referenceX: 0, referenceY: 0 }));
+    clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
     isPasteMode = state.isPasteMode || false;
     pasteTargetX = state.pasteTargetX || null;
     pasteTargetY = state.pasteTargetY || null;
@@ -1308,7 +1345,7 @@ function restoreState(state) {
     wallPreviewY = null;
     alignmentHint = null;
     ignoreNextClick = false;
-    selectedFloorId = null;
+    selectedFloorIds.clear();
     selectedObjectIndices.clear();
     selectAllMode = false;
     
@@ -1427,6 +1464,7 @@ function init() {
             stopObjectDrag();
             selectedWalls.clear();
             selectedObjectIndices.clear();
+            selectedFloorIds.clear();
             selectAllMode = false;
             isSelectionBoxActive = false;
             selectionBoxStart = null;
@@ -1553,10 +1591,10 @@ function snapToInchAlongDirection(t) {
     return Math.round(t / inchPx) * inchPx;
 }
 
-function moveSelectedWalls(dx, dy) {
+function moveSelectedWalls(dx, dy, { skipUndo = false } = {}) {
     if (selectedWalls.size === 0) return;
 
-    pushUndoState();
+    if (!skipUndo) pushUndoState();
 
     const affectedNodeIds = new Set();
     selectedWalls.forEach(wall => {
@@ -1575,10 +1613,10 @@ function moveSelectedWalls(dx, dy) {
     redrawCanvas();
 }
 
-function moveSelectedObjects(dx, dy) {
+function moveSelectedObjects(dx, dy, { skipUndo = false } = {}) {
     if (selectedObjectIndices.size === 0) return;
 
-    pushUndoState();
+    if (!skipUndo) pushUndoState();
 
     selectedObjectIndices.forEach(index => {
         const obj = objects[index];
@@ -1595,6 +1633,29 @@ function moveSelectedObjects(dx, dy) {
         } else if (obj.type === 'window' && typeof window.snapWindowToNearestWall === 'function') {
             window.snapWindowToNearestWall(obj, walls, scale);
         }
+    });
+
+    redrawCanvas();
+}
+
+function moveSelectedFloors(dx, dy, { skipUndo = false } = {}) {
+    if (selectedFloorIds.size === 0) return;
+
+    if (!skipUndo) pushUndoState();
+
+    const affectedNodeIds = new Set();
+    selectedFloorIds.forEach(floorId => {
+        const floor = floors.find(f => f.id === floorId);
+        if (!floor) return;
+        (floor.nodeIds || []).forEach(id => affectedNodeIds.add(id));
+    });
+
+    affectedNodeIds.forEach(nodeId => {
+        const node = getNodeById(nodeId);
+        if (!node) return;
+        const { x, y } = snapPointToInch(node.x + dx, node.y + dy);
+        node.x = x;
+        node.y = y;
     });
 
     redrawCanvas();
@@ -2001,7 +2062,7 @@ function handleMouseDown(e) {
         pushUndoState();
         const floor = createFloorAtPoint(x, y);
         if (floor) {
-            selectedFloorId = floor.id;
+            selectedFloorIds = new Set([floor.id]);
             selectedWalls.clear();
             selectedObjectIndices.clear();
             selectAllMode = false;
@@ -2042,9 +2103,17 @@ function handleMouseDown(e) {
 
         const floorHit = getFloorAt(x, y);
         if (floorHit) {
-            selectedFloorId = floorHit.id;
-            selectedWalls.clear();
-            selectedObjectIndices.clear();
+            if (e.shiftKey) {
+                if (selectedFloorIds.has(floorHit.id)) {
+                    selectedFloorIds.delete(floorHit.id);
+                } else {
+                    selectedFloorIds.add(floorHit.id);
+                }
+            } else {
+                selectedFloorIds = new Set([floorHit.id]);
+                selectedWalls.clear();
+                selectedObjectIndices.clear();
+            }
             selectAllMode = false;
             redrawCanvas();
             return;
@@ -2071,7 +2140,7 @@ function handleMouseDown(e) {
         const node = getNodeAt(x, y);
         if (node) {
             startNodeDrag(node, x, y);
-            selectedFloorId = null;
+            selectedFloorIds.clear();
             redrawCanvas();
             return;
         }
@@ -2090,7 +2159,7 @@ function handleMouseDown(e) {
                 selectedObjectIndices.clear();
                 selectedObjectIndices.add(objIndex);
                 selectedWalls.clear();
-                selectedFloorId = null;
+                selectedFloorIds.clear();
             }
             if (!e.shiftKey) {
                 startObjectDrag(objIndex, x, y);
@@ -2116,7 +2185,7 @@ function handleMouseDown(e) {
                 selectedWalls.add(wall);
                 selectedNode = null;
             }
-            selectedFloorId = null;
+            selectedFloorIds.clear();
             selectedObjectIndices.clear();
             selectAllMode = false;
             redrawCanvas();
@@ -2133,7 +2202,7 @@ function handleMouseDown(e) {
             selectedWalls.clear();
             selectedNode = null;
             selectedObjectIndices.clear();
-            selectedFloorId = null;
+            selectedFloorIds.clear();
             selectAllMode = false;
         }
 
@@ -2161,7 +2230,7 @@ function handleMouseDown(e) {
             pushUndoState();
             if (floor) {
                 floors = floors.filter(f => f !== floor);
-                selectedFloorId = null;
+                selectedFloorIds.delete(floor.id);
             }
             if (wall) {
                 walls = walls.filter(w => w !== wall);
@@ -2914,7 +2983,7 @@ function drawFloors() {
         }
         ctx.fill();
 
-        if (selectedFloorId === floor.id) {
+        if (selectedFloorIds.has(floor.id)) {
             ctx.lineWidth = 2;
             ctx.strokeStyle = '#16a085';
             ctx.setLineDash([6, 4]);
@@ -3014,9 +3083,9 @@ function redrawCanvas() {
 // ============================================================
 function selectAllEntities() {
     selectedObjectIndices = new Set(objects.map((_, i) => i));
-    selectedWalls.clear();
+    selectedWalls = new Set(walls);
     selectedNode = null;
-    selectedFloorId = null;
+    selectedFloorIds = new Set(floors.map(f => f.id));
     isDraggingNode = false;
     selectAllMode = true;
     redrawCanvas();
@@ -3064,8 +3133,8 @@ function handleKeyDown(e) {
         }
     }
 
-    // Arrow keys to nudge selected objects
-    if (!e.ctrlKey && !e.metaKey && selectedObjectIndices.size > 0) {
+    // Arrow keys to nudge selected items
+    if (!e.ctrlKey && !e.metaKey) {
         const inchPx = scale / 12;
         const step = e.shiftKey ? scale : inchPx;
         let dx = 0;
@@ -3087,38 +3156,17 @@ function handleKeyDown(e) {
         }
 
         if (dx !== 0 || dy !== 0) {
-            e.preventDefault();
-            moveSelectedObjects(dx, dy);
-            return;
-        }
-    }
-
-    // Arrow keys to nudge selected walls
-    if (!e.ctrlKey && !e.metaKey && selectedWalls.size > 0) {
-        const inchPx = scale / 12;
-        const step = e.shiftKey ? scale : inchPx; // Shift for 1ft, otherwise 1in
-        let dx = 0;
-        let dy = 0;
-
-        switch (e.key) {
-            case 'ArrowUp':
-                dy = -step;
-                break;
-            case 'ArrowDown':
-                dy = step;
-                break;
-            case 'ArrowLeft':
-                dx = -step;
-                break;
-            case 'ArrowRight':
-                dx = step;
-                break;
-        }
-
-        if (dx !== 0 || dy !== 0) {
-            e.preventDefault();
-            moveSelectedWalls(dx, dy);
-            return;
+            const hasSelection = selectedObjectIndices.size > 0 || selectedWalls.size > 0 || selectedFloorIds.size > 0;
+            if (hasSelection) {
+                e.preventDefault();
+                pushUndoState();
+                moveSelectedObjects(dx, dy, { skipUndo: true });
+                moveSelectedWalls(dx, dy, { skipUndo: true });
+                moveSelectedFloors(dx, dy, { skipUndo: true });
+                maintainDoorAttachmentForSelection();
+                redrawCanvas();
+                return;
+            }
         }
     }
 
@@ -3148,6 +3196,7 @@ function handleKeyDown(e) {
             selectedNode = null;
             isDraggingNode = false;
             selectedObjectIndices.clear();
+            selectedFloorIds.clear();
             selectAllMode = false;
             isSelectionBoxActive = false;
             selectionBoxStart = null;
