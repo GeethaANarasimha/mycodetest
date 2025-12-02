@@ -46,7 +46,7 @@ const DEFAULT_WALL_COLOR = '#2c3e50';
 const DEFAULT_DOOR_LINE = '#8b5a2b';
 const DEFAULT_DOOR_FILL = '#e6c9a8';
 const DEFAULT_WINDOW_LINE = '#3b83bd';
-const DEFAULT_WINDOW_FILL = 'rgba(135, 206, 250, 0.4)';
+const DEFAULT_WINDOW_FILL = '#ffffff';
 
 // ---------------- STATE ----------------
 let currentTool = 'wall';
@@ -1418,12 +1418,13 @@ function getWallAt(x, y) {
 // ============================================================
 // OBJECT SELECT / HIT TEST
 // ============================================================
-function getObjectAt(x, y) {
+function getObjectAt(x, y, includeSelectionPadding = false) {
     for (let i = objects.length - 1; i >= 0; i--) {
         const obj = objects[i];
+        const padding = includeSelectionPadding && selectedObjectIndices.has(i) ? 8 : 0;
         if (
-            x >= obj.x && x <= obj.x + obj.width &&
-            y >= obj.y && y <= obj.y + obj.height
+            x >= obj.x - padding && x <= obj.x + obj.width + padding &&
+            y >= obj.y - padding && y <= obj.y + obj.height + padding
         ) {
             return i;
         }
@@ -1543,6 +1544,28 @@ function handleMouseDown(e) {
             return;
         }
 
+        // Check for object
+        const objIndex = getObjectAt(x, y, true);
+        if (objIndex !== -1) {
+            selectAllMode = false;
+            if (e.shiftKey) {
+                if (selectedObjectIndices.has(objIndex)) {
+                    selectedObjectIndices.delete(objIndex);
+                } else {
+                    selectedObjectIndices.add(objIndex);
+                }
+            } else {
+                selectedObjectIndices.clear();
+                selectedObjectIndices.add(objIndex);
+                selectedWalls.clear();
+            }
+            if (!e.shiftKey) {
+                startObjectDrag(objIndex, x, y);
+            }
+            redrawCanvas();
+            return;
+        }
+
         // Check for wall
         const wall = getWallAt(x, y);
         if (wall) {
@@ -1562,28 +1585,6 @@ function handleMouseDown(e) {
             }
             selectedObjectIndices.clear();
             selectAllMode = false;
-            redrawCanvas();
-            return;
-        }
-
-        // Check for object
-        const objIndex = getObjectAt(x, y);
-        if (objIndex !== -1) {
-            selectAllMode = false;
-            if (e.shiftKey) {
-                if (selectedObjectIndices.has(objIndex)) {
-                    selectedObjectIndices.delete(objIndex);
-                } else {
-                    selectedObjectIndices.add(objIndex);
-                }
-            } else {
-                selectedObjectIndices.clear();
-                selectedObjectIndices.add(objIndex);
-                selectedWalls.clear();
-            }
-            if (!e.shiftKey) {
-                startObjectDrag(objIndex, x, y);
-            }
             redrawCanvas();
             return;
         }
@@ -2211,10 +2212,29 @@ function drawObjects() {
 
         if (selectedObjectIndices.has(i)) {
             ctx.save();
-            ctx.setLineDash([4, 4]);
-            ctx.strokeStyle = '#3498db';
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#2980b9';
+            ctx.lineWidth = 2;
             ctx.strokeRect(x, y, width, height);
+
+            const handleSize = 8;
+            const handles = [
+                { hx: x, hy: y },
+                { hx: x + width / 2 - handleSize / 2, hy: y },
+                { hx: x + width - handleSize, hy: y },
+                { hx: x, hy: y + height / 2 - handleSize / 2 },
+                { hx: x + width - handleSize, hy: y + height / 2 - handleSize / 2 },
+                { hx: x, hy: y + height - handleSize },
+                { hx: x + width / 2 - handleSize / 2, hy: y + height - handleSize },
+                { hx: x + width - handleSize, hy: y + height - handleSize }
+            ];
+
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#2980b9';
+            ctx.lineWidth = 1;
+            handles.forEach(({ hx, hy }) => {
+                ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
+                ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
+            });
             ctx.restore();
         }
     }
