@@ -1,7 +1,7 @@
 // windowTools.js
 // Helpers for snapping windows to nearby walls (magnet behavior)
 
-const WINDOW_DEFAULT_LENGTH_FT = 4;
+const WINDOW_DEFAULT_LENGTH_FT = 5;
 const WINDOW_DEPTH_RATIO = 0.6;
 
 function projectPointToSegmentWindow(px, py, x1, y1, x2, y2) {

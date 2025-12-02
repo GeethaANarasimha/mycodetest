@@ -102,6 +102,7 @@ let selectAllMode = false;
 let draggingObjectIndex = null;
 let objectDragOffset = null;
 let objectDragUndoApplied = false;
+let windowHandleDrag = null;
 
 // Prevent paste mode from being cancelled when switching tools programmatically
 let suppressPasteCancel = false;
@@ -1722,8 +1723,37 @@ function handleMouseDown(e) {
     }
 
     if (currentTool === 'select') {
+        const windowHandle = getWindowHandleHit(x, y);
+        if (windowHandle) {
+            if (windowHandle.type === 'move') {
+                selectAllMode = false;
+                selectedObjectIndices = new Set([windowHandle.index]);
+                startObjectDrag(windowHandle.index, x, y);
+            } else {
+                const obj = objects[windowHandle.index];
+                if (obj) {
+                    pushUndoState();
+                    windowHandleDrag = {
+                        index: windowHandle.index,
+                        handle: windowHandle.type,
+                        isHorizontal: windowHandle.isHorizontal,
+                        startMouse: { x, y },
+                        initial: {
+                            x: obj.x,
+                            y: obj.y,
+                            width: obj.width,
+                            height: obj.height,
+                            lengthPx: obj.lengthPx || Math.max(obj.width, obj.height)
+                        }
+                    };
+                }
+            }
+            redrawCanvas();
+            return;
+        }
+
         // LEFT CLICK ONLY for selection operations
-        
+
         // Check for node handles of selected walls
         for (const wall of selectedWalls) {
             const n1 = getNodeById(wall.startNodeId);
@@ -1881,6 +1911,57 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (windowHandleDrag) {
+        const obj = objects[windowHandleDrag.index];
+        if (obj) {
+            const { isHorizontal, handle, initial } = windowHandleDrag;
+            ({ x, y } = snapToGridPoint(x, y));
+            const minLength = scale * 1.5;
+
+            if (isHorizontal) {
+                if (handle === 'start') {
+                    let newStart = x;
+                    let newWidth = initial.width + (initial.x - newStart);
+                    if (newWidth < minLength) {
+                        newStart = initial.x + initial.width - minLength;
+                        newWidth = minLength;
+                    }
+                    obj.x = newStart;
+                    obj.width = newWidth;
+                    obj.lengthPx = newWidth;
+                } else if (handle === 'end') {
+                    let newWidth = Math.max(minLength, x - initial.x);
+                    obj.width = newWidth;
+                    obj.lengthPx = newWidth;
+                }
+            } else {
+                if (handle === 'start') {
+                    let newStartY = y;
+                    let newHeight = initial.height + (initial.y - newStartY);
+                    if (newHeight < minLength) {
+                        newStartY = initial.y + initial.height - minLength;
+                        newHeight = minLength;
+                    }
+                    obj.y = newStartY;
+                    obj.height = newHeight;
+                    obj.lengthPx = newHeight;
+                } else if (handle === 'end') {
+                    let newHeight = Math.max(minLength, y - initial.y);
+                    obj.height = newHeight;
+                    obj.lengthPx = newHeight;
+                }
+            }
+
+            if (obj.type === 'window' && typeof window.snapWindowToNearestWall === 'function') {
+                window.snapWindowToNearestWall(obj, walls, scale);
+            }
+
+            coordinatesDisplay.textContent = `X: ${obj.x.toFixed(1)}, Y: ${obj.y.toFixed(1)}`;
+            redrawCanvas();
+        }
+        return;
+    }
+
     if (draggingObjectIndex !== null && objectDragOffset) {
         const obj = objects[draggingObjectIndex];
         if (obj) {
@@ -2016,6 +2097,12 @@ function handleMouseMove(e) {
 function handleMouseUp() {
     if (draggingObjectIndex !== null) {
         stopObjectDrag();
+        redrawCanvas();
+        return;
+    }
+
+    if (windowHandleDrag) {
+        windowHandleDrag = null;
         redrawCanvas();
         return;
     }
@@ -2416,6 +2503,8 @@ function drawObjects() {
             ctx.strokeRect(localX, localY, width, height);
             ctx.beginPath();
             ctx.arc(localX + width, localY + height / 2, width, Math.PI, Math.PI * 1.5);
+            ctx.moveTo(localX + width, localY + height / 2);
+            ctx.lineTo(localX + width, localY + height / 2 - width);
             ctx.stroke();
         } else if (obj.type === 'window') {
             ctx.fillRect(localX, localY, width, height);
@@ -2463,6 +2552,32 @@ function drawObjects() {
     }
 }
 
+function getWindowHandles(obj) {
+    const handleSize = 10;
+    const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
+    const isHorizontal = obj.orientation === 'horizontal' || obj.width >= obj.height;
+    const start = isHorizontal ? { x: obj.x, y: center.y } : { x: center.x, y: obj.y };
+    const end = isHorizontal ? { x: obj.x + obj.width, y: center.y } : { x: center.x, y: obj.y + obj.height };
+
+    return { handleSize, center, start, end, isHorizontal };
+}
+
+function getWindowHandleHit(x, y) {
+    for (const index of selectedObjectIndices) {
+        const obj = objects[index];
+        if (!obj || obj.type !== 'window') continue;
+
+        const { handleSize, center, start, end, isHorizontal } = getWindowHandles(obj);
+        const half = handleSize / 2;
+        const inRect = (hx, hy) => x >= hx - half && x <= hx + half && y >= hy - half && y <= hy + half;
+
+        if (inRect(center.x, center.y)) return { index, type: 'move', isHorizontal };
+        if (inRect(start.x, start.y)) return { index, type: 'start', isHorizontal };
+        if (inRect(end.x, end.y)) return { index, type: 'end', isHorizontal };
+    }
+    return null;
+}
+
 function drawCurrentDragObject() {
     if (!isDrawing) return;
     if (!['door', 'window', 'furniture'].includes(currentTool)) return;
@@ -2484,6 +2599,8 @@ function drawCurrentDragObject() {
         ctx.strokeRect(x, y, w, h);
         ctx.beginPath();
         ctx.arc(x + w, y + h / 2, w, Math.PI, Math.PI * 1.5);
+        ctx.moveTo(x + w, y + h / 2);
+        ctx.lineTo(x + w, y + h / 2 - w);
         ctx.stroke();
     } else if (currentTool === 'window') {
         ctx.fillRect(x, y, w, h);
