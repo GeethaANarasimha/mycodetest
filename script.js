@@ -22,6 +22,14 @@ const rotateLeftButton = document.getElementById('rotateLeft');
 const rotateRightButton = document.getElementById('rotateRight');
 const flipHorizontalButton = document.getElementById('flipHorizontal');
 const flipVerticalButton = document.getElementById('flipVertical');
+const floorTextureModal = document.getElementById('floorTextureModal');
+const floorTextureFileInput = document.getElementById('floorTextureFile');
+const textureWidthFeetInput = document.getElementById('textureWidthFeet');
+const textureWidthInchesInput = document.getElementById('textureWidthInches');
+const textureHeightFeetInput = document.getElementById('textureHeightFeet');
+const textureHeightInchesInput = document.getElementById('textureHeightInches');
+const applyFloorTextureButton = document.getElementById('applyFloorTexture');
+const cancelFloorTextureButton = document.getElementById('cancelFloorTexture');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -67,6 +75,8 @@ let nodes = [];
 let walls = [];
 let nextNodeId = 1;
 let nextWallId = 1;
+let floors = [];
+let nextFloorId = 1;
 
 let objects = [];
 
@@ -103,6 +113,8 @@ let draggingObjectIndex = null;
 let objectDragOffset = null;
 let objectDragUndoApplied = false;
 let windowHandleDrag = null;
+let selectedFloorId = null;
+let floorTextureTargetId = null;
 
 // Prevent paste mode from being cancelled when switching tools programmatically
 let suppressPasteCancel = false;
@@ -534,7 +546,7 @@ function drawPastePreview() {
 }
 
 function deleteSelection() {
-    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0) {
+    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorId) {
         pushUndoState();
         if (selectedWalls.size > 0) {
             walls = walls.filter(w => !selectedWalls.has(w));
@@ -543,6 +555,10 @@ function deleteSelection() {
         if (selectedObjectIndices.size > 0) {
             objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
             selectedObjectIndices.clear();
+        }
+        if (selectedFloorId) {
+            floors = floors.filter(f => f.id !== selectedFloorId);
+            selectedFloorId = null;
         }
         redrawCanvas();
     }
@@ -1012,6 +1028,183 @@ function findOrCreateNode(x, y) {
 }
 
 // ============================================================
+// FLOOR HELPERS
+// ============================================================
+function feetInchesToPixels(feet, inches) {
+    const totalFeet = (parseFloat(feet) || 0) + (parseFloat(inches) || 0) / 12;
+    return Math.max(1, totalFeet * scale);
+}
+
+function pointInPolygon(point, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].x, yi = polygon[i].y;
+        const xj = polygon[j].x, yj = polygon[j].y;
+
+        const intersect = ((yi > point.y) !== (yj > point.y)) &&
+            (point.x < (xj - xi) * (point.y - yi) / (yj - yi + 1e-9) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+function polygonArea(points) {
+    let area = 0;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        area += (points[j].x + points[i].x) * (points[j].y - points[i].y);
+    }
+    return area / 2;
+}
+
+function buildWallAdjacency() {
+    const adjacency = new Map();
+    const add = (fromId, toId) => {
+        const fromNode = getNodeById(fromId);
+        const toNode = getNodeById(toId);
+        if (!fromNode || !toNode) return;
+        const angle = Math.atan2(toNode.y - fromNode.y, toNode.x - fromNode.x);
+        if (!adjacency.has(fromId)) adjacency.set(fromId, []);
+        adjacency.get(fromId).push({ to: toId, angle });
+    };
+
+    walls.forEach(w => {
+        add(w.startNodeId, w.endNodeId);
+        add(w.endNodeId, w.startNodeId);
+    });
+
+    adjacency.forEach(list => list.sort((a, b) => a.angle - b.angle));
+    return adjacency;
+}
+
+function findWallCycles() {
+    const adjacency = buildWallAdjacency();
+    const visited = new Set();
+    const cycles = [];
+
+    const edgeKey = (a, b) => `${a}-${b}`;
+
+    walls.forEach(wall => {
+        [[wall.startNodeId, wall.endNodeId], [wall.endNodeId, wall.startNodeId]].forEach(([a, b]) => {
+            const startKey = edgeKey(a, b);
+            if (visited.has(startKey)) return;
+
+            const polygonIds = [];
+            let prev = a;
+            let curr = b;
+            let safety = walls.length * 4 || 20;
+
+            while (safety-- > 0) {
+                visited.add(edgeKey(prev, curr));
+                polygonIds.push(prev);
+
+                const options = adjacency.get(curr) || [];
+                if (options.length < 2) return; // open chain
+
+                const incomingIndex = options.findIndex(opt => opt.to === prev);
+                if (incomingIndex === -1) return;
+                const nextIndex = (incomingIndex - 1 + options.length) % options.length;
+                const nextNodeId = options[nextIndex].to;
+
+                prev = curr;
+                curr = nextNodeId;
+
+                if (prev === a && curr === b) {
+                    polygonIds.push(prev);
+                    break;
+                }
+            }
+
+            if (polygonIds.length < 3) return;
+
+            // Convert to points and normalize
+            const polygon = polygonIds.map(id => getNodeById(id)).filter(Boolean);
+            const uniqueIds = [...new Set(polygonIds)];
+            if (uniqueIds.length < 3 || polygon.length < 3) return;
+
+            const area = polygonArea(polygon);
+            if (Math.abs(area) < 1) return;
+
+            // Avoid duplicates by comparing sorted node sets
+            const signature = uniqueIds.slice().sort((x, y) => x - y).join('-');
+            if (!cycles.some(c => c.signature === signature)) {
+                cycles.push({ signature, polygon });
+            }
+        });
+    });
+
+    return cycles.map(c => c.polygon);
+}
+
+function findRoomPolygonAtPoint(x, y) {
+    const cycles = findWallCycles();
+    let best = null;
+    cycles.forEach(poly => {
+        if (pointInPolygon({ x, y }, poly)) {
+            const area = Math.abs(polygonArea(poly));
+            if (!best || area < best.area) {
+                best = { polygon: poly, area };
+            }
+        }
+    });
+    return best ? best.polygon : null;
+}
+
+function ensureFloorPattern(floor) {
+    if (!floor.texture || !floor.texture.imageSrc) return;
+    if (floor.texture.pattern) return;
+
+    const image = new Image();
+    image.onload = () => {
+        const widthPx = floor.texture.widthPx || image.width;
+        const heightPx = floor.texture.heightPx || image.height;
+        const tileCanvas = document.createElement('canvas');
+        tileCanvas.width = Math.max(1, Math.round(widthPx));
+        tileCanvas.height = Math.max(1, Math.round(heightPx));
+        const tctx = tileCanvas.getContext('2d');
+        tctx.drawImage(image, 0, 0, tileCanvas.width, tileCanvas.height);
+        floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
+        redrawCanvas();
+    };
+    image.src = floor.texture.imageSrc;
+}
+
+function createFloorAtPoint(x, y) {
+    const polygon = findRoomPolygonAtPoint(x, y);
+    if (!polygon) {
+        alert('No closed walls found. Close all sides to create a floor.');
+        return null;
+    }
+
+    const floor = {
+        id: nextFloorId++,
+        nodeIds: polygon.map(p => p.id),
+        texture: {
+            type: 'color',
+            color: fillColorInput.value || '#d9d9d9'
+        }
+    };
+
+    floors.push(floor);
+    return floor;
+}
+
+function getFloorPoints(floor) {
+    return (floor.nodeIds || []).map(id => getNodeById(id)).filter(Boolean);
+}
+
+function getFloorAt(x, y) {
+    for (let i = floors.length - 1; i >= 0; i--) {
+        const floor = floors[i];
+        const points = getFloorPoints(floor);
+        if (points.length < 3) continue;
+        if (pointInPolygon({ x, y }, points)) {
+            return floor;
+        }
+    }
+    return null;
+}
+
+// ============================================================
 // HISTORY (UNDO / REDO)
 // ============================================================
 function cloneState() {
@@ -1019,6 +1212,7 @@ function cloneState() {
         nodes: JSON.parse(JSON.stringify(nodes)),
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
+        floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
         isPasteMode: isPasteMode,
@@ -1031,7 +1225,9 @@ function restoreState(state) {
     nodes = JSON.parse(JSON.stringify(state.nodes));
     walls = JSON.parse(JSON.stringify(state.walls));
     objects = JSON.parse(JSON.stringify(state.objects));
-    
+    floors = JSON.parse(JSON.stringify(state.floors || []));
+    nextFloorId = floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1;
+
     if (state.dimensions) {
         window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
         window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
@@ -1055,6 +1251,7 @@ function restoreState(state) {
     wallPreviewY = null;
     alignmentHint = null;
     ignoreNextClick = false;
+    selectedFloorId = null;
     selectedObjectIndices.clear();
     selectAllMode = false;
     
@@ -1140,6 +1337,7 @@ function init() {
                 updateToolInfo();
                 redrawCanvas();
             }
+            closeFloorTextureModal();
         }
     });
 
@@ -1181,6 +1379,13 @@ function init() {
             redrawCanvas();
         });
     });
+
+    if (applyFloorTextureButton) {
+        applyFloorTextureButton.addEventListener('click', applyFloorTexture);
+    }
+    if (cancelFloorTextureButton) {
+        cancelFloorTextureButton.addEventListener('click', closeFloorTextureModal);
+    }
 
     const transformActions = [
         { button: rotateLeftButton, handler: () => rotateSelection(-15) },
@@ -1722,6 +1927,20 @@ function handleMouseDown(e) {
         return;
     }
 
+    if (currentTool === 'floor') {
+        ({ x, y } = snapPointToInch(x, y));
+        pushUndoState();
+        const floor = createFloorAtPoint(x, y);
+        if (floor) {
+            selectedFloorId = floor.id;
+            selectedWalls.clear();
+            selectedObjectIndices.clear();
+            selectAllMode = false;
+            redrawCanvas();
+        }
+        return;
+    }
+
     if (currentTool === 'select') {
         const windowHandle = getWindowHandleHit(x, y);
         if (windowHandle) {
@@ -1752,6 +1971,16 @@ function handleMouseDown(e) {
             return;
         }
 
+        const floorHit = getFloorAt(x, y);
+        if (floorHit) {
+            selectedFloorId = floorHit.id;
+            selectedWalls.clear();
+            selectedObjectIndices.clear();
+            selectAllMode = false;
+            redrawCanvas();
+            return;
+        }
+
         // LEFT CLICK ONLY for selection operations
 
         // Check for node handles of selected walls
@@ -1773,6 +2002,7 @@ function handleMouseDown(e) {
         const node = getNodeAt(x, y);
         if (node) {
             startNodeDrag(node, x, y);
+            selectedFloorId = null;
             redrawCanvas();
             return;
         }
@@ -1791,6 +2021,7 @@ function handleMouseDown(e) {
                 selectedObjectIndices.clear();
                 selectedObjectIndices.add(objIndex);
                 selectedWalls.clear();
+                selectedFloorId = null;
             }
             if (!e.shiftKey) {
                 startObjectDrag(objIndex, x, y);
@@ -1816,6 +2047,7 @@ function handleMouseDown(e) {
                 selectedWalls.add(wall);
                 selectedNode = null;
             }
+            selectedFloorId = null;
             selectedObjectIndices.clear();
             selectAllMode = false;
             redrawCanvas();
@@ -1832,6 +2064,7 @@ function handleMouseDown(e) {
             selectedWalls.clear();
             selectedNode = null;
             selectedObjectIndices.clear();
+            selectedFloorId = null;
             selectAllMode = false;
         }
 
@@ -1843,6 +2076,7 @@ function handleMouseDown(e) {
     if (currentTool === 'erase') {
         const wall = getWallAt(x, y);
         const objIndex = getObjectAt(x, y);
+        const floor = getFloorAt(x, y);
 
         if (typeof getDimensionAt === 'function') {
             const dimIndex = getDimensionAt(x, y);
@@ -1854,8 +2088,12 @@ function handleMouseDown(e) {
             }
         }
 
-        if (wall || objIndex !== -1) {
+        if (floor || wall || objIndex !== -1) {
             pushUndoState();
+            if (floor) {
+                floors = floors.filter(f => f !== floor);
+                selectedFloorId = null;
+            }
             if (wall) {
                 walls = walls.filter(w => w !== wall);
                 selectedWalls.delete(wall);
@@ -2241,6 +2479,18 @@ function handleCanvasClick(e) {
 }
 
 function handleCanvasDoubleClick(e) {
+    const rect = canvas.getBoundingClientRect();
+    let x = e.clientX - rect.left;
+    let y = e.clientY - rect.top;
+
+    if (!isWallDrawing) {
+        const floor = getFloorAt(x, y);
+        if (floor) {
+            openFloorTextureModal(floor);
+            return;
+        }
+    }
+
     if (currentTool === 'wall' && isWallDrawing) {
         e.preventDefault();
         ignoreNextClick = true;
@@ -2552,6 +2802,41 @@ function drawObjects() {
     }
 }
 
+function drawFloors() {
+    floors.forEach(floor => {
+        const points = getFloorPoints(floor);
+        if (points.length < 3) return;
+
+        ensureFloorPattern(floor);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.closePath();
+
+        if (floor.texture && floor.texture.pattern) {
+            ctx.fillStyle = floor.texture.pattern;
+        } else if (floor.texture && floor.texture.color) {
+            ctx.fillStyle = floor.texture.color;
+        } else {
+            ctx.fillStyle = fillColorInput.value || '#d9d9d9';
+        }
+        ctx.fill();
+
+        if (selectedFloorId === floor.id) {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#16a085';
+            ctx.setLineDash([6, 4]);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    });
+}
+
 function getWindowHandles(obj) {
     const handleSize = 10;
     const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
@@ -2622,6 +2907,7 @@ function drawCurrentDragObject() {
 function redrawCanvas() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawGrid();
+    drawFloors();
     drawWalls();
     drawObjects();
     drawDimensions();
@@ -2635,6 +2921,7 @@ function selectAllEntities() {
     selectedObjectIndices = new Set(objects.map((_, i) => i));
     selectedWalls.clear();
     selectedNode = null;
+    selectedFloorId = null;
     isDraggingNode = false;
     selectAllMode = true;
     redrawCanvas();
@@ -2850,6 +3137,7 @@ function updateToolInfo() {
         case 'door': name = 'Door'; break;
         case 'window': name = 'Window'; break;
         case 'furniture': name = 'Furniture'; break;
+        case 'floor': name = 'Floor'; break;
         case 'select': name = 'Select'; break;
         case 'erase': name = 'Eraser'; break;
         case 'dimension': name = 'Dimension'; break;
@@ -2860,6 +3148,92 @@ function updateToolInfo() {
     }
 
     toolInfoDisplay.textContent = `Current Tool: ${name}`;
+}
+
+// ============================================================
+// FLOOR TEXTURE MODAL
+// ============================================================
+function pixelsToFeetInches(px) {
+    const totalFeet = (px || scale) / scale;
+    const feet = Math.floor(totalFeet);
+    const inches = Math.max(0, Math.round((totalFeet - feet) * 12));
+    return { feet, inches };
+}
+
+function openFloorTextureModal(floor) {
+    if (!floorTextureModal) return;
+    floorTextureTargetId = floor.id;
+    const tex = floor.texture || {};
+    const widthDefault = pixelsToFeetInches(tex.widthPx || scale);
+    const heightDefault = pixelsToFeetInches(tex.heightPx || scale);
+
+    if (textureWidthFeetInput) textureWidthFeetInput.value = widthDefault.feet;
+    if (textureWidthInchesInput) textureWidthInchesInput.value = widthDefault.inches;
+    if (textureHeightFeetInput) textureHeightFeetInput.value = heightDefault.feet;
+    if (textureHeightInchesInput) textureHeightInchesInput.value = heightDefault.inches;
+    if (floorTextureFileInput) floorTextureFileInput.value = '';
+
+    floorTextureModal.classList.remove('hidden');
+}
+
+function closeFloorTextureModal() {
+    if (!floorTextureModal) return;
+    floorTextureTargetId = null;
+    if (floorTextureFileInput) floorTextureFileInput.value = '';
+    floorTextureModal.classList.add('hidden');
+}
+
+function applyFloorTexture() {
+    if (!floorTextureTargetId) {
+        closeFloorTextureModal();
+        return;
+    }
+
+    const floor = floors.find(f => f.id === floorTextureTargetId);
+    if (!floor) {
+        closeFloorTextureModal();
+        return;
+    }
+
+    const widthPx = feetInchesToPixels(textureWidthFeetInput.value, textureWidthInchesInput.value);
+    const heightPx = feetInchesToPixels(textureHeightFeetInput.value, textureHeightInchesInput.value);
+    const file = floorTextureFileInput && floorTextureFileInput.files && floorTextureFileInput.files[0];
+
+    const applyImage = (src) => {
+        floor.texture = {
+            type: 'pattern',
+            imageSrc: src,
+            widthPx,
+            heightPx,
+            pattern: null
+        };
+        ensureFloorPattern(floor);
+        redrawCanvas();
+        closeFloorTextureModal();
+    };
+
+    pushUndoState();
+
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = () => applyImage(reader.result);
+        reader.readAsDataURL(file);
+        return;
+    }
+
+    if (floor.texture && floor.texture.imageSrc) {
+        floor.texture.widthPx = widthPx;
+        floor.texture.heightPx = heightPx;
+        floor.texture.pattern = null;
+        ensureFloorPattern(floor);
+        redrawCanvas();
+        closeFloorTextureModal();
+        return;
+    }
+
+    floor.texture = { type: 'color', color: fillColorInput.value || '#d9d9d9' };
+    redrawCanvas();
+    closeFloorTextureModal();
 }
 
 function updateGrid() {

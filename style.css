@@ -80,3 +80,61 @@ body {
     margin-left: auto;
     padding: 6px;
 }
+
+.modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1500;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: #fff;
+    padding: 16px;
+    border-radius: 6px;
+    width: 420px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.modal-content h3 {
+    margin: 0 0 6px;
+}
+
+.modal-subtitle {
+    margin: 0 0 12px;
+    color: #555;
+    font-size: 14px;
+}
+
+.modal-label {
+    display: block;
+    font-weight: bold;
+    margin: 10px 0 6px;
+}
+
+.modal-input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.modal-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
+    margin-top: 10px;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 14px;
+}
