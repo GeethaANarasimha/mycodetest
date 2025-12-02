@@ -6,6 +6,7 @@
 const canvas = document.getElementById('drawingCanvas');
 const ctx = canvas.getContext('2d');
 const toolButtons = document.querySelectorAll('.tool-btn[data-tool]');
+const doorTypeSelect = document.getElementById('doorType');
 const wallThicknessFeetInput = document.getElementById('wallThicknessFeet');
 const wallThicknessInchesInput = document.getElementById('wallThicknessInches');
 const lineWidthInput = document.getElementById('lineWidth');
@@ -83,6 +84,9 @@ let ignoreNextClick = false;
 // object selection + select-all mode
 let selectedObjectIndices = new Set();
 let selectAllMode = false;
+let draggingObjectIndex = null;
+let objectDragOffset = null;
+let objectDragUndoApplied = false;
 
 // Prevent paste mode from being cancelled when switching tools programmatically
 let suppressPasteCancel = false;
@@ -1146,6 +1150,7 @@ function init() {
 
             selectedNode = null;
             isDraggingNode = false;
+            stopObjectDrag();
             selectedWalls.clear();
             selectedObjectIndices.clear();
             selectAllMode = false;
@@ -1264,6 +1269,29 @@ function moveSelectedWalls(dx, dy) {
         const { x, y } = snapPointToInch(node.x + dx, node.y + dy);
         node.x = x;
         node.y = y;
+    });
+
+    redrawCanvas();
+}
+
+function moveSelectedObjects(dx, dy) {
+    if (selectedObjectIndices.size === 0) return;
+
+    pushUndoState();
+
+    selectedObjectIndices.forEach(index => {
+        const obj = objects[index];
+        if (!obj) return;
+
+        const targetX = obj.x + dx;
+        const targetY = obj.y + dy;
+        const snapped = snapPointToInch(targetX, targetY);
+        obj.x = snapped.x;
+        obj.y = snapped.y;
+
+        if (obj.type === 'door' && typeof window.snapDoorToNearestWall === 'function') {
+            window.snapDoorToNearestWall(obj, walls, scale);
+        }
     });
 
     redrawCanvas();
@@ -1428,6 +1456,21 @@ function startNodeDrag(node, mouseX, mouseY) {
     selectAllMode = false;
 }
 
+function startObjectDrag(index, mouseX, mouseY) {
+    const obj = objects[index];
+    if (!obj) return;
+
+    draggingObjectIndex = index;
+    objectDragOffset = { x: mouseX - obj.x, y: mouseY - obj.y };
+    objectDragUndoApplied = false;
+}
+
+function stopObjectDrag() {
+    draggingObjectIndex = null;
+    objectDragOffset = null;
+    objectDragUndoApplied = false;
+}
+
 // ============================================================
 // MOUSE HANDLERS (WITH MULTIPLE WALL SELECTION)
 // ============================================================
@@ -1528,6 +1571,9 @@ function handleMouseDown(e) {
                 selectedObjectIndices.add(objIndex);
                 selectedWalls.clear();
             }
+            if (!e.shiftKey) {
+                startObjectDrag(objIndex, x, y);
+            }
             redrawCanvas();
             return;
         }
@@ -1591,6 +1637,28 @@ function handleMouseMove(e) {
     // Track last pointer position for quick paste placement
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
+
+    if (draggingObjectIndex !== null && objectDragOffset) {
+        const obj = objects[draggingObjectIndex];
+        if (obj) {
+            if (!objectDragUndoApplied) {
+                pushUndoState();
+                objectDragUndoApplied = true;
+            }
+
+            ({ x, y } = snapToGridPoint(x - objectDragOffset.x, y - objectDragOffset.y));
+            obj.x = x;
+            obj.y = y;
+
+            if (obj.type === 'door' && typeof window.snapDoorToNearestWall === 'function') {
+                window.snapDoorToNearestWall(obj, walls, scale);
+            }
+
+            coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}`;
+            redrawCanvas();
+            return;
+        }
+    }
 
     // Update coordinates display
     if (isPasteMode) {
@@ -1701,6 +1769,11 @@ function handleMouseMove(e) {
 }
 
 function handleMouseUp() {
+    if (draggingObjectIndex !== null) {
+        stopObjectDrag();
+        redrawCanvas();
+        return;
+    }
     if (isDraggingNode) {
         isDraggingNode = false;
         selectedNode = null;
@@ -1724,7 +1797,7 @@ function handleMouseUp() {
     const w = Math.abs(currentX - startX);
     const h = Math.abs(currentY - startY);
 
-    objects.push({
+    const newObj = {
         type: currentTool,
         x, y,
         width: w,
@@ -1735,7 +1808,16 @@ function handleMouseUp() {
         rotation: 0,
         flipH: false,
         flipV: false
-    });
+    };
+
+    if (currentTool === 'door') {
+        newObj.doorType = doorTypeSelect ? doorTypeSelect.value : 'normal';
+        if (typeof window.initializeDoorObject === 'function') {
+            window.initializeDoorObject(newObj, walls, scale);
+        }
+    }
+
+    objects.push(newObj);
 
     redrawCanvas();
 }
@@ -2200,6 +2282,35 @@ function handleKeyDown(e) {
         }
     }
 
+    // Arrow keys to nudge selected objects
+    if (!e.ctrlKey && !e.metaKey && selectedObjectIndices.size > 0) {
+        const inchPx = scale / 12;
+        const step = e.shiftKey ? scale : inchPx;
+        let dx = 0;
+        let dy = 0;
+
+        switch (e.key) {
+            case 'ArrowUp':
+                dy = -step;
+                break;
+            case 'ArrowDown':
+                dy = step;
+                break;
+            case 'ArrowLeft':
+                dx = -step;
+                break;
+            case 'ArrowRight':
+                dx = step;
+                break;
+        }
+
+        if (dx !== 0 || dy !== 0) {
+            e.preventDefault();
+            moveSelectedObjects(dx, dy);
+            return;
+        }
+    }
+
     // Arrow keys to nudge selected walls
     if (!e.ctrlKey && !e.metaKey && selectedWalls.size > 0) {
         const inchPx = scale / 12;
@@ -2278,16 +2389,14 @@ function handleKeyDown(e) {
             selectAllMode = false;
             redrawCanvas();
         } else {
-            if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || (window.dimensions && window.dimensions.length > 0)) {
+            const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
+            const hasDimensions = window.dimensions && window.dimensions.length > 0;
+
+            if (hasSelection) {
+                deleteSelection();
+            } else if (hasDimensions) {
                 pushUndoState();
-                if (selectedWalls.size > 0) {
-                    walls = walls.filter(w => !selectedWalls.has(w));
-                    selectedWalls.clear();
-                }
-                if (selectedObjectIndices.size > 0) {
-                    objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
-                    selectedObjectIndices.clear();
-                }
+                window.dimensions = [];
                 redrawCanvas();
             }
         }
