@@ -84,6 +84,9 @@ let ignoreNextClick = false;
 let selectedObjectIndices = new Set();
 let selectAllMode = false;
 
+// Prevent paste mode from being cancelled when switching tools programmatically
+let suppressPasteCancel = false;
+
 // undo / redo
 let undoStack = [];
 let redoStack = [];
@@ -319,17 +322,22 @@ function startPasteMode() {
         alert('Clipboard is empty');
         return;
     }
-    
+
+    // Switch to select tool for better visual feedback without cancelling paste mode
+    suppressPasteCancel = true;
+    const selectBtn = document.querySelector('.tool-btn[data-tool="select"]');
+    if (selectBtn && !selectBtn.classList.contains('active')) {
+        selectBtn.click();
+    }
+    suppressPasteCancel = false;
+
     isPasteMode = true;
     pasteTargetX = null;
     pasteTargetY = null;
-    
+
     // Clear current selection
     selectedWalls.clear();
     selectedObjectIndices.clear();
-    
-    // Switch to select tool for better visual feedback
-    document.querySelector('.tool-btn[data-tool="select"]').click();
     
     // Update tool info
     updateToolInfo();
@@ -1001,8 +1009,8 @@ function init() {
                 window.resetDimensionTool();
             }
 
-            // Cancel paste mode when switching tools
-            if (isPasteMode) {
+            // Cancel paste mode when switching tools (unless triggered programmatically for paste)
+            if (isPasteMode && !suppressPasteCancel) {
                 isPasteMode = false;
                 pasteTargetX = null;
                 pasteTargetY = null;
