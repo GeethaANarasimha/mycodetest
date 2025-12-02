@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>APZOK 2D House Plan Designer</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="toolbar">
+    <button class="tool-btn" data-tool="select">Select</button>
+    <button class="tool-btn" data-tool="wall">Wall</button>
+    <button class="tool-btn" data-tool="door">Door</button>
+
+    <!-- NEW — Door Type Dropdown -->
+    <select id="doorType">
+        <option value="normal">Normal Door (3ft)</option>
+        <option value="main">Main Door (3.5ft)</option>
+        <option value="bathroom">Bathroom Door (2.5ft)</option>
+    </select>
+
+    <button class="tool-btn" data-tool="window">Window</button>
+    <button class="tool-btn" data-tool="furniture">Furniture</button>
+    <button class="tool-btn" data-tool="erase">Erase</button>
+    <button class="tool-btn" data-tool="dimension">Dimension</button>
+
+    <div class="tool-info"></div>
+</div>
+
+<div class="properties">
+    <label>Wall Thickness</label>
+    <input id="wallThicknessFeet" type="number" value="0"> ft
+    <input id="wallThicknessInches" type="number" value="6"> in
+
+    <label>Line Width</label>
+    <input id="lineWidth" type="number" value="2">
+
+    <label>Line Color</label>
+    <input id="lineColor" type="color" value="#000000">
+    <span id="lineColorPreview"></span>
+
+    <label>Fill</label>
+    <input id="fillColor" type="color" value="#cccccc">
+    <span id="fillColorPreview"></span>
+
+    <label>Grid Size</label>
+    <input id="gridSize" type="number" value="20">
+
+    <label><input type="checkbox" id="snapToGrid" checked> Snap to Grid</label>
+    <label><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
+
+    <button id="toggleGrid">Toggle Grid</button>
+</div>
+
+<canvas id="drawingCanvas" width="1000" height="700"></canvas>
+
+<div class="coordinates">X: 0, Y: 0</div>
+
+<script src="transformTools.js"></script>
+<script src="script.js"></script>
+<script src="panTools.js"></script>
+<script src="dimensionTools.js"></script>
+
+</body>
+</html>
