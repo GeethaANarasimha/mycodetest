@@ -2819,26 +2819,30 @@ function drawObjects() {
         const rotRad = ((obj.rotation || 0) * Math.PI) / 180;
         const sx = obj.flipH ? -1 : 1;
         const sy = obj.flipV ? -1 : 1;
+        const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
+        const drawWidth = isVerticalDoor ? obj.height : obj.width;
+        const drawHeight = isVerticalDoor ? obj.width : obj.height;
+        const orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
 
         ctx.save();
         ctx.translate(cx, cy);
-        ctx.rotate(rotRad);
+        ctx.rotate(rotRad + orientationRotation);
         ctx.scale(sx, sy);
 
-        const localX = -width / 2;
-        const localY = -height / 2;
+        const localX = -drawWidth / 2;
+        const localY = -drawHeight / 2;
 
         ctx.lineWidth = obj.lineWidth;
         ctx.strokeStyle = obj.lineColor;
         ctx.fillStyle = obj.fillColor;
 
         if (obj.type === 'door') {
-            ctx.fillRect(localX, localY, width, height);
-            ctx.strokeRect(localX, localY, width, height);
+            ctx.fillRect(localX, localY, drawWidth, drawHeight);
+            ctx.strokeRect(localX, localY, drawWidth, drawHeight);
             ctx.beginPath();
-            ctx.arc(localX + width, localY + height / 2, width, Math.PI, Math.PI * 1.5);
-            ctx.moveTo(localX + width, localY + height / 2);
-            ctx.lineTo(localX + width, localY + height / 2 - width);
+            ctx.arc(localX + drawWidth, localY + drawHeight / 2, drawWidth, Math.PI, Math.PI * 1.5);
+            ctx.moveTo(localX + drawWidth, localY + drawHeight / 2);
+            ctx.lineTo(localX + drawWidth, localY + drawHeight / 2 - drawWidth);
             ctx.stroke();
         } else if (obj.type === 'window') {
             ctx.fillRect(localX, localY, width, height);
