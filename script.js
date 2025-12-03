@@ -208,7 +208,14 @@ function worldToScreen(x, y) {
     };
 }
 
-window.getCanvasCoordsFromEvent = screenToWorld;
+function getCanvasCoordsFromEvent(eventOrX, eventY) {
+    if (eventOrX && typeof eventOrX === 'object' && 'clientX' in eventOrX) {
+        return screenToWorld(eventOrX.clientX, eventOrX.clientY);
+    }
+    return screenToWorld(eventOrX, eventY);
+}
+
+window.getCanvasCoordsFromEvent = getCanvasCoordsFromEvent;
 
 let isViewPanning = false;
 let panOrigin = null;
