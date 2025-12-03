@@ -111,6 +111,15 @@ body {
     border-radius: 4px;
 }
 
+.project-menu {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
 .transform-title {
     color: #fff;
     font-size: 14px;

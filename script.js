@@ -59,6 +59,9 @@ const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
 const textModalConfirm = document.getElementById('textModalConfirm');
 const textModalCancel = document.getElementById('textModalCancel');
+const saveProjectButton = document.getElementById('saveProject');
+const uploadProjectButton = document.getElementById('uploadProject');
+const projectFileInput = document.getElementById('projectFileInput');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -91,6 +94,8 @@ const DEFAULT_WINDOW_FILL = '#ffffff';
 const MIN_VIEW_SCALE = 0.5;
 const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
+const SAVE_FILE_EXTENSION = '.paz';
+const SAVE_SECRET = 'apzok-project-key';
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -527,6 +532,14 @@ function updateBackgroundMeasurementUI() {
     }
 
     redrawPreviewMeasurementOverlay();
+}
+
+function updateMeasurementPreview() {
+    if (backgroundDistanceInput) {
+        backgroundDistanceInput.value = hasValidMeasurementDistance() ? measurementDistanceFeet : '';
+    }
+
+    updateBackgroundMeasurementUI();
 }
 
 function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
@@ -2124,6 +2137,232 @@ function redo() {
 }
 
 // ============================================================
+// PROJECT SAVE / LOAD
+// ============================================================
+function encodeBytesToBase64(bytes) {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+function decodeBase64ToBytes(str) {
+    const binary = atob(str);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+function xorEncrypt(text, key) {
+    const textBytes = new TextEncoder().encode(text);
+    const keyBytes = new TextEncoder().encode(key);
+    const encrypted = new Uint8Array(textBytes.length);
+    for (let i = 0; i < textBytes.length; i++) {
+        encrypted[i] = textBytes[i] ^ keyBytes[i % keyBytes.length];
+    }
+    return encodeBytesToBase64(encrypted);
+}
+
+function xorDecrypt(payload, key) {
+    const encrypted = decodeBase64ToBytes(payload);
+    const keyBytes = new TextEncoder().encode(key);
+    const decrypted = new Uint8Array(encrypted.length);
+    for (let i = 0; i < encrypted.length; i++) {
+        decrypted[i] = encrypted[i] ^ keyBytes[i % keyBytes.length];
+    }
+    return new TextDecoder().decode(decrypted);
+}
+
+function stripFloorPattern(floor) {
+    const clone = JSON.parse(JSON.stringify(floor));
+    if (clone.texture) {
+        clone.texture.pattern = null;
+    }
+    return clone;
+}
+
+function buildProjectState() {
+    const background = backgroundImageData ? {
+        src: backgroundImageData.image?.src || '',
+        x: backgroundImageData.x,
+        y: backgroundImageData.y,
+        width: backgroundImageData.width,
+        height: backgroundImageData.height
+    } : null;
+
+    return {
+        version: 1,
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        walls: JSON.parse(JSON.stringify(walls)),
+        objects: JSON.parse(JSON.stringify(objects)),
+        floors: (floors || []).map(stripFloorPattern),
+        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
+        clipboard: JSON.parse(JSON.stringify(clipboard)),
+        settings: {
+            scale,
+            gridSize,
+            snapToGrid,
+            showDimensions,
+            showGrid,
+            measurementFontSize,
+            textFontSize,
+            textIsBold,
+            textIsItalic,
+            lineWidth: parseInt(lineWidthInput?.value, 10) || 2,
+            lineColor: lineColorInput?.value || DEFAULT_WALL_COLOR,
+            fillColor: fillColorInput?.value || '#d9d9d9'
+        },
+        view: { scale: viewScale, offsetX: viewOffsetX, offsetY: viewOffsetY },
+        ids: { nextNodeId, nextWallId, nextFloorId },
+        background,
+        measurementDistanceFeet,
+        backgroundImageVisible: isBackgroundImageVisible
+    };
+}
+
+function hydrateBackgroundFromState(background) {
+    if (!background || !background.src) {
+        backgroundImageData = null;
+        syncBackgroundControls();
+        redrawCanvas();
+        return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+        backgroundImageData = {
+            image: img,
+            x: background.x,
+            y: background.y,
+            width: background.width,
+            height: background.height
+        };
+        syncBackgroundControls();
+        redrawCanvas();
+    };
+    img.src = background.src;
+}
+
+function applyProjectState(state) {
+    nodes = JSON.parse(JSON.stringify(state.nodes || []));
+    walls = JSON.parse(JSON.stringify(state.walls || []));
+    objects = JSON.parse(JSON.stringify(state.objects || []));
+    floors = (state.floors || []).map(stripFloorPattern);
+
+    if (state.dimensions) {
+        window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
+        window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
+    }
+
+    clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
+    isPasteMode = false;
+    pasteTargetX = null;
+    pasteTargetY = null;
+
+    const settings = state.settings || {};
+    scale = settings.scale ?? scale;
+    gridSize = settings.gridSize ?? gridSize;
+    snapToGrid = settings.snapToGrid ?? snapToGrid;
+    showGrid = settings.showGrid ?? showGrid;
+    showDimensions = settings.showDimensions ?? showDimensions;
+    measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
+    textFontSize = settings.textFontSize ?? textFontSize;
+    textIsBold = settings.textIsBold ?? textIsBold;
+    textIsItalic = settings.textIsItalic ?? textIsItalic;
+    measurementDistanceFeet = state.measurementDistanceFeet ?? measurementDistanceFeet;
+    isBackgroundImageVisible = state.backgroundImageVisible ?? isBackgroundImageVisible;
+
+    viewScale = state.view?.scale ?? viewScale;
+    viewOffsetX = state.view?.offsetX ?? viewOffsetX;
+    viewOffsetY = state.view?.offsetY ?? viewOffsetY;
+
+    nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
+    nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
+    nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
+
+    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+    if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
+    if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
+    if (lineWidthInput && Number.isFinite(settings.lineWidth)) lineWidthInput.value = settings.lineWidth;
+    if (lineColorInput && settings.lineColor) lineColorInput.value = settings.lineColor;
+    if (fillColorInput && settings.fillColor) fillColorInput.value = settings.fillColor;
+
+    selectedWalls.clear();
+    rightClickedWall = null;
+    selectedNode = null;
+    isDraggingNode = false;
+    dragDir = null;
+    dragOriginNodePos = null;
+    dragOriginMousePos = null;
+    isWallDrawing = false;
+    wallChain = [];
+    wallPreviewX = null;
+    wallPreviewY = null;
+    alignmentHints = [];
+    ignoreNextClick = false;
+    selectedFloorIds.clear();
+    selectedObjectIndices.clear();
+    selectAllMode = false;
+    resetFloorLasso();
+
+    hydrateBackgroundFromState(state.background);
+    floors.forEach(ensureFloorPattern);
+
+    updateGrid();
+    syncCanvasScrollArea();
+    updateTextStyleButtons();
+    updateMeasurementPreview();
+    updateToolInfo();
+    updatePropertiesPanel();
+    redrawCanvas();
+}
+
+function saveProjectToFile() {
+    try {
+        const state = buildProjectState();
+        const encrypted = xorEncrypt(JSON.stringify(state), SAVE_SECRET);
+        const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `apzok-project${SAVE_FILE_EXTENSION}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('Failed to save project', error);
+        alert('Failed to save project. Please try again.');
+    }
+}
+
+function handleProjectFileUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(SAVE_FILE_EXTENSION)) {
+        alert('Please select a valid .paz project file.');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const decrypted = xorDecrypt(reader.result, SAVE_SECRET);
+            const state = JSON.parse(decrypted);
+            applyProjectState(state);
+        } catch (error) {
+            console.error('Failed to load project', error);
+            alert('Could not load project. Ensure you selected a valid .paz file.');
+        }
+    };
+    reader.readAsText(file);
+}
+
+// ============================================================
 // INIT
 // ============================================================
 function init() {
@@ -2249,6 +2488,17 @@ function init() {
     }
     if (cancelBackgroundMeasurementButton) {
         cancelBackgroundMeasurementButton.addEventListener('click', cancelBackgroundMeasurement);
+    }
+
+    if (saveProjectButton) {
+        saveProjectButton.addEventListener('click', saveProjectToFile);
+    }
+    if (uploadProjectButton && projectFileInput) {
+        uploadProjectButton.addEventListener('click', () => projectFileInput.click());
+        projectFileInput.addEventListener('change', (event) => {
+            handleProjectFileUpload(event);
+            projectFileInput.value = '';
+        });
     }
 
     if (textModalConfirm) {
