@@ -4606,13 +4606,14 @@ function ensureThreeView() {
         threeControls.enableDamping = true;
     }
 
-    threeScene.add(new THREE.AmbientLight(0xffffff, 0.85));
+    // Brighter lighting to keep floor meshes and orbit controls clearly visible
+    threeScene.add(new THREE.AmbientLight(0xffffff, 1.2));
 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 0.6);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 1);
     hemiLight.position.set(0, scale * 6, 0);
     threeScene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
     dirLight.position.set(scale * 25, scale * 40, scale * 25);
     threeScene.add(dirLight);
 
