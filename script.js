@@ -37,6 +37,8 @@ const backgroundImageModal = document.getElementById('backgroundImageModal');
 const backgroundImageFileInput = document.getElementById('backgroundImageFile');
 const backgroundPreview = document.getElementById('backgroundPreview');
 const backgroundPreviewPlaceholder = document.getElementById('backgroundPreviewPlaceholder');
+const backgroundPreviewCanvas = document.getElementById('backgroundPreviewCanvas');
+const backgroundPreviewCtx = backgroundPreviewCanvas?.getContext('2d');
 const backgroundDistanceInput = document.getElementById('backgroundDistance');
 const startBackgroundMeasurementButton = document.getElementById('startBackgroundMeasurement');
 const cancelBackgroundImageButton = document.getElementById('cancelBackgroundImage');
@@ -102,7 +104,7 @@ let objects = [];
 // Background image + measurement
 let backgroundImageData = null; // committed image { image, x, y, width, height }
 let backgroundImageDraft = null; // in-progress selection before measurement is applied
-let measurementLine = null; // { start: {x, y}, end: {x, y} }
+let measurementLineNormalized = null; // normalized coordinates relative to preview image
 let isBackgroundMeasurementActive = false;
 let measurementDragHandle = null;
 let measurementDragLast = null;
@@ -265,7 +267,7 @@ function resetBackgroundModal() {
     if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'block';
     if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = true;
     backgroundImageDraft = null;
-    measurementLine = null;
+    measurementLineNormalized = null;
     isBackgroundMeasurementActive = false;
     measurementDragHandle = null;
     measurementDragLast = null;
@@ -314,6 +316,99 @@ function updateBackgroundPreview(previewData) {
         backgroundPreview.style.display = 'none';
         if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'block';
     }
+
+    syncPreviewCanvasSize();
+    redrawPreviewMeasurementOverlay();
+}
+
+function syncPreviewCanvasSize() {
+    if (!backgroundPreviewCanvas || !backgroundPreview) return;
+    const frameRect = backgroundPreviewCanvas.parentElement?.getBoundingClientRect();
+    const imageRect = backgroundPreview.getBoundingClientRect();
+    if (!frameRect || imageRect.width === 0 || imageRect.height === 0) return;
+
+    backgroundPreviewCanvas.width = imageRect.width;
+    backgroundPreviewCanvas.height = imageRect.height;
+    backgroundPreviewCanvas.style.width = `${imageRect.width}px`;
+    backgroundPreviewCanvas.style.height = `${imageRect.height}px`;
+    backgroundPreviewCanvas.style.left = `${imageRect.left - frameRect.left}px`;
+    backgroundPreviewCanvas.style.top = `${imageRect.top - frameRect.top}px`;
+}
+
+function getPreviewDimensions() {
+    if (!backgroundPreviewCanvas || !backgroundPreview) return null;
+    if (backgroundPreview.style.display === 'none') return null;
+    const width = backgroundPreviewCanvas.width;
+    const height = backgroundPreviewCanvas.height;
+    if (!width || !height) return null;
+    return { width, height };
+}
+
+function toNormalized(value, size) {
+    return Math.min(1, Math.max(0, value / size));
+}
+
+function redrawPreviewMeasurementOverlay() {
+    if (!backgroundPreviewCtx || !backgroundPreviewCanvas) return;
+    const dims = getPreviewDimensions();
+    backgroundPreviewCtx.clearRect(0, 0, backgroundPreviewCanvas.width, backgroundPreviewCanvas.height);
+
+    const showOverlay = isBackgroundMeasurementActive && measurementLineNormalized && dims;
+    backgroundPreviewCanvas.classList.toggle('active', !!showOverlay);
+    if (!showOverlay) return;
+
+    const label = `${measurementDistanceFeet} ft`;
+    const start = {
+        x: measurementLineNormalized.start.x * dims.width,
+        y: measurementLineNormalized.start.y * dims.height
+    };
+    const end = {
+        x: measurementLineNormalized.end.x * dims.width,
+        y: measurementLineNormalized.end.y * dims.height
+    };
+
+    backgroundPreviewCtx.save();
+    backgroundPreviewCtx.lineWidth = 2;
+    backgroundPreviewCtx.strokeStyle = '#0ea5e9';
+    backgroundPreviewCtx.fillStyle = '#0ea5e9';
+
+    backgroundPreviewCtx.beginPath();
+    backgroundPreviewCtx.moveTo(start.x, start.y);
+    backgroundPreviewCtx.lineTo(end.x, end.y);
+    backgroundPreviewCtx.stroke();
+
+    const handleHalf = 8;
+    [start, end].forEach(point => {
+        backgroundPreviewCtx.beginPath();
+        backgroundPreviewCtx.moveTo(point.x - handleHalf, point.y);
+        backgroundPreviewCtx.lineTo(point.x + handleHalf, point.y);
+        backgroundPreviewCtx.moveTo(point.x, point.y - handleHalf);
+        backgroundPreviewCtx.lineTo(point.x, point.y + handleHalf);
+        backgroundPreviewCtx.stroke();
+    });
+
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2;
+    backgroundPreviewCtx.fillStyle = 'rgba(14, 165, 233, 0.85)';
+    backgroundPreviewCtx.strokeStyle = '#fff';
+    backgroundPreviewCtx.lineWidth = 1;
+    backgroundPreviewCtx.font = '12px Arial';
+    const textWidth = backgroundPreviewCtx.measureText(label).width;
+    const padding = 6;
+    const boxX = midX - textWidth / 2 - padding;
+    const boxY = midY - 16;
+    const boxWidth = textWidth + padding * 2;
+    const boxHeight = 20;
+
+    backgroundPreviewCtx.beginPath();
+    backgroundPreviewCtx.rect(boxX, boxY, boxWidth, boxHeight);
+    backgroundPreviewCtx.fill();
+    backgroundPreviewCtx.stroke();
+
+    backgroundPreviewCtx.fillStyle = '#fff';
+    backgroundPreviewCtx.textBaseline = 'middle';
+    backgroundPreviewCtx.fillText(label, midX - textWidth / 2, boxY + boxHeight / 2);
+    backgroundPreviewCtx.restore();
 }
 
 function updateBackgroundMeasurementUI() {
@@ -327,18 +422,20 @@ function updateBackgroundMeasurementUI() {
     if (backgroundMeasurementHint) {
         backgroundMeasurementHint.classList.toggle('hidden', !isBackgroundMeasurementActive);
         if (isBackgroundMeasurementActive) {
-            backgroundMeasurementHint.textContent = `Drag the measurement line on the canvas to match ${measurementDistanceFeet} ft, then press Finish.`;
+            backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${measurementDistanceFeet} ft, then press Finish.`;
         }
     }
 
     if (finishBackgroundMeasurementButton) {
         finishBackgroundMeasurementButton.classList.toggle('hidden', !isBackgroundMeasurementActive);
-        finishBackgroundMeasurementButton.disabled = !measurementLine;
+        finishBackgroundMeasurementButton.disabled = !measurementLineNormalized;
     }
 
     if (startBackgroundMeasurementButton) {
         startBackgroundMeasurementButton.textContent = isBackgroundMeasurementActive ? 'Reset Measurement' : 'Next';
     }
+
+    redrawPreviewMeasurementOverlay();
 }
 
 function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
@@ -348,21 +445,23 @@ function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
     }
 
     if (resetLine) {
-        measurementLine = null;
+        measurementLineNormalized = null;
         ensureMeasurementLine();
     }
 
     if (backgroundCalibrationText) {
-        backgroundCalibrationText.textContent = `Drag the measurement line to match ${measurementDistanceFeet} ft on your image.`;
+        backgroundCalibrationText.textContent = `Use the preview overlay to match ${measurementDistanceFeet} ft on your image.`;
     }
 
     if (backgroundMeasurementHint && isBackgroundMeasurementActive) {
-        backgroundMeasurementHint.textContent = `Drag the measurement line on the canvas to match ${measurementDistanceFeet} ft, then press Finish.`;
+        backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${measurementDistanceFeet} ft, then press Finish.`;
     }
 
     if (finishBackgroundMeasurementButton) {
-        finishBackgroundMeasurementButton.disabled = !measurementLine;
+        finishBackgroundMeasurementButton.disabled = !measurementLineNormalized;
     }
+
+    redrawPreviewMeasurementOverlay();
 }
 
 function syncBackgroundControls() {
@@ -393,10 +492,10 @@ function handleBackgroundFileChange(e) {
         const img = new Image();
         img.onload = () => {
             backgroundImageDraft = createBackgroundImageData(img);
-            measurementLine = null;
+            measurementLineNormalized = null;
             updateBackgroundPreview(backgroundImageDraft);
             if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
-            isBackgroundImageVisible = true;
+            isBackgroundImageVisible = false;
             syncBackgroundControls();
             updateBackgroundMeasurementUI();
             redrawCanvas();
@@ -409,16 +508,13 @@ function handleBackgroundFileChange(e) {
 function ensureMeasurementLine() {
     const activeBackground = backgroundImageDraft || backgroundImageData;
     if (!activeBackground) return null;
-    if (measurementLine) return measurementLine;
+    if (measurementLineNormalized) return measurementLineNormalized;
 
-    const startX = activeBackground.x + activeBackground.width * 0.25;
-    const endX = activeBackground.x + activeBackground.width * 0.75;
-    const y = activeBackground.y + activeBackground.height * 0.85;
-    measurementLine = {
-        start: { x: startX, y },
-        end: { x: endX, y }
+    measurementLineNormalized = {
+        start: { x: 0.25, y: 0.85 },
+        end: { x: 0.75, y: 0.85 }
     };
-    return measurementLine;
+    return measurementLineNormalized;
 }
 
 function startBackgroundMeasurement() {
@@ -434,28 +530,29 @@ function startBackgroundMeasurement() {
     measurementDragHandle = null;
     measurementDragLast = null;
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.remove('hidden');
+    isBackgroundImageVisible = false;
     updateBackgroundMeasurementUI();
     updateToolInfo();
-    redrawCanvas();
+    redrawPreviewMeasurementOverlay();
 }
 
 function cancelBackgroundMeasurement() {
     isBackgroundMeasurementActive = false;
     measurementDragHandle = null;
     measurementDragLast = null;
-    measurementLine = null;
+    measurementLineNormalized = null;
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
     updateBackgroundMeasurementUI();
     updateToolInfo();
-    redrawCanvas();
+    redrawPreviewMeasurementOverlay();
 }
 
 function applyBackgroundMeasurement(closeModal = false) {
-    if (!measurementLine) return false;
+    if (!measurementLineNormalized) return false;
     const activeBackground = backgroundImageDraft || backgroundImageData;
     if (!activeBackground) return false;
-    const dx = measurementLine.end.x - measurementLine.start.x;
-    const dy = measurementLine.end.y - measurementLine.start.y;
+    const dx = (measurementLineNormalized.end.x - measurementLineNormalized.start.x) * activeBackground.width;
+    const dy = (measurementLineNormalized.end.y - measurementLineNormalized.start.y) * activeBackground.height;
     const pixelDistance = Math.hypot(dx, dy);
     if (!pixelDistance || measurementDistanceFeet <= 0) {
         alert('Place the measurement line to calculate scale.');
@@ -469,7 +566,7 @@ function applyBackgroundMeasurement(closeModal = false) {
     showGrid = true;
     backgroundImageData = activeBackground;
     backgroundImageDraft = null;
-    measurementLine = null;
+    measurementLineNormalized = null;
     isBackgroundMeasurementActive = false;
     measurementDragHandle = null;
     measurementDragLast = null;
@@ -478,6 +575,7 @@ function applyBackgroundMeasurement(closeModal = false) {
     updateBackgroundMeasurementUI();
     syncBackgroundControls();
     updateToolInfo();
+    redrawPreviewMeasurementOverlay();
     redrawCanvas();
     if (closeModal) closeBackgroundImageModal();
     return true;
@@ -486,28 +584,45 @@ function applyBackgroundMeasurement(closeModal = false) {
 function finishBackgroundMeasurement() {
     const applied = applyBackgroundMeasurement(true);
     if (!applied && finishBackgroundMeasurementButton) {
-        finishBackgroundMeasurementButton.disabled = !measurementLine;
+        finishBackgroundMeasurementButton.disabled = !measurementLineNormalized;
     }
 }
 
-function startMeasurementDrag(x, y) {
-    if (!measurementLine) return false;
+function startMeasurementDragOnPreview(x, y) {
+    if (!measurementLineNormalized) return false;
+    const dims = getPreviewDimensions();
+    if (!dims) return false;
     const radius = 10;
 
-    const hitStart = Math.hypot(x - measurementLine.start.x, y - measurementLine.start.y) <= radius;
-    const hitEnd = Math.hypot(x - measurementLine.end.x, y - measurementLine.end.y) <= radius;
+    const start = {
+        x: measurementLineNormalized.start.x * dims.width,
+        y: measurementLineNormalized.start.y * dims.height
+    };
+    const end = {
+        x: measurementLineNormalized.end.x * dims.width,
+        y: measurementLineNormalized.end.y * dims.height
+    };
+
+    const hitStart = Math.hypot(x - start.x, y - start.y) <= radius;
+    const hitEnd = Math.hypot(x - end.x, y - end.y) <= radius;
     if (hitStart) {
         measurementDragHandle = 'start';
     } else if (hitEnd) {
         measurementDragHandle = 'end';
     } else {
-        const distToLine = distanceToSegment(x, y, measurementLine.start.x, measurementLine.start.y, measurementLine.end.x, measurementLine.end.y);
+        const distToLine = distanceToSegment(x, y, start.x, start.y, end.x, end.y);
         if (distToLine <= 8) {
             measurementDragHandle = 'line';
         } else {
-            const halfLength = (measurementDistanceFeet || 10) * scale / 2;
-            measurementLine.start = { x: x - halfLength, y };
-            measurementLine.end = { x: x + halfLength, y };
+            const halfLength = (measurementDistanceFeet || 10) * dims.width / 8;
+            measurementLineNormalized.start = {
+                x: toNormalized(x - halfLength, dims.width),
+                y: toNormalized(y, dims.height)
+            };
+            measurementLineNormalized.end = {
+                x: toNormalized(x + halfLength, dims.width),
+                y: toNormalized(y, dims.height)
+            };
             measurementDragHandle = 'line';
         }
     }
@@ -516,28 +631,47 @@ function startMeasurementDrag(x, y) {
     return true;
 }
 
-function updateMeasurementDrag(x, y) {
-    if (!measurementLine || !measurementDragHandle) return;
+function updateMeasurementDragOnPreview(x, y) {
+    if (!measurementLineNormalized || !measurementDragHandle) return;
+    const dims = getPreviewDimensions();
+    if (!dims) return;
 
     if (measurementDragHandle === 'start') {
-        measurementLine.start = { x, y };
+        measurementLineNormalized.start = { x: toNormalized(x, dims.width), y: toNormalized(y, dims.height) };
     } else if (measurementDragHandle === 'end') {
-        measurementLine.end = { x, y };
+        measurementLineNormalized.end = { x: toNormalized(x, dims.width), y: toNormalized(y, dims.height) };
     } else if (measurementDragHandle === 'line' && measurementDragLast) {
         const dx = x - measurementDragLast.x;
         const dy = y - measurementDragLast.y;
-        measurementLine.start.x += dx;
-        measurementLine.start.y += dy;
-        measurementLine.end.x += dx;
-        measurementLine.end.y += dy;
+        const start = {
+            x: measurementLineNormalized.start.x * dims.width + dx,
+            y: measurementLineNormalized.start.y * dims.height + dy
+        };
+        const end = {
+            x: measurementLineNormalized.end.x * dims.width + dx,
+            y: measurementLineNormalized.end.y * dims.height + dy
+        };
+        measurementLineNormalized.start = { x: toNormalized(start.x, dims.width), y: toNormalized(start.y, dims.height) };
+        measurementLineNormalized.end = { x: toNormalized(end.x, dims.width), y: toNormalized(end.y, dims.height) };
     }
 
     measurementDragLast = { x, y };
+    redrawPreviewMeasurementOverlay();
+    if (finishBackgroundMeasurementButton) finishBackgroundMeasurementButton.disabled = !measurementLineNormalized;
 }
 
-function finalizeMeasurementDrag() {
+function finalizeMeasurementDragOnPreview() {
     measurementDragHandle = null;
     measurementDragLast = null;
+}
+
+function getPreviewPointerPosition(event) {
+    if (!backgroundPreviewCanvas) return null;
+    const rect = backgroundPreviewCanvas.getBoundingClientRect();
+    return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+    };
 }
 
 function toggleBackgroundImageVisibility() {
@@ -551,7 +685,7 @@ function deleteBackgroundImage() {
     if (!backgroundImageData) return;
     backgroundImageData = null;
     backgroundImageDraft = null;
-    measurementLine = null;
+    measurementLineNormalized = null;
     isBackgroundMeasurementActive = false;
     isBackgroundImageVisible = true;
     measurementDragHandle = null;
@@ -1907,6 +2041,37 @@ function init() {
         cancelBackgroundMeasurementButton.addEventListener('click', cancelBackgroundMeasurement);
     }
 
+    if (backgroundPreview) {
+        backgroundPreview.addEventListener('load', () => {
+            syncPreviewCanvasSize();
+            redrawPreviewMeasurementOverlay();
+        });
+    }
+
+    if (backgroundPreviewCanvas) {
+        backgroundPreviewCanvas.addEventListener('mousedown', (event) => {
+            if (!isBackgroundMeasurementActive) return;
+            ensureMeasurementLine();
+            const pos = getPreviewPointerPosition(event);
+            if (!pos) return;
+            if (startMeasurementDragOnPreview(pos.x, pos.y)) {
+                redrawPreviewMeasurementOverlay();
+            }
+        });
+
+        backgroundPreviewCanvas.addEventListener('mousemove', (event) => {
+            if (!isBackgroundMeasurementActive || !measurementDragHandle) return;
+            const pos = getPreviewPointerPosition(event);
+            if (!pos) return;
+            updateMeasurementDragOnPreview(pos.x, pos.y);
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (!measurementDragHandle) return;
+            finalizeMeasurementDragOnPreview();
+        });
+    }
+
     const transformActions = [
         { button: rotateLeftButton, handler: () => rotateSelection(-15) },
         { button: rotateRightButton, handler: () => rotateSelection(15) },
@@ -1960,9 +2125,14 @@ function init() {
     if (backgroundDistanceInput) {
         backgroundDistanceInput.addEventListener('input', () => {
             setMeasurementDistance(backgroundDistanceInput.value, { resetLine: true });
-            redrawCanvas();
+            redrawPreviewMeasurementOverlay();
         });
     }
+
+    window.addEventListener('resize', () => {
+        syncPreviewCanvasSize();
+        redrawPreviewMeasurementOverlay();
+    });
 
     toggleGridButton.addEventListener('click', () => {
         showGrid = !showGrid;
@@ -2573,9 +2743,6 @@ function handleMouseDown(e) {
     if (e.button !== 0) return;
 
     if (isBackgroundMeasurementActive) {
-        ensureMeasurementLine();
-        startMeasurementDrag(x, y);
-        redrawCanvas();
         return;
     }
 
@@ -2824,10 +2991,6 @@ function handleMouseMove(e) {
     lastPointerCanvasY = y;
 
     if (isBackgroundMeasurementActive) {
-        if (measurementDragHandle) {
-            updateMeasurementDrag(x, y);
-            redrawCanvas();
-        }
         return;
     }
 
@@ -3038,7 +3201,7 @@ function handleMouseUp() {
     }
 
     if (isBackgroundMeasurementActive) {
-        finalizeMeasurementDrag();
+        finalizeMeasurementDragOnPreview();
         return;
     }
 
@@ -3237,11 +3400,9 @@ function handleCanvasDoubleClick(e) {
 // DRAWING (WITH MULTIPLE WALL SELECTION)
 // ============================================================
 function drawBackgroundImage() {
-    const data = isBackgroundMeasurementActive
-        ? (backgroundImageDraft || backgroundImageData)
-        : backgroundImageData;
-    const shouldShow = isBackgroundMeasurementActive || isBackgroundImageVisible;
-    if (!data || !shouldShow) return;
+    if (isBackgroundMeasurementActive) return;
+    const data = backgroundImageData;
+    if (!data || !isBackgroundImageVisible) return;
     ctx.save();
     ctx.globalAlpha = 1;
     ctx.drawImage(
@@ -3255,61 +3416,13 @@ function drawBackgroundImage() {
 }
 
 function drawBackgroundMeasurementLine() {
-    if (isBackgroundMeasurementActive && !measurementLine) {
-        ensureMeasurementLine();
-    }
-
-    if (!measurementLine || (!isBackgroundMeasurementActive && !backgroundImageData)) return;
-    const label = `${measurementDistanceFeet} ft`;
-
-    ctx.save();
-    ctx.lineWidth = 2 / viewScale;
-    ctx.strokeStyle = '#0ea5e9';
-    ctx.fillStyle = '#0ea5e9';
-
-    ctx.beginPath();
-    ctx.moveTo(measurementLine.start.x, measurementLine.start.y);
-    ctx.lineTo(measurementLine.end.x, measurementLine.end.y);
-    ctx.stroke();
-
-    const handleHalf = 8 / viewScale;
-    [measurementLine.start, measurementLine.end].forEach(point => {
-        ctx.beginPath();
-        ctx.moveTo(point.x - handleHalf, point.y);
-        ctx.lineTo(point.x + handleHalf, point.y);
-        ctx.moveTo(point.x, point.y - handleHalf);
-        ctx.lineTo(point.x, point.y + handleHalf);
-        ctx.stroke();
-    });
-
-    const midX = (measurementLine.start.x + measurementLine.end.x) / 2;
-    const midY = (measurementLine.start.y + measurementLine.end.y) / 2;
-    ctx.fillStyle = 'rgba(14, 165, 233, 0.85)';
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1 / viewScale;
-    ctx.font = `${12 / viewScale}px Arial`;
-    const textWidth = ctx.measureText(label).width;
-    const padding = 6 / viewScale;
-    const boxX = midX - textWidth / 2 - padding;
-    const boxY = midY - 16 / viewScale;
-    const boxWidth = textWidth + padding * 2;
-    const boxHeight = 20 / viewScale;
-
-    ctx.beginPath();
-    ctx.rect(boxX, boxY, boxWidth, boxHeight);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#fff';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, midX - textWidth / 2, boxY + boxHeight / 2);
-    ctx.restore();
+    // Measurement line is drawn only inside the preview modal overlay.
 }
 
 function drawGrid() {
     if (!showGrid) return;
     ctx.save();
-    const hasVisibleBackground = backgroundImageData && (isBackgroundImageVisible || isBackgroundMeasurementActive);
+    const hasVisibleBackground = backgroundImageData && isBackgroundImageVisible;
     ctx.globalAlpha = hasVisibleBackground ? 0.5 : 1;
     const visibleStartX = -viewOffsetX / viewScale;
     const visibleStartY = -viewOffsetY / viewScale;
@@ -3919,7 +4032,7 @@ function handleKeyDown(e) {
 // ============================================================
 function updateToolInfo() {
     if (isBackgroundMeasurementActive) {
-        toolInfoDisplay.textContent = `Calibrating background: drag line to ${measurementDistanceFeet} ft`;
+        toolInfoDisplay.textContent = `Calibrating background: set ${measurementDistanceFeet} ft on the preview overlay`;
         return;
     }
     let name = '';
