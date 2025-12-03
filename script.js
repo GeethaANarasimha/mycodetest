@@ -82,7 +82,7 @@ const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
 
 // ---------------- STATE ----------------
-let currentTool = 'wall';
+let currentTool = 'select';
 let isDrawing = false;
 let startX, startY;
 let currentX, currentY;
@@ -783,13 +783,17 @@ function showContextMenu(x, y, wall = null) {
         ` : ''}
     ` : '';
 
+    const backgroundAddItem = hasBackgroundImage ? '' : `
+        <div class="context-item" data-action="background" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+            Add Background Image
+        </div>
+    `;
+
     contextMenu.innerHTML = `
         <div style="padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #eee; font-weight: bold;">
             ${wall ? 'Wall Options' : 'Designer Options'}
         </div>
-        <div class="context-item" data-action="background" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
-            Add Background Image
-        </div>
+        ${backgroundAddItem}
         ${backgroundMenu}
         ${wall ? `
             <div class="context-item" data-action="split" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
@@ -2208,6 +2212,10 @@ function init() {
     }
 
     canvas.addEventListener('keydown', handleKeyDown);
+
+    toolButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-tool') === currentTool);
+    });
 
     syncCanvasScrollArea();
     drawGrid();
@@ -3677,7 +3685,7 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     withViewTransform(() => {
         ctx.save();
         ctx.fillStyle = '#e74c3c';
-        ctx.font = '10px Arial';
+        ctx.font = '8px Arial';
         ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
         ctx.restore();
     });
