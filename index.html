@@ -113,6 +113,7 @@
     <label><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
 
     <button id="toggleGrid">Toggle Grid</button>
+    <button id="toggleBackgroundImage" class="hidden">Hide Background Image</button>
 </div>
 
 <div class="canvas-shell">
@@ -182,7 +183,12 @@
 
         <div class="modal-actions">
             <button id="startBackgroundMeasurement" class="tool-btn" type="button" disabled>Next</button>
+            <button id="finishBackgroundMeasurement" class="tool-btn secondary-btn" type="button" disabled>Finish</button>
             <button id="cancelBackgroundImage" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+
+        <div id="backgroundMeasurementHint" class="measurement-hint hidden">
+            Drag the measurement line on the canvas to match the known distance, then press Finish.
         </div>
     </div>
 </div>

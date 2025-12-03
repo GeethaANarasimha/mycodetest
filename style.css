@@ -18,6 +18,10 @@ body {
     overflow: hidden;
 }
 
+.hidden {
+    display: none !important;
+}
+
 .toolbar {
     display: flex;
     gap: 8px;
@@ -315,4 +319,23 @@ input[type="text"] {
 .calibration-actions {
     display: flex;
     gap: 8px;
+}
+
+.measurement-hint {
+    margin-top: 10px;
+    padding: 10px;
+    background: #f8f8f8;
+    border: 1px dashed #c8c8c8;
+    border-radius: 6px;
+    color: #444;
+    font-size: 14px;
+}
+
+.modal.measurement-mode {
+    background: rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+}
+
+.modal.measurement-mode .modal-content {
+    pointer-events: auto;
 }
