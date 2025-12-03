@@ -54,9 +54,12 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_30f8437bfae148a38aca059207dc1ce2.svg" alt="">
         <span class="tool-label">Dimension</span>
     </button>
+    <button class="tool-btn" data-tool="text" aria-label="Text">
+        <span class="tool-icon text-icon">T</span>
+        <span class="tool-label">Text</span>
+    </button>
 
     <div class="transform-menu">
-        <span class="transform-title">Transform</span>
         <button id="rotateLeft" class="tool-btn secondary-btn" type="button" aria-label="Rotate Left">
             <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_74c75a751d214630a1839c167822df96.svg" alt="">
             <span class="tool-label">Rotate Left</span>
@@ -76,7 +79,7 @@
     </div>
 
     <div class="view-menu">
-        <span class="transform-title">View</span>
+        <span class="transform-title">Zoom</span>
         <button id="zoomOut" class="tool-btn secondary-btn" type="button" aria-label="Zoom Out">
             <span class="tool-icon text-icon">−</span>
             <span class="tool-label">Zoom Out</span>
@@ -87,33 +90,77 @@
         </button>
     </div>
 
-    <div class="tool-info"></div>
 </div>
 
 <div class="properties">
-    <label>Wall Thickness</label>
-    <input id="wallThicknessFeet" type="number" value="0"> ft
-    <input id="wallThicknessInches" type="number" value="6"> in
+    <div class="property-group" data-contexts="wall">
+        <label>Wall Thickness</label>
+        <div class="property-input-row">
+            <input id="wallThicknessFeet" type="number" value="0"> ft
+            <input id="wallThicknessInches" type="number" value="6"> in
+        </div>
+    </div>
 
-    <label>Line Width</label>
-    <input id="lineWidth" type="number" value="2">
+    <div class="property-group" data-contexts="wall,door,window,furniture,dimension,select,erase,pan">
+        <label>Line Width</label>
+        <input id="lineWidth" type="number" value="2">
+    </div>
 
-    <label>Line Color</label>
-    <input id="lineColor" type="color" value="#2c3e50">
-    <span id="lineColorPreview"></span>
+    <div class="property-group" data-contexts="wall,door,window,furniture,dimension,select,erase,pan">
+        <label>Line Color</label>
+        <div class="property-input-row">
+            <input id="lineColor" type="color" value="#2c3e50">
+            <span id="lineColorPreview"></span>
+        </div>
+    </div>
 
-    <label>Fill</label>
-    <input id="fillColor" type="color" value="#d9d9d9">
-    <span id="fillColorPreview"></span>
+    <div class="property-group" data-contexts="text">
+        <label>Text Color</label>
+        <input id="textColor" type="color" value="#000000">
+    </div>
 
-    <label>Grid Size</label>
-    <input id="gridSize" type="number" value="20">
+    <div class="property-group" data-contexts="text">
+        <label>Text Style</label>
+        <div class="property-input-row">
+            <button id="textBold" type="button" class="pill-btn">B</button>
+            <button id="textItalic" type="button" class="pill-btn">I</button>
+            <button id="textFontDecrease" type="button" class="pill-btn">A−</button>
+            <button id="textFontIncrease" type="button" class="pill-btn">A+</button>
+        </div>
+    </div>
 
-    <label><input type="checkbox" id="snapToGrid" checked> Snap to Grid</label>
-    <label><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
+    <div class="property-group" data-contexts="wall">
+        <label>Measurements</label>
+        <div class="property-input-row">
+            <button id="measurementFontDecrease" type="button" class="pill-btn">A−</button>
+            <button id="measurementFontIncrease" type="button" class="pill-btn">A+</button>
+            <button id="measurementDescribe" type="button" class="pill-btn">Describe</button>
+        </div>
+        <span id="measurementDescriptionPreview" class="property-hint"></span>
+    </div>
 
-    <button id="toggleGrid">Toggle Grid</button>
-    <button id="toggleBackgroundImage" class="hidden">Hide Background Image</button>
+    <div class="property-group" data-contexts="floor">
+        <label>Fill</label>
+        <div class="property-input-row">
+            <input id="fillColor" type="color" value="#d9d9d9">
+            <span id="fillColorPreview"></span>
+        </div>
+    </div>
+
+    <div class="property-group" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+        <label>Grid Size</label>
+        <input id="gridSize" type="number" value="20">
+    </div>
+
+    <div class="property-group inline" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+        <label class="checkbox"><input type="checkbox" id="snapToGrid" checked> Snap to Grid</label>
+        <label class="checkbox"><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
+    </div>
+
+    <div class="property-group button-row" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+        <button id="toggleGrid">Toggle Grid</button>
+        <button id="toggleBackgroundImage" class="hidden">Hide Background Image</button>
+    </div>
 </div>
 
 <div class="canvas-shell">
@@ -124,6 +171,17 @@
 
 <div class="coordinates">X: 0, Y: 0</div>
 
+</div>
+
+<div id="textModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Enter Text</h3>
+        <input id="textModalInput" type="text" value="New label" aria-label="Enter text" />
+        <div class="modal-actions">
+            <button id="textModalConfirm" class="tool-btn" type="button">Add Text</button>
+            <button id="textModalCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
 </div>
 
 <div id="floorTextureModal" class="modal hidden">

@@ -11,6 +11,8 @@ window.dimensions = [];
 window.nextDimensionId = 1;
 window.hoveredWall = null;
 window.hoveredSpaceSegment = null;
+window.dimensionHoverX = null;
+window.dimensionHoverY = null;
 
 // Blue color for dimensions
 const DIMENSION_COLOR = '#3498db';
@@ -90,53 +92,25 @@ window.getWallThicknessPx = function(wall) {
 window.handleDimensionMouseDown = function(e) {
     if (currentTool !== 'dimension') return;
 
+    // Ignore the second click of a double-click so manual mode isn't triggered
+    if (e.detail && e.detail > 1) {
+        if (typeof window.resetDimensionTool === 'function') {
+            window.resetDimensionTool();
+        }
+        return;
+    }
+
     const { x: rawX, y: rawY } = window.getCanvasCoordsFromEvent(e);
     let x = rawX;
     let y = rawY;
     
-    // Check for double click - manual dimension mode
-    if (e.detail === 2) {
-        handleManualDimensionDoubleClick(x, y);
-        return;
-    }
-    
-    // SINGLE CLICK - Auto wall dimension
-    const nearestWall = findNearestWall(x, y, 20);
-    if (nearestWall) {
-        const spaceData = findAvailableSpacesOnWall(nearestWall, x, y);
-
-        pushUndoState();
-
-        if (spaceData) {
-            createSpaceDimension(spaceData);
-        } else {
-            createWallDimension(nearestWall);
-        }
-
-        redrawCanvas();
-        return;
-    }
-    
-    // If no wall found, start manual dimension
+    // Manual mode: first click sets the start, second click sets the end
     if (!isDimensionDrawing) {
         startManualDimension(x, y);
     } else {
         endManualDimension(x, y);
     }
 };
-
-/**
- * Handle double click for manual dimension mode
- */
-function handleManualDimensionDoubleClick(x, y) {
-    if (!isDimensionDrawing) {
-        // First point of manual dimension
-        startManualDimension(x, y);
-    } else {
-        // Second point of manual dimension
-        endManualDimension(x, y);
-    }
-}
 
 /**
  * Start manual dimension
@@ -177,7 +151,7 @@ function endManualDimension(x, y) {
 /**
  * Create wall dimension with 1px offset
  */
-window.createWallDimension = function(wallData) {
+window.createWallDimension = function(wallData, options = {}) {
     const { n1, n2 } = wallData;
     const orientation = getWallOrientation(n1, n2);
     const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
@@ -185,33 +159,40 @@ window.createWallDimension = function(wallData) {
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
     const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-    
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const midX = (n1.x + n2.x) / 2;
+    const midY = (n1.y + n2.y) / 2;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    const referenceX = options.referenceX ?? null;
+    const referenceY = options.referenceY ?? null;
+    const offsetSign = referenceX != null && referenceY != null
+        ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
+        : 1;
+
     let startX, startY, endX, endY;
-    
+
     if (orientation === 'horizontal') {
-        // 1px below the wall
-        const yPos = n1.y + WALL_DIMENSION_OFFSET;
+        const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
         startX = n1.x;
         startY = yPos;
         endX = n2.x;
         endY = yPos;
     } else if (orientation === 'vertical') {
-        // 1px right of the wall
-        const xPos = n1.x + WALL_DIMENSION_OFFSET;
+        const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
         startX = xPos;
         startY = n1.y;
         endX = xPos;
         endY = n2.y;
     } else {
         // Diagonal wall - use center with small offset
-        const midX = (n1.x + n2.x) / 2;
-        const midY = (n1.y + n2.y) / 2;
-        const dx = n2.x - n1.x;
-        const dy = n2.y - n1.y;
-        const len = Math.hypot(dx, dy);
-        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET;
-        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET;
-        
+        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
+        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+
         startX = n1.x + offsetX;
         startY = n1.y + offsetY;
         endX = n2.x + offsetX;
@@ -276,28 +257,23 @@ window.handleDimensionMouseMove = function(e) {
     
     // Update hovered wall
     window.hoveredWall = findNearestWall(x, y, 20);
+    if (window.hoveredWall) {
+        window.hoveredWall.hoverX = x;
+        window.hoveredWall.hoverY = y;
+    }
+    window.dimensionHoverX = x;
+    window.dimensionHoverY = y;
     window.hoveredSpaceSegment = hoveredWall ? findAvailableSpacesOnWall(hoveredWall, x, y) : null;
     
     if (!isDimensionDrawing) {
         // Hover mode
-        if (hoveredSpaceSegment) {
-            coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click: Add Space Dimension | Double-click: Manual Dimension`;
-        } else if (hoveredWall) {
-            const length = Math.hypot(hoveredWall.n2.x - hoveredWall.n1.x, hoveredWall.n2.y - hoveredWall.n1.y);
-            const totalInches = Math.round((length / scale) * 12);
-            const feet = Math.floor(totalInches / 12);
-            const inches = totalInches % 12;
-            
-            coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click: Add Dimension | Double-click: Manual Dimension`;
-        } else {
-            coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Double-click: Start Manual Dimension`;
-        }
+        coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to start measurement`;
     } else {
         // Manual dimension drawing mode
         ({ x, y } = snapPointToInch(x, y));
         dimensionPreviewX = x;
         dimensionPreviewY = y;
-        coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Double-click: End Manual Dimension`;
+        coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to finish measurement`;
     }
     
     redrawCanvas();
@@ -311,95 +287,133 @@ window.handleDimensionMouseMove = function(e) {
  */
 window.drawHoverWallDimension = function(wallData) {
     if (!wallData) return;
-    
+
     const { n1, n2 } = wallData;
     const orientation = getWallOrientation(n1, n2);
     const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
     const totalInches = Math.round((length / scale) * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-    
+    const text = inches > 0 ? `${feet}'${inches}\"` : `${feet}'`;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const midX = (n1.x + n2.x) / 2;
+    const midY = (n1.y + n2.y) / 2;
+    const len = Math.hypot(dx, dy);
+    const nx = len === 0 ? 0 : -dy / len;
+    const ny = len === 0 ? 0 : dx / len;
+
+    const referenceX = wallData.hoverX ?? window.dimensionHoverX;
+    const referenceY = wallData.hoverY ?? window.dimensionHoverY;
+    let offsetSign = 1;
+
+    if (referenceX != null && referenceY != null) {
+        const dot = (referenceX - midX) * nx + (referenceY - midY) * ny;
+        offsetSign = dot >= 0 ? 1 : -1;
+    }
+
     ctx.save();
     ctx.strokeStyle = 'rgba(41, 128, 185, 0.7)'; // Semi-transparent blue
     ctx.lineWidth = 2;
     ctx.setLineDash([2, 2]);
-    
+
     if (orientation === 'horizontal') {
-        const yPos = n1.y + WALL_DIMENSION_OFFSET;
-        
-        // Draw dimension line
+        const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
+
         ctx.beginPath();
         ctx.moveTo(n1.x, yPos);
         ctx.lineTo(n2.x, yPos);
         ctx.stroke();
-        
-        // Draw extension lines
+
         ctx.beginPath();
         ctx.moveTo(n1.x, n1.y);
         ctx.lineTo(n1.x, yPos);
         ctx.stroke();
-        
+
         ctx.beginPath();
         ctx.moveTo(n2.x, n2.y);
         ctx.lineTo(n2.x, yPos);
         ctx.stroke();
-        
-        // Draw text
+
         const midX = (n1.x + n2.x) / 2;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
-        // Text background
+
         const textWidth = ctx.measureText(text).width;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.fillRect(midX - textWidth/2 - 2, yPos - 8, textWidth + 4, 16);
-        
-        // Text
+
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.fillText(text, midX, yPos);
-        
+
     } else if (orientation === 'vertical') {
-        const xPos = n1.x + WALL_DIMENSION_OFFSET;
-        
-        // Draw dimension line
+        const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
+
         ctx.beginPath();
         ctx.moveTo(xPos, n1.y);
         ctx.lineTo(xPos, n2.y);
         ctx.stroke();
-        
-        // Draw extension lines
+
         ctx.beginPath();
         ctx.moveTo(n1.x, n1.y);
         ctx.lineTo(xPos, n1.y);
         ctx.stroke();
-        
+
         ctx.beginPath();
         ctx.moveTo(n2.x, n2.y);
         ctx.lineTo(xPos, n2.y);
         ctx.stroke();
-        
-        // Draw text
+
         const midY = (n1.y + n2.y) / 2;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
-        // Text background
+
         const textWidth = ctx.measureText(text).width;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.fillRect(xPos - textWidth/2 - 2, midY - 8, textWidth + 4, 16);
-        
-        // Text
+
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.fillText(text, xPos, midY);
+    } else {
+        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
+        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+
+        ctx.beginPath();
+        ctx.moveTo(n1.x + offsetX, n1.y + offsetY);
+        ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(n1.x, n1.y);
+        ctx.lineTo(n1.x + offsetX, n1.y + offsetY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(n2.x, n2.y);
+        ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(midX + offsetX - textWidth/2 - 2, midY + offsetY - 8, textWidth + 4, 16);
+
+        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
+        ctx.fillText(text, midX + offsetX, midY + offsetY);
     }
-    
+
     ctx.restore();
 };
 
@@ -409,45 +423,89 @@ window.drawHoverWallDimension = function(wallData) {
 window.drawHoverSpaceDimension = function(spaceData) {
     if (!spaceData) return;
 
-    const { leftBoundary, rightBoundary, text, wallY } = spaceData;
-    const dimensionY = wallY + 35;
+    const isHorizontalSpace = spaceData.orientation === 'horizontal';
+    const text = spaceData.text;
 
     ctx.save();
     ctx.strokeStyle = 'rgba(155, 89, 182, 0.7)';
     ctx.lineWidth = 2;
     ctx.setLineDash([2, 2]);
 
-    // Dimension line
-    ctx.beginPath();
-    ctx.moveTo(leftBoundary, dimensionY);
-    ctx.lineTo(rightBoundary, dimensionY);
-    ctx.stroke();
+    if (isHorizontalSpace) {
+        const { leftBoundary, rightBoundary, wallY, hoverY } = spaceData;
+        const referenceY = hoverY ?? window.dimensionHoverY;
+        const offsetSign = referenceY != null && referenceY < wallY ? -1 : 1;
+        const dimensionY = wallY + 35 * offsetSign;
 
-    // Extension lines
-    ctx.beginPath();
-    ctx.moveTo(leftBoundary, wallY);
-    ctx.lineTo(leftBoundary, dimensionY);
-    ctx.stroke();
+        // Dimension line
+        ctx.beginPath();
+        ctx.moveTo(leftBoundary, dimensionY);
+        ctx.lineTo(rightBoundary, dimensionY);
+        ctx.stroke();
 
-    ctx.beginPath();
-    ctx.moveTo(rightBoundary, wallY);
-    ctx.lineTo(rightBoundary, dimensionY);
-    ctx.stroke();
+        // Extension lines
+        ctx.beginPath();
+        ctx.moveTo(leftBoundary, wallY);
+        ctx.lineTo(leftBoundary, dimensionY);
+        ctx.stroke();
 
-    // Text
-    const midX = (leftBoundary + rightBoundary) / 2;
-    ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+        ctx.beginPath();
+        ctx.moveTo(rightBoundary, wallY);
+        ctx.lineTo(rightBoundary, dimensionY);
+        ctx.stroke();
 
-    const textWidth = ctx.measureText(text).width;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillRect(midX - textWidth/2 - 2, dimensionY - 8, textWidth + 4, 16);
+        // Text
+        const midX = (leftBoundary + rightBoundary) / 2;
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
 
-    ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
-    ctx.fillText(text, midX, dimensionY);
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(midX - textWidth/2 - 2, dimensionY - 8, textWidth + 4, 16);
+
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+        ctx.fillText(text, midX, dimensionY);
+    } else {
+        const { topBoundary, bottomBoundary, wallX, hoverX } = spaceData;
+        const referenceX = hoverX ?? window.dimensionHoverX;
+        const offsetSign = referenceX != null && referenceX < wallX ? -1 : 1;
+        const dimensionX = wallX + 35 * offsetSign;
+
+        // Dimension line
+        ctx.beginPath();
+        ctx.moveTo(dimensionX, topBoundary);
+        ctx.lineTo(dimensionX, bottomBoundary);
+        ctx.stroke();
+
+        // Extension lines
+        ctx.beginPath();
+        ctx.moveTo(wallX, topBoundary);
+        ctx.lineTo(dimensionX, topBoundary);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(wallX, bottomBoundary);
+        ctx.lineTo(dimensionX, bottomBoundary);
+        ctx.stroke();
+
+        // Text
+        const midY = (topBoundary + bottomBoundary) / 2;
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(dimensionX - textWidth/2 - 2, midY - 8, textWidth + 4, 16);
+
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+        ctx.fillText(text, dimensionX, midY);
+    }
 
     ctx.restore();
 };
@@ -653,6 +711,8 @@ window.resetDimensionTool = function() {
     dimensionPreviewY = null;
     hoveredWall = null;
     hoveredSpaceSegment = null;
+    dimensionHoverX = null;
+    dimensionHoverY = null;
 };
 
 /**
@@ -727,149 +787,163 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
 
     if (!wallN1 || !wallN2) return null;
 
-    const leftNode = wallN1.x <= wallN2.x ? wallN1 : wallN2;
-    const rightNode = wallN1.x <= wallN2.x ? wallN2 : wallN1;
-    
-    // Only process horizontal walls for space measurement
-    if (!isWallHorizontal(wallN1, wallN2)) return null;
-    
     const wallThickness = getWallThicknessPx(wall);
     const intersectingWalls = findIntersectingWalls(wall);
-    const verticalWalls = intersectingWalls.filter(w => {
+    const isHorizontalWall = isWallHorizontal(wallN1, wallN2);
+
+    const perpendicularWalls = intersectingWalls.filter(w => {
         const wn1 = getNodeById(w.startNodeId);
         const wn2 = getNodeById(w.endNodeId);
-        return wn1 && wn2 && isWallVertical(wn1, wn2);
+        if (!wn1 || !wn2) return false;
+        return isHorizontalWall ? isWallVertical(wn1, wn2) : isWallHorizontal(wn1, wn2);
     });
-    
-    if (verticalWalls.length === 0) return null;
-    
-    // Sort vertical walls by x position
-    verticalWalls.sort((a, b) => {
-        const aX = getNodeById(a.startNodeId).x;
-        const bX = getNodeById(b.startNodeId).x;
-        return aX - bX;
+
+    if (perpendicularWalls.length === 0) return null;
+
+    perpendicularWalls.sort((a, b) => {
+        const aNode = getNodeById(a.startNodeId);
+        const bNode = getNodeById(b.startNodeId);
+        return isHorizontalWall ? aNode.x - bNode.x : aNode.y - bNode.y;
     });
-    
+
     const spaces = [];
-    
-    // Calculate space from start of horizontal wall to first vertical wall
-    if (verticalWalls.length > 0) {
-        const firstVerticalWall = verticalWalls[0];
-        const firstVerticalNode = getNodeById(firstVerticalWall.startNodeId);
 
-        const leftSpaceStart = leftNode.x + (wallThickness / 2);
-        const leftSpaceEnd = firstVerticalNode.x - (wallThickness / 2);
-        const leftSpaceLength = leftSpaceEnd - leftSpaceStart;
-        
-        if (leftSpaceLength > 0) {
-            const totalInches = Math.round((leftSpaceLength / scale) * 12);
-            const feet = Math.floor(totalInches / 12);
-            const inches = totalInches % 12;
-            
-            spaces.push({
-                leftWall: null,
-                rightWall: firstVerticalWall,
-                leftBoundary: leftSpaceStart,
-                rightBoundary: leftSpaceEnd,
-                spaceLength: leftSpaceLength,
-                feet: feet,
-                inches: inches,
-                text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
-                wallY: wallN1.y,
-                wallThickness: wallThickness,
-                type: 'left_space'
-            });
-        }
-    }
-    
-    // Calculate spaces between vertical walls
-    for (let i = 0; i < verticalWalls.length - 1; i++) {
-        const leftWall = verticalWalls[i];
-        const rightWall = verticalWalls[i + 1];
-        
-        const leftWallNode = getNodeById(leftWall.startNodeId);
-        const rightWallNode = getNodeById(rightWall.startNodeId);
+    if (isHorizontalWall) {
+        const leftNode = wallN1.x <= wallN2.x ? wallN1 : wallN2;
+        const rightNode = wallN1.x <= wallN2.x ? wallN2 : wallN1;
 
-        const spaceStart = leftWallNode.x + (wallThickness / 2);
-        const spaceEnd = rightWallNode.x - (wallThickness / 2);
-        const spaceLength = spaceEnd - spaceStart;
-        
-        if (spaceLength > 0) {
+        const addSpace = (startX, endX, leftWall, rightWall) => {
+            const spaceLength = endX - startX;
+            if (spaceLength <= 0) return;
             const totalInches = Math.round((spaceLength / scale) * 12);
             const feet = Math.floor(totalInches / 12);
             const inches = totalInches % 12;
-            
             spaces.push({
-                leftWall: leftWall,
-                rightWall: rightWall,
-                leftBoundary: spaceStart,
-                rightBoundary: spaceEnd,
-                spaceLength: spaceLength,
-                feet: feet,
-                inches: inches,
+                leftWall,
+                rightWall,
+                leftBoundary: startX,
+                rightBoundary: endX,
+                spaceLength,
+                feet,
+                inches,
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
                 wallY: wallN1.y,
-                wallThickness: wallThickness,
-                type: 'middle_space'
+                wallThickness,
+                hoverX, hoverY,
+                orientation: 'horizontal'
             });
-        }
-    }
-    
-    // Calculate space from last vertical wall to end of horizontal wall
-    if (verticalWalls.length > 0) {
-        const lastVerticalWall = verticalWalls[verticalWalls.length - 1];
-        const lastVerticalNode = getNodeById(lastVerticalWall.startNodeId);
+        };
 
-        const rightSpaceStart = lastVerticalNode.x + (wallThickness / 2);
-        const rightSpaceEnd = rightNode.x - (wallThickness / 2);
-        const rightSpaceLength = rightSpaceEnd - rightSpaceStart;
-        
-        if (rightSpaceLength > 0) {
-            const totalInches = Math.round((rightSpaceLength / scale) * 12);
+        const firstWall = perpendicularWalls[0];
+        addSpace(leftNode.x + wallThickness / 2, getNodeById(firstWall.startNodeId).x - wallThickness / 2, null, firstWall);
+
+        for (let i = 0; i < perpendicularWalls.length - 1; i++) {
+            const leftWall = perpendicularWalls[i];
+            const rightWall = perpendicularWalls[i + 1];
+            const leftX = getNodeById(leftWall.startNodeId).x;
+            const rightX = getNodeById(rightWall.startNodeId).x;
+            addSpace(leftX + wallThickness / 2, rightX - wallThickness / 2, leftWall, rightWall);
+        }
+
+        const lastWall = perpendicularWalls[perpendicularWalls.length - 1];
+        addSpace(getNodeById(lastWall.startNodeId).x + wallThickness / 2, rightNode.x - wallThickness / 2, lastWall, null);
+    } else {
+        const topNode = wallN1.y <= wallN2.y ? wallN1 : wallN2;
+        const bottomNode = wallN1.y <= wallN2.y ? wallN2 : wallN1;
+
+        const addSpace = (startY, endY, topWall, bottomWall) => {
+            const spaceLength = endY - startY;
+            if (spaceLength <= 0) return;
+            const totalInches = Math.round((spaceLength / scale) * 12);
             const feet = Math.floor(totalInches / 12);
             const inches = totalInches % 12;
-            
             spaces.push({
-                leftWall: lastVerticalWall,
-                rightWall: null,
-                leftBoundary: rightSpaceStart,
-                rightBoundary: rightSpaceEnd,
-                spaceLength: rightSpaceLength,
-                feet: feet,
-                inches: inches,
+                topWall,
+                bottomWall,
+                topBoundary: startY,
+                bottomBoundary: endY,
+                spaceLength,
+                feet,
+                inches,
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
-                wallY: wallN1.y,
-                wallThickness: wallThickness,
-                type: 'right_space'
+                wallX: wallN1.x,
+                wallThickness,
+                hoverX, hoverY,
+                orientation: 'vertical'
             });
+        };
+
+        const firstWall = perpendicularWalls[0];
+        addSpace(topNode.y + wallThickness / 2, getNodeById(firstWall.startNodeId).y - wallThickness / 2, null, firstWall);
+
+        for (let i = 0; i < perpendicularWalls.length - 1; i++) {
+            const topWall = perpendicularWalls[i];
+            const bottomWall = perpendicularWalls[i + 1];
+            const topY = getNodeById(topWall.startNodeId).y;
+            const bottomY = getNodeById(bottomWall.startNodeId).y;
+            addSpace(topY + wallThickness / 2, bottomY - wallThickness / 2, topWall, bottomWall);
         }
+
+        const lastWall = perpendicularWalls[perpendicularWalls.length - 1];
+        addSpace(getNodeById(lastWall.startNodeId).y + wallThickness / 2, bottomNode.y - wallThickness / 2, lastWall, null);
     }
-    
-    // Find which space segment contains the hover point
-    for (const space of spaces) {
-        if (hoverX >= space.leftBoundary && hoverX <= space.rightBoundary) {
-            return space;
+
+    if (spaces.length === 0) return null;
+
+    let bestSpace = null;
+    let minDistance = Infinity;
+
+    spaces.forEach(space => {
+        const mid = isHorizontalWall
+            ? (space.leftBoundary + space.rightBoundary) / 2
+            : (space.topBoundary + space.bottomBoundary) / 2;
+        const distance = Math.abs((isHorizontalWall ? hoverX : hoverY) - mid);
+
+        if (distance < minDistance) {
+            minDistance = distance;
+            bestSpace = space;
         }
-    }
-    
-    return null;
+    });
+
+    return bestSpace;
 };
 
 /**
  * Create space dimension
  */
 window.createSpaceDimension = function(spaceData) {
-    const { leftBoundary, rightBoundary, spaceLength, text, wallY } = spaceData;
-    
-    const dimensionY = wallY + 35;
-    
+    const isHorizontalSpace = spaceData.orientation === 'horizontal';
+    const spaceLength = spaceData.spaceLength;
+
+    let startX, startY, endX, endY;
+
+    if (isHorizontalSpace) {
+        const { leftBoundary, rightBoundary, wallY, hoverY } = spaceData;
+        const referenceY = hoverY ?? window.dimensionHoverY;
+        const offsetSign = referenceY != null && referenceY < wallY ? -1 : 1;
+        const dimensionY = wallY + 35 * offsetSign;
+        startX = leftBoundary;
+        startY = dimensionY;
+        endX = rightBoundary;
+        endY = dimensionY;
+    } else {
+        const { topBoundary, bottomBoundary, wallX, hoverX } = spaceData;
+        const referenceX = hoverX ?? window.dimensionHoverX;
+        const offsetSign = referenceX != null && referenceX < wallX ? -1 : 1;
+        const dimensionX = wallX + 35 * offsetSign;
+        startX = dimensionX;
+        startY = topBoundary;
+        endX = dimensionX;
+        endY = bottomBoundary;
+    }
+
     const dimension = {
         id: nextDimensionId++,
-        startX: leftBoundary,
-        startY: dimensionY,
-        endX: rightBoundary,
-        endY: dimensionY,
-        text: text,
+        startX,
+        startY,
+        endX,
+        endY,
+        text: spaceData.text,
         lineColor: '#9b59b6', // Purple for space dimensions
         lineWidth: 2,
         length: spaceLength,
@@ -877,7 +951,7 @@ window.createSpaceDimension = function(spaceData) {
         isSpace: true,
         spaceType: spaceData.type
     };
-    
+
     dimensions.push(dimension);
     return dimension;
 };

@@ -12,6 +12,11 @@ const wallThicknessFeetInput = document.getElementById('wallThicknessFeet');
 const wallThicknessInchesInput = document.getElementById('wallThicknessInches');
 const lineWidthInput = document.getElementById('lineWidth');
 const lineColorInput = document.getElementById('lineColor');
+const textColorInput = document.getElementById('textColor');
+const textBoldButton = document.getElementById('textBold');
+const textItalicButton = document.getElementById('textItalic');
+const textFontIncreaseButton = document.getElementById('textFontIncrease');
+const textFontDecreaseButton = document.getElementById('textFontDecrease');
 const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
 const snapToGridCheckbox = document.getElementById('snapToGrid');
@@ -19,6 +24,10 @@ const showDimensionsCheckbox = document.getElementById('showDimensions');
 const toggleGridButton = document.getElementById('toggleGrid');
 const coordinatesDisplay = document.querySelector('.coordinates');
 const toolInfoDisplay = document.querySelector('.tool-info');
+const measurementFontIncreaseButton = document.getElementById('measurementFontIncrease');
+const measurementFontDecreaseButton = document.getElementById('measurementFontDecrease');
+const measurementDescribeButton = document.getElementById('measurementDescribe');
+const measurementDescriptionPreview = document.getElementById('measurementDescriptionPreview');
 const rotateLeftButton = document.getElementById('rotateLeft');
 const rotateRightButton = document.getElementById('rotateRight');
 const flipHorizontalButton = document.getElementById('flipHorizontal');
@@ -48,6 +57,10 @@ const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgro
 const finishBackgroundMeasurementButton = document.getElementById('finishBackgroundMeasurement');
 const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
 const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
+const textModal = document.getElementById('textModal');
+const textModalInput = document.getElementById('textModalInput');
+const textModalConfirm = document.getElementById('textModalConfirm');
+const textModalCancel = document.getElementById('textModalCancel');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -91,6 +104,11 @@ let gridSize = parseInt(gridSizeInput.value, 10);
 let snapToGrid = snapToGridCheckbox.checked;
 let showGrid = true;
 let showDimensions = showDimensionsCheckbox.checked;
+let textFontSize = 18;
+let textIsBold = false;
+let textIsItalic = false;
+let measurementFontSize = 12;
+let measurementDescription = '';
 
 let nodes = [];
 let walls = [];
@@ -167,6 +185,8 @@ let lastPointerCanvasY = null;
 // undo / redo
 let undoStack = [];
 let redoStack = [];
+let pendingTextPlacement = null;
+let textModalResolver = null;
 
 // CUT/COPY/PASTE CLIPBOARD
 let clipboard = {
@@ -180,6 +200,7 @@ let clipboard = {
 let isPasteMode = false;
 let pasteTargetX = null;
 let pasteTargetY = null;
+let lastPropertyContext = null;
 
 // View helpers
 function getCanvasPixelScale() {
@@ -208,7 +229,14 @@ function worldToScreen(x, y) {
     };
 }
 
-window.getCanvasCoordsFromEvent = screenToWorld;
+function getCanvasCoordsFromEvent(eventOrX, eventY) {
+    if (eventOrX && typeof eventOrX === 'object' && 'clientX' in eventOrX) {
+        return screenToWorld(eventOrX.clientX, eventOrX.clientY);
+    }
+    return screenToWorld(eventOrX, eventY);
+}
+
+window.getCanvasCoordsFromEvent = getCanvasCoordsFromEvent;
 
 let isViewPanning = false;
 let panOrigin = null;
@@ -1860,7 +1888,20 @@ function findRoomPolygonAtPoint(x, y) {
             }
         }
     });
-    return best ? best.polygon : null;
+    if (!best) return null;
+
+    const polygon = best.polygon;
+    const centroid = polygon.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+    centroid.x /= polygon.length;
+    centroid.y /= polygon.length;
+
+    const orderedPolygon = polygon.slice().sort((a, b) => {
+        const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
+        const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
+        return angleA - angleB;
+    });
+
+    return orderedPolygon;
 }
 
 function ensureFloorPattern(floor) {
@@ -2054,6 +2095,7 @@ function init() {
             closeFloorTextureModal();
             closeBackgroundImageModal();
             cancelBackgroundMeasurement();
+            closeTextModal();
         }
     });
 
@@ -2121,6 +2163,24 @@ function init() {
     }
     if (cancelBackgroundMeasurementButton) {
         cancelBackgroundMeasurementButton.addEventListener('click', cancelBackgroundMeasurement);
+    }
+
+    if (textModalConfirm) {
+        textModalConfirm.addEventListener('click', submitTextModal);
+    }
+    if (textModalCancel) {
+        textModalCancel.addEventListener('click', closeTextModal);
+    }
+    if (textModalInput) {
+        textModalInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                submitTextModal();
+            }
+            if (event.key === 'Escape') {
+                closeTextModal();
+            }
+        });
     }
 
     if (backgroundPreview) {
@@ -2204,6 +2264,42 @@ function init() {
         redrawCanvas();
     });
 
+    if (textBoldButton) {
+        textBoldButton.addEventListener('click', toggleTextBold);
+    }
+    if (textItalicButton) {
+        textItalicButton.addEventListener('click', toggleTextItalic);
+    }
+    if (textFontIncreaseButton) {
+        textFontIncreaseButton.addEventListener('click', () => {
+            changeTextFontSize(2);
+            updateTextStyleButtons();
+        });
+    }
+    if (textFontDecreaseButton) {
+        textFontDecreaseButton.addEventListener('click', () => {
+            changeTextFontSize(-2);
+            updateTextStyleButtons();
+        });
+    }
+
+    if (measurementFontIncreaseButton) {
+        measurementFontIncreaseButton.addEventListener('click', () => changeMeasurementFontSize(2));
+    }
+    if (measurementFontDecreaseButton) {
+        measurementFontDecreaseButton.addEventListener('click', () => changeMeasurementFontSize(-2));
+    }
+    if (measurementDescribeButton) {
+        measurementDescribeButton.addEventListener('click', () => {
+            pendingTextPlacement = null;
+            openTextModal({
+                defaultValue: measurementDescription || '',
+                confirmLabel: 'Save Label',
+                onSubmit: setMeasurementDescription
+            });
+        });
+    }
+
     if (backgroundDistanceInput) {
         backgroundDistanceInput.addEventListener('input', () => {
             setMeasurementDistance(backgroundDistanceInput.value, { resetLine: true });
@@ -2234,7 +2330,10 @@ function init() {
     syncCanvasScrollArea();
     drawGrid();
     syncBackgroundControls();
+    updateTextStyleButtons();
+    updateMeasurementPreview();
     updateToolInfo();
+    updatePropertiesPanel();
 }
 
 // ============================================================
@@ -2850,9 +2949,7 @@ function handleMouseDown(e) {
     }
 
     if (currentTool === 'dimension') {
-        if (typeof handleDimensionMouseDown === 'function') {
-            handleDimensionMouseDown(e);
-        }
+        // Dimension clicks are handled on the click event to avoid interference with selection logic
         return;
     }
 
@@ -2867,6 +2964,17 @@ function handleMouseDown(e) {
             selectAllMode = false;
             redrawCanvas();
         }
+        return;
+    }
+
+    if (currentTool === 'text') {
+        ({ x, y } = snapPointToInch(x, y));
+        pendingTextPlacement = { x, y };
+        openTextModal({
+            defaultValue: 'New label',
+            confirmLabel: 'Add Text',
+            onSubmit: handleTextPlacement
+        });
         return;
     }
 
@@ -2899,26 +3007,6 @@ function handleMouseDown(e) {
             redrawCanvas();
             return;
         }
-
-        const floorHit = getFloorAt(x, y);
-        if (floorHit) {
-            if (e.shiftKey) {
-                if (selectedFloorIds.has(floorHit.id)) {
-                    selectedFloorIds.delete(floorHit.id);
-                } else {
-                    selectedFloorIds.add(floorHit.id);
-                }
-            } else {
-                selectedFloorIds = new Set([floorHit.id]);
-                selectedWalls.clear();
-                selectedObjectIndices.clear();
-            }
-            selectAllMode = false;
-            redrawCanvas();
-            return;
-        }
-
-        // LEFT CLICK ONLY for selection operations
 
         // Check for node handles of selected walls
         for (const wall of selectedWalls) {
@@ -2990,6 +3078,26 @@ function handleMouseDown(e) {
             redrawCanvas();
             return;
         }
+
+        const floorHit = getFloorAt(x, y);
+        if (floorHit) {
+            if (e.shiftKey) {
+                if (selectedFloorIds.has(floorHit.id)) {
+                    selectedFloorIds.delete(floorHit.id);
+                } else {
+                    selectedFloorIds.add(floorHit.id);
+                }
+            } else {
+                selectedFloorIds = new Set([floorHit.id]);
+                selectedWalls.clear();
+                selectedObjectIndices.clear();
+            }
+            selectAllMode = false;
+            redrawCanvas();
+            return;
+        }
+
+        // LEFT CLICK ONLY for selection operations
 
         // Click on empty space - clear selection unless Shift is held
         isSelectionBoxActive = true;
@@ -3066,7 +3174,22 @@ function getDefaultStyleForType(type) {
         return { lineColor: DEFAULT_WINDOW_LINE, fillColor: DEFAULT_WINDOW_FILL };
     }
 
+    if (type === 'text') {
+        const textColor = textColorInput?.value || '#000000';
+        return { lineColor: textColor, fillColor: 'transparent' };
+    }
+
     return { lineColor: baseLine, fillColor: baseFill };
+}
+
+function measureTextDimensions(text, fontSize = 18, fontWeight = 'normal', fontStyle = 'normal') {
+    ctx.save();
+    ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`.trim();
+    const metrics = ctx.measureText(text);
+    const width = metrics.width;
+    const height = fontSize * 1.2;
+    ctx.restore();
+    return { width, height };
 }
 
 function handleMouseMove(e) {
@@ -3366,6 +3489,15 @@ function handleMouseUp() {
 // WALL CHAIN
 // ============================================================
 function handleCanvasClick(e) {
+    if (currentTool === 'dimension') {
+        if (isBackgroundMeasurementActive) return;
+        if (typeof e.button !== 'undefined' && e.button !== 0) return;
+        if (typeof handleDimensionMouseDown === 'function') {
+            handleDimensionMouseDown(e);
+        }
+        return;
+    }
+
     if (currentTool !== 'wall') return;
 
     if (ignoreNextClick) {
@@ -3436,6 +3568,44 @@ function handleCanvasClick(e) {
 
 function handleCanvasDoubleClick(e) {
     let { x, y } = screenToWorld(e.clientX, e.clientY);
+
+    if (currentTool === 'dimension') {
+        if (isBackgroundMeasurementActive) return;
+        if (typeof e.button !== 'undefined' && e.button !== 0) return;
+
+        // Prefer space dimensions when hovering a gap on a horizontal wall
+        let spaceData = window.hoveredSpaceSegment;
+        let wallData = window.hoveredWall;
+
+        if (!wallData && typeof window.findNearestWall === 'function') {
+            wallData = window.findNearestWall(x, y, 20);
+        }
+
+        if (!spaceData && wallData && typeof window.findAvailableSpacesOnWall === 'function') {
+            spaceData = window.findAvailableSpacesOnWall(wallData, x, y);
+        }
+
+        let dimensionCreated = false;
+
+        if (spaceData && typeof window.createSpaceDimension === 'function') {
+            pushUndoState();
+            window.createSpaceDimension(spaceData);
+            dimensionCreated = true;
+        } else if (wallData && typeof window.createWallDimension === 'function') {
+            pushUndoState();
+            window.createWallDimension(wallData, { referenceX: x, referenceY: y });
+            dimensionCreated = true;
+        }
+
+        if (dimensionCreated) {
+            if (typeof window.resetDimensionTool === 'function') {
+                window.resetDimensionTool();
+            }
+            redrawCanvas();
+        }
+
+        return;
+    }
 
     if (!isWallDrawing) {
         const floor = getFloorAt(x, y);
@@ -3696,11 +3866,15 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const tx = midX + nx * offset;
     const ty = midY + ny * offset;
 
+    const label = measurementDescription
+        ? `${text} (${measurementDescription})`
+        : text;
+
     withViewTransform(() => {
         ctx.save();
         ctx.fillStyle = '#e74c3c';
-        ctx.font = '12px Arial';
-        ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
+        ctx.font = `${measurementFontSize}px Arial`;
+        ctx.fillText(label, tx - ctx.measureText(label).width / 2, ty - 2);
         ctx.restore();
     });
 }
@@ -3760,6 +3934,14 @@ function drawObjects() {
             ctx.moveTo(localX, localY + height / 2);
             ctx.lineTo(localX + width, localY + height / 2);
             ctx.stroke();
+        } else if (obj.type === 'text') {
+            const fontSize = obj.fontSize || 18;
+            const fontWeight = obj.fontWeight || 'normal';
+            const fontStyle = obj.fontStyle || 'normal';
+            ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`.trim();
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = obj.textColor || obj.lineColor || '#000000';
+            ctx.fillText(obj.text, localX, localY);
         } else if (obj.type === 'furniture') {
             ctx.fillRect(localX, localY, width, height);
             ctx.strokeRect(localX, localY, width, height);
@@ -3918,6 +4100,8 @@ function redrawCanvas() {
     drawBackgroundMeasurementLine();
     drawSelectionBoxOverlay();
     ctx.restore();
+
+    updatePropertiesPanel();
 }
 
 // ============================================================
@@ -4116,7 +4300,88 @@ function handleKeyDown(e) {
 // ============================================================
 // UI
 // ============================================================
+function getActivePropertyContext() {
+    if (selectedObjectIndices.size > 0) {
+        const types = new Set();
+        selectedObjectIndices.forEach(index => {
+            const obj = objects[index];
+            if (obj?.type) {
+                types.add(obj.type);
+            }
+        });
+
+        if (types.size === 1) {
+            return types.values().next().value;
+        }
+        return 'mixed';
+    }
+
+    if (selectedFloorIds.size > 0) return 'floor';
+    if (selectedWalls.size > 0) return 'wall';
+    return currentTool || 'select';
+}
+
+function updatePropertiesPanel() {
+    const context = getActivePropertyContext();
+    const normalizedContext = context === 'mixed' ? 'select' : context;
+    if (context === lastPropertyContext) return;
+    lastPropertyContext = context;
+
+    const groups = document.querySelectorAll('.property-group');
+    groups.forEach(group => {
+        const contexts = (group.dataset.contexts || '')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        const shouldShow = contexts.length === 0 || contexts.includes(normalizedContext);
+        group.classList.toggle('hidden', !shouldShow);
+    });
+}
+
+function clampValue(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function recalcTextObjectDimensions(obj) {
+    const dims = measureTextDimensions(
+        obj.text,
+        obj.fontSize || 18,
+        obj.fontWeight || 'normal',
+        obj.fontStyle || 'normal'
+    );
+    obj.width = dims.width;
+    obj.height = dims.height;
+}
+
+function applyTextChangesToSelection(mutator) {
+    const indices = Array.from(selectedObjectIndices).filter(i => objects[i]?.type === 'text');
+    if (!indices.length) return false;
+
+    pushUndoState();
+    indices.forEach(index => {
+        const obj = objects[index];
+        mutator(obj);
+        recalcTextObjectDimensions(obj);
+    });
+    redrawCanvas();
+    return true;
+}
+
+function updateTextStyleButtons() {
+    if (textBoldButton) textBoldButton.classList.toggle('active', textIsBold);
+    if (textItalicButton) textItalicButton.classList.toggle('active', textIsItalic);
+}
+
+function updateMeasurementPreview() {
+    if (!measurementDescriptionPreview) return;
+    measurementDescriptionPreview.textContent = measurementDescription
+        ? `Label: ${measurementDescription}`
+        : '';
+}
+
 function updateToolInfo() {
+    if (!toolInfoDisplay) return;
     if (isBackgroundMeasurementActive) {
         toolInfoDisplay.textContent = hasValidMeasurementDistance()
             ? `Calibrating background: set ${getMeasurementLabel()} on the preview overlay`
@@ -4133,13 +4398,130 @@ function updateToolInfo() {
         case 'select': name = 'Select'; break;
         case 'erase': name = 'Eraser'; break;
         case 'dimension': name = 'Dimension'; break;
+        case 'text': name = 'Text'; break;
     }
 
     if (isPasteMode) {
         name = 'Paste Mode (click to set point)';
     }
 
-    toolInfoDisplay.textContent = `Current Tool: ${name}`;
+    toolInfoDisplay.textContent = name;
+}
+
+function openTextModal({ defaultValue = 'New label', confirmLabel = 'Save', onSubmit } = {}) {
+    if (!textModal || !textModalInput || !textModalConfirm) return;
+    textModalInput.value = defaultValue;
+    textModalConfirm.textContent = confirmLabel;
+    textModal.classList.remove('hidden');
+    textModalResolver = onSubmit;
+    setTimeout(() => textModalInput.focus(), 0);
+}
+
+function closeTextModal() {
+    if (!textModal) return;
+    textModal.classList.add('hidden');
+    textModalResolver = null;
+    pendingTextPlacement = null;
+}
+
+function submitTextModal() {
+    if (!textModalResolver || !textModalInput) {
+        closeTextModal();
+        return;
+    }
+    const value = textModalInput.value.trim();
+    textModalResolver(value);
+}
+
+function handleTextPlacement(textValue) {
+    const placement = pendingTextPlacement;
+    pendingTextPlacement = null;
+    if (!placement) {
+        closeTextModal();
+        return;
+    }
+
+    if (!textValue) {
+        closeTextModal();
+        return;
+    }
+
+    pushUndoState();
+    const color = textColorInput?.value || '#000000';
+    const fontWeight = textIsBold ? 'bold' : 'normal';
+    const fontStyle = textIsItalic ? 'italic' : 'normal';
+    const { width, height } = measureTextDimensions(textValue, textFontSize, fontWeight, fontStyle);
+
+    const newObj = {
+        type: 'text',
+        text: textValue,
+        x: placement.x,
+        y: placement.y,
+        width,
+        height,
+        lineWidth: 0,
+        lineColor: color,
+        fillColor: 'transparent',
+        textColor: color,
+        fontSize: textFontSize,
+        fontWeight,
+        fontStyle,
+        rotation: 0,
+        flipH: false,
+        flipV: false
+    };
+
+    objects.push(newObj);
+    selectedObjectIndices = new Set([objects.length - 1]);
+    selectedWalls.clear();
+    selectedFloorIds.clear();
+    selectAllMode = false;
+    redrawCanvas();
+    closeTextModal();
+}
+
+function changeTextFontSize(delta) {
+    textFontSize = clampValue(textFontSize + delta, 8, 96);
+    const applied = applyTextChangesToSelection(obj => {
+        obj.fontSize = textFontSize;
+    });
+    if (!applied) {
+        redrawCanvas();
+    }
+}
+
+function toggleTextBold() {
+    textIsBold = !textIsBold;
+    const applied = applyTextChangesToSelection(obj => {
+        obj.fontWeight = textIsBold ? 'bold' : 'normal';
+    });
+    if (!applied) {
+        redrawCanvas();
+    }
+    updateTextStyleButtons();
+}
+
+function toggleTextItalic() {
+    textIsItalic = !textIsItalic;
+    const applied = applyTextChangesToSelection(obj => {
+        obj.fontStyle = textIsItalic ? 'italic' : 'normal';
+    });
+    if (!applied) {
+        redrawCanvas();
+    }
+    updateTextStyleButtons();
+}
+
+function changeMeasurementFontSize(delta) {
+    measurementFontSize = clampValue(measurementFontSize + delta, 8, 48);
+    redrawCanvas();
+}
+
+function setMeasurementDescription(description) {
+    measurementDescription = (description || '').trim();
+    updateMeasurementPreview();
+    redrawCanvas();
+    closeTextModal();
 }
 
 // ============================================================
