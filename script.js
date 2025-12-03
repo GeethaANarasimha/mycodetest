@@ -4662,7 +4662,7 @@ function createWallMesh(wall, wallHeight) {
     const thickness = wall.thicknessPx || (0.5 * scale);
 
     const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
-    const material = new THREE.MeshStandardMaterial({ color: wall.lineColor || DEFAULT_WALL_COLOR });
+    const material = new THREE.MeshStandardMaterial({ color: '#ffffff' });
     const mesh = new THREE.Mesh(geometry, material);
 
     const midX = (n1.x + n2.x) / 2;
