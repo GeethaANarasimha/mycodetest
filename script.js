@@ -3451,6 +3451,44 @@ function handleCanvasClick(e) {
 function handleCanvasDoubleClick(e) {
     let { x, y } = screenToWorld(e.clientX, e.clientY);
 
+    if (currentTool === 'dimension') {
+        if (isBackgroundMeasurementActive) return;
+        if (typeof e.button !== 'undefined' && e.button !== 0) return;
+
+        // Prefer space dimensions when hovering a gap on a horizontal wall
+        let spaceData = window.hoveredSpaceSegment;
+        let wallData = window.hoveredWall;
+
+        if (!wallData && typeof window.findNearestWall === 'function') {
+            wallData = window.findNearestWall(x, y, 20);
+        }
+
+        if (!spaceData && wallData && typeof window.findAvailableSpacesOnWall === 'function') {
+            spaceData = window.findAvailableSpacesOnWall(wallData, x, y);
+        }
+
+        let dimensionCreated = false;
+
+        if (spaceData && typeof window.createSpaceDimension === 'function') {
+            pushUndoState();
+            window.createSpaceDimension(spaceData);
+            dimensionCreated = true;
+        } else if (wallData && typeof window.createWallDimension === 'function') {
+            pushUndoState();
+            window.createWallDimension(wallData);
+            dimensionCreated = true;
+        }
+
+        if (dimensionCreated) {
+            if (typeof window.resetDimensionTool === 'function') {
+                window.resetDimensionTool();
+            }
+            redrawCanvas();
+        }
+
+        return;
+    }
+
     if (!isWallDrawing) {
         const floor = getFloorAt(x, y);
         if (floor) {

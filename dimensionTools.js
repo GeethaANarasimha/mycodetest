@@ -90,6 +90,14 @@ window.getWallThicknessPx = function(wall) {
 window.handleDimensionMouseDown = function(e) {
     if (currentTool !== 'dimension') return;
 
+    // Ignore the second click of a double-click so manual mode isn't triggered
+    if (e.detail && e.detail > 1) {
+        if (typeof window.resetDimensionTool === 'function') {
+            window.resetDimensionTool();
+        }
+        return;
+    }
+
     const { x: rawX, y: rawY } = window.getCanvasCoordsFromEvent(e);
     let x = rawX;
     let y = rawY;
