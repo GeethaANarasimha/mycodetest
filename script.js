@@ -44,6 +44,9 @@ const backgroundCalibrationBar = document.getElementById('backgroundCalibrationB
 const backgroundCalibrationText = document.getElementById('backgroundCalibrationText');
 const applyBackgroundMeasurementButton = document.getElementById('applyBackgroundMeasurement');
 const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgroundMeasurement');
+const finishBackgroundMeasurementButton = document.getElementById('finishBackgroundMeasurement');
+const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
+const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -105,6 +108,7 @@ let isBackgroundMeasurementActive = false;
 let measurementDragHandle = null;
 let measurementDragLast = null;
 let measurementDistanceFeet = 10;
+let isBackgroundImageVisible = true;
 
 const BASE_CANVAS_WIDTH = canvas.width;
 const BASE_CANVAS_HEIGHT = canvas.height;
@@ -263,6 +267,10 @@ function resetBackgroundModal() {
     if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = true;
     backgroundImageDraft = null;
     measurementLine = null;
+    isBackgroundMeasurementActive = false;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    updateBackgroundMeasurementUI();
 }
 
 function openBackgroundImageModal() {
@@ -278,6 +286,8 @@ function openBackgroundImageModal() {
     } else {
         resetBackgroundModal();
     }
+
+    updateBackgroundMeasurementUI();
 }
 
 function closeBackgroundImageModal() {
@@ -294,6 +304,38 @@ function createBackgroundImageData(img) {
     const x = (canvas.width - width) / 2;
     const y = (canvas.height - height) / 2;
     return { image: img, x, y, width, height };
+}
+
+function updateBackgroundMeasurementUI() {
+    if (backgroundImageModal) {
+        backgroundImageModal.classList.toggle('measurement-mode', isBackgroundMeasurementActive);
+    }
+
+    if (backgroundMeasurementHint) {
+        backgroundMeasurementHint.classList.toggle('hidden', !isBackgroundMeasurementActive);
+        if (isBackgroundMeasurementActive) {
+            backgroundMeasurementHint.textContent = `Drag the measurement line on the canvas to match ${measurementDistanceFeet} ft, then press Finish.`;
+        }
+    }
+
+    if (finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.classList.toggle('hidden', !isBackgroundMeasurementActive);
+        finishBackgroundMeasurementButton.disabled = !measurementLine;
+    }
+
+    if (startBackgroundMeasurementButton) {
+        startBackgroundMeasurementButton.textContent = isBackgroundMeasurementActive ? 'Reset Measurement' : 'Next';
+    }
+}
+
+function syncBackgroundControls() {
+    if (!toggleBackgroundImageButton) return;
+    if (backgroundImageData) {
+        toggleBackgroundImageButton.classList.remove('hidden');
+        toggleBackgroundImageButton.textContent = isBackgroundImageVisible ? 'Hide Background Image' : 'Show Background Image';
+    } else {
+        toggleBackgroundImageButton.classList.add('hidden');
+    }
 }
 
 function handleBackgroundFileChange(e) {
@@ -321,6 +363,9 @@ function handleBackgroundFileChange(e) {
             }
             if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'none';
             if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
+            isBackgroundImageVisible = true;
+            syncBackgroundControls();
+            updateBackgroundMeasurementUI();
             redrawCanvas();
         };
         img.src = reader.result;
@@ -360,7 +405,7 @@ function startBackgroundMeasurement() {
         backgroundCalibrationText.textContent = `Drag the measurement line to match ${measurementDistanceFeet} ft on your image.`;
     }
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.remove('hidden');
-    closeBackgroundImageModal();
+    updateBackgroundMeasurementUI();
     updateToolInfo();
     redrawCanvas();
 }
@@ -370,22 +415,22 @@ function cancelBackgroundMeasurement() {
     measurementDragHandle = null;
     measurementDragLast = null;
     measurementLine = null;
-    backgroundImageDraft = null;
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
+    updateBackgroundMeasurementUI();
     updateToolInfo();
     redrawCanvas();
 }
 
-function applyBackgroundMeasurement() {
-    if (!measurementLine) return;
+function applyBackgroundMeasurement(closeModal = false) {
+    if (!measurementLine) return false;
     const activeBackground = backgroundImageDraft || backgroundImageData;
-    if (!activeBackground) return;
+    if (!activeBackground) return false;
     const dx = measurementLine.end.x - measurementLine.start.x;
     const dy = measurementLine.end.y - measurementLine.start.y;
     const pixelDistance = Math.hypot(dx, dy);
     if (!pixelDistance || measurementDistanceFeet <= 0) {
         alert('Place the measurement line to calculate scale.');
-        return;
+        return false;
     }
 
     const newScale = pixelDistance / measurementDistanceFeet;
@@ -396,8 +441,24 @@ function applyBackgroundMeasurement() {
     backgroundImageData = activeBackground;
     backgroundImageDraft = null;
     measurementLine = null;
-    cancelBackgroundMeasurement();
+    isBackgroundMeasurementActive = false;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
+    isBackgroundImageVisible = true;
+    updateBackgroundMeasurementUI();
+    syncBackgroundControls();
+    updateToolInfo();
     redrawCanvas();
+    if (closeModal) closeBackgroundImageModal();
+    return true;
+}
+
+function finishBackgroundMeasurement() {
+    const applied = applyBackgroundMeasurement(true);
+    if (!applied && finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.disabled = !measurementLine;
+    }
 }
 
 function startMeasurementDrag(x, y) {
@@ -450,15 +511,51 @@ function finalizeMeasurementDrag() {
     measurementDragLast = null;
 }
 
+function toggleBackgroundImageVisibility() {
+    if (!backgroundImageData) return;
+    isBackgroundImageVisible = !isBackgroundImageVisible;
+    syncBackgroundControls();
+    redrawCanvas();
+}
+
+function deleteBackgroundImage() {
+    if (!backgroundImageData) return;
+    backgroundImageData = null;
+    backgroundImageDraft = null;
+    measurementLine = null;
+    isBackgroundMeasurementActive = false;
+    isBackgroundImageVisible = true;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
+    resetBackgroundModal();
+    closeBackgroundImageModal();
+    syncBackgroundControls();
+    updateBackgroundMeasurementUI();
+    redrawCanvas();
+}
+
 // ============================================================
 // CONTEXT MENU FUNCTIONS
 // ============================================================
 
 function showContextMenu(x, y, wall = null) {
     rightClickedWall = wall;
-    
+
     const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
-    
+    const hasBackgroundImage = !!backgroundImageData;
+    const backgroundVisibilityLabel = isBackgroundImageVisible ? 'Hide Background Image' : 'Show Background Image';
+    const backgroundMenu = hasBackgroundImage ? `
+        <div class="context-item" data-action="toggleBackgroundVisibility" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+            ${backgroundVisibilityLabel}
+        </div>
+        ${isBackgroundImageVisible ? `
+            <div class="context-item" data-action="deleteBackground" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+                Delete Background Image
+            </div>
+        ` : ''}
+    ` : '';
+
     contextMenu.innerHTML = `
         <div style="padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #eee; font-weight: bold;">
             ${wall ? 'Wall Options' : 'Designer Options'}
@@ -466,6 +563,7 @@ function showContextMenu(x, y, wall = null) {
         <div class="context-item" data-action="background" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
             Add Background Image
         </div>
+        ${backgroundMenu}
         ${wall ? `
             <div class="context-item" data-action="split" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
                 Split Wall
@@ -536,6 +634,12 @@ function handleContextMenuAction(action) {
             break;
         case 'background':
             openBackgroundImageModal();
+            break;
+        case 'toggleBackgroundVisibility':
+            toggleBackgroundImageVisibility();
+            break;
+        case 'deleteBackground':
+            deleteBackgroundImage();
             break;
         case 'undo':
             undo();
@@ -1767,6 +1871,9 @@ function init() {
             closeBackgroundImageModal();
         });
     }
+    if (finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.addEventListener('click', finishBackgroundMeasurement);
+    }
     if (applyBackgroundMeasurementButton) {
         applyBackgroundMeasurementButton.addEventListener('click', applyBackgroundMeasurement);
     }
@@ -1829,10 +1936,15 @@ function init() {
         redrawCanvas();
     });
 
+    if (toggleBackgroundImageButton) {
+        toggleBackgroundImageButton.addEventListener('click', toggleBackgroundImageVisibility);
+    }
+
     canvas.addEventListener('keydown', handleKeyDown);
 
     syncCanvasScrollArea();
     drawGrid();
+    syncBackgroundControls();
     updateToolInfo();
 }
 
@@ -3095,7 +3207,8 @@ function drawBackgroundImage() {
     const data = isBackgroundMeasurementActive
         ? (backgroundImageDraft || backgroundImageData)
         : backgroundImageData;
-    if (!data) return;
+    const shouldShow = isBackgroundMeasurementActive || isBackgroundImageVisible;
+    if (!data || !shouldShow) return;
     ctx.save();
     ctx.globalAlpha = 1;
     ctx.drawImage(
@@ -3122,11 +3235,13 @@ function drawBackgroundMeasurementLine() {
     ctx.lineTo(measurementLine.end.x, measurementLine.end.y);
     ctx.stroke();
 
-    const handleSize = 6 / viewScale;
+    const handleHalf = 8 / viewScale;
     [measurementLine.start, measurementLine.end].forEach(point => {
         ctx.beginPath();
-        ctx.arc(point.x, point.y, handleSize, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(point.x - handleHalf, point.y);
+        ctx.lineTo(point.x + handleHalf, point.y);
+        ctx.moveTo(point.x, point.y - handleHalf);
+        ctx.lineTo(point.x, point.y + handleHalf);
         ctx.stroke();
     });
 
@@ -3157,7 +3272,8 @@ function drawBackgroundMeasurementLine() {
 function drawGrid() {
     if (!showGrid) return;
     ctx.save();
-    ctx.globalAlpha = backgroundImageData ? 0.5 : 1;
+    const hasVisibleBackground = backgroundImageData && (isBackgroundImageVisible || isBackgroundMeasurementActive);
+    ctx.globalAlpha = hasVisibleBackground ? 0.5 : 1;
     const visibleStartX = -viewOffsetX / viewScale;
     const visibleStartY = -viewOffsetY / viewScale;
     const visibleEndX = visibleStartX + canvas.width / viewScale;
