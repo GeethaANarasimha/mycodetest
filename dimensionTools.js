@@ -94,49 +94,13 @@ window.handleDimensionMouseDown = function(e) {
     let x = rawX;
     let y = rawY;
     
-    // Check for double click - manual dimension mode
-    if (e.detail === 2) {
-        handleManualDimensionDoubleClick(x, y);
-        return;
-    }
-    
-    // SINGLE CLICK - Auto wall dimension
-    const nearestWall = findNearestWall(x, y, 20);
-    if (nearestWall) {
-        const spaceData = findAvailableSpacesOnWall(nearestWall, x, y);
-
-        pushUndoState();
-
-        if (spaceData) {
-            createSpaceDimension(spaceData);
-        } else {
-            createWallDimension(nearestWall);
-        }
-
-        redrawCanvas();
-        return;
-    }
-    
-    // If no wall found, start manual dimension
+    // Manual mode: first click sets the start, second click sets the end
     if (!isDimensionDrawing) {
         startManualDimension(x, y);
     } else {
         endManualDimension(x, y);
     }
 };
-
-/**
- * Handle double click for manual dimension mode
- */
-function handleManualDimensionDoubleClick(x, y) {
-    if (!isDimensionDrawing) {
-        // First point of manual dimension
-        startManualDimension(x, y);
-    } else {
-        // Second point of manual dimension
-        endManualDimension(x, y);
-    }
-}
 
 /**
  * Start manual dimension
@@ -280,24 +244,13 @@ window.handleDimensionMouseMove = function(e) {
     
     if (!isDimensionDrawing) {
         // Hover mode
-        if (hoveredSpaceSegment) {
-            coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click: Add Space Dimension | Double-click: Manual Dimension`;
-        } else if (hoveredWall) {
-            const length = Math.hypot(hoveredWall.n2.x - hoveredWall.n1.x, hoveredWall.n2.y - hoveredWall.n1.y);
-            const totalInches = Math.round((length / scale) * 12);
-            const feet = Math.floor(totalInches / 12);
-            const inches = totalInches % 12;
-            
-            coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click: Add Dimension | Double-click: Manual Dimension`;
-        } else {
-            coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Double-click: Start Manual Dimension`;
-        }
+        coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to start measurement`;
     } else {
         // Manual dimension drawing mode
         ({ x, y } = snapPointToInch(x, y));
         dimensionPreviewX = x;
         dimensionPreviewY = y;
-        coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Double-click: End Manual Dimension`;
+        coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to finish measurement`;
     }
     
     redrawCanvas();
