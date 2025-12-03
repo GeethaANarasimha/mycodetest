@@ -10,13 +10,22 @@
 <div class="app-shell">
 
 <div class="toolbar">
-    <button class="tool-btn" data-tool="select">
-        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_a2e5628b9c1347ddadfd8b1b56bae546.svg" alt="">
-        Select
+    <button class="tool-btn" data-tool="select" aria-label="Select">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_e8cd6441615c4fd39976a3812469b223.svg" alt="">
+        <span class="tool-label">Select</span>
     </button>
-    <button class="tool-btn" data-tool="wall">Wall</button>
-    <button class="tool-btn" data-tool="pan">Pan</button>
-    <button class="tool-btn" data-tool="door">Door</button>
+    <button class="tool-btn" data-tool="wall" aria-label="Wall">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_38c6c46a65fd49a783dfbfd974740b0a.svg" alt="">
+        <span class="tool-label">Wall</span>
+    </button>
+    <button class="tool-btn" data-tool="pan" aria-label="Pan">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_7fd823218d7b425593c311435c84c9bf.svg" alt="">
+        <span class="tool-label">Pan</span>
+    </button>
+    <button class="tool-btn" data-tool="door" aria-label="Door">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_735e93c7dd2a4ef9969fb3bf1094e1b7.svg" alt="">
+        <span class="tool-label">Door</span>
+    </button>
 
     <!-- NEW — Door Type Dropdown -->
     <select id="doorType">
@@ -25,24 +34,57 @@
         <option value="bathroom">Bathroom Door (2.5ft)</option>
     </select>
 
-    <button class="tool-btn" data-tool="window">Window</button>
-    <button class="tool-btn" data-tool="furniture">Furniture</button>
-    <button class="tool-btn" data-tool="floor">Floor Fill</button>
-    <button class="tool-btn" data-tool="erase">Erase</button>
-    <button class="tool-btn" data-tool="dimension">Dimension</button>
+    <button class="tool-btn" data-tool="window" aria-label="Window">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_0a3b507cf3fc427eaab066301a920e5c.svg" alt="">
+        <span class="tool-label">Window</span>
+    </button>
+    <button class="tool-btn" data-tool="furniture" aria-label="Furniture">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_7ad998836ddb4a5ead990a30f61fda01.svg" alt="">
+        <span class="tool-label">Furniture</span>
+    </button>
+    <button class="tool-btn" data-tool="floor" aria-label="Floor Fill">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_3c3ccac3849f432ab3f23ea24547af8c.svg" alt="">
+        <span class="tool-label">Floor Fill</span>
+    </button>
+    <button class="tool-btn" data-tool="erase" aria-label="Erase">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_e9f15f1981cc43afbf920fdbc9bda6ba.svg" alt="">
+        <span class="tool-label">Erase</span>
+    </button>
+    <button class="tool-btn" data-tool="dimension" aria-label="Dimension">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_30f8437bfae148a38aca059207dc1ce2.svg" alt="">
+        <span class="tool-label">Dimension</span>
+    </button>
 
     <div class="transform-menu">
         <span class="transform-title">Transform</span>
-        <button id="rotateLeft" class="tool-btn secondary-btn" type="button">Rotate ⟲</button>
-        <button id="rotateRight" class="tool-btn secondary-btn" type="button">Rotate ⟳</button>
-        <button id="flipHorizontal" class="tool-btn secondary-btn" type="button">Flip H</button>
-        <button id="flipVertical" class="tool-btn secondary-btn" type="button">Flip V</button>
+        <button id="rotateLeft" class="tool-btn secondary-btn" type="button" aria-label="Rotate Left">
+            <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_74c75a751d214630a1839c167822df96.svg" alt="">
+            <span class="tool-label">Rotate Left</span>
+        </button>
+        <button id="rotateRight" class="tool-btn secondary-btn" type="button" aria-label="Rotate Right">
+            <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_74c75a751d214630a1839c167822df96.svg" alt="">
+            <span class="tool-label">Rotate Right</span>
+        </button>
+        <button id="flipHorizontal" class="tool-btn secondary-btn" type="button" aria-label="Flip Horizontal">
+            <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_b6a1fcb25d8743448091bf5d741f9eb1.svg" alt="">
+            <span class="tool-label">Flip Horizontal</span>
+        </button>
+        <button id="flipVertical" class="tool-btn secondary-btn" type="button" aria-label="Flip Vertical">
+            <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_590fe3b2279c4af9871b4cd3575104e4.svg" alt="">
+            <span class="tool-label">Flip Vertical</span>
+        </button>
     </div>
 
     <div class="view-menu">
         <span class="transform-title">View</span>
-        <button id="zoomOut" class="tool-btn secondary-btn" type="button">−</button>
-        <button id="zoomIn" class="tool-btn secondary-btn" type="button">+</button>
+        <button id="zoomOut" class="tool-btn secondary-btn" type="button" aria-label="Zoom Out">
+            <span class="tool-icon text-icon">−</span>
+            <span class="tool-label">Zoom Out</span>
+        </button>
+        <button id="zoomIn" class="tool-btn secondary-btn" type="button" aria-label="Zoom In">
+            <span class="tool-icon text-icon">+</span>
+            <span class="tool-label">Zoom In</span>
+        </button>
     </div>
 
     <div class="tool-info"></div>
