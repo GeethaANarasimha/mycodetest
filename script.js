@@ -26,8 +26,6 @@ const coordinatesDisplay = document.querySelector('.coordinates');
 const toolInfoDisplay = document.querySelector('.tool-info');
 const measurementFontIncreaseButton = document.getElementById('measurementFontIncrease');
 const measurementFontDecreaseButton = document.getElementById('measurementFontDecrease');
-const measurementDescribeButton = document.getElementById('measurementDescribe');
-const measurementDescriptionPreview = document.getElementById('measurementDescriptionPreview');
 const rotateLeftButton = document.getElementById('rotateLeft');
 const rotateRightButton = document.getElementById('rotateRight');
 const flipHorizontalButton = document.getElementById('flipHorizontal');
@@ -108,7 +106,6 @@ let textFontSize = 18;
 let textIsBold = false;
 let textIsItalic = false;
 let measurementFontSize = 12;
-let measurementDescription = '';
 
 let nodes = [];
 let walls = [];
@@ -2289,16 +2286,6 @@ function init() {
     if (measurementFontDecreaseButton) {
         measurementFontDecreaseButton.addEventListener('click', () => changeMeasurementFontSize(-2));
     }
-    if (measurementDescribeButton) {
-        measurementDescribeButton.addEventListener('click', () => {
-            pendingTextPlacement = null;
-            openTextModal({
-                defaultValue: measurementDescription || '',
-                confirmLabel: 'Save Label',
-                onSubmit: setMeasurementDescription
-            });
-        });
-    }
 
     if (backgroundDistanceInput) {
         backgroundDistanceInput.addEventListener('input', () => {
@@ -3866,15 +3853,11 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const tx = midX + nx * offset;
     const ty = midY + ny * offset;
 
-    const label = measurementDescription
-        ? `${text} (${measurementDescription})`
-        : text;
-
     withViewTransform(() => {
         ctx.save();
         ctx.fillStyle = '#e74c3c';
         ctx.font = `${measurementFontSize}px Arial`;
-        ctx.fillText(label, tx - ctx.measureText(label).width / 2, ty - 2);
+        ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
         ctx.restore();
     });
 }
@@ -4373,13 +4356,6 @@ function updateTextStyleButtons() {
     if (textItalicButton) textItalicButton.classList.toggle('active', textIsItalic);
 }
 
-function updateMeasurementPreview() {
-    if (!measurementDescriptionPreview) return;
-    measurementDescriptionPreview.textContent = measurementDescription
-        ? `Label: ${measurementDescription}`
-        : '';
-}
-
 function updateToolInfo() {
     if (!toolInfoDisplay) return;
     if (isBackgroundMeasurementActive) {
@@ -4515,13 +4491,6 @@ function toggleTextItalic() {
 function changeMeasurementFontSize(delta) {
     measurementFontSize = clampValue(measurementFontSize + delta, 8, 48);
     redrawCanvas();
-}
-
-function setMeasurementDescription(description) {
-    measurementDescription = (description || '').trim();
-    updateMeasurementPreview();
-    redrawCanvas();
-    closeTextModal();
 }
 
 // ============================================================
