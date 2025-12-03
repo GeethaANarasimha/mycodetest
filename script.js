@@ -2850,9 +2850,7 @@ function handleMouseDown(e) {
     }
 
     if (currentTool === 'dimension') {
-        if (typeof handleDimensionMouseDown === 'function') {
-            handleDimensionMouseDown(e);
-        }
+        // Dimension clicks are handled on the click event to avoid interference with selection logic
         return;
     }
 
@@ -3366,6 +3364,15 @@ function handleMouseUp() {
 // WALL CHAIN
 // ============================================================
 function handleCanvasClick(e) {
+    if (currentTool === 'dimension') {
+        if (isBackgroundMeasurementActive) return;
+        if (typeof e.button !== 'undefined' && e.button !== 0) return;
+        if (typeof handleDimensionMouseDown === 'function') {
+            handleDimensionMouseDown(e);
+        }
+        return;
+    }
+
     if (currentTool !== 'wall') return;
 
     if (ignoreNextClick) {
