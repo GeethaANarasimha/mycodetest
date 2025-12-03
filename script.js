@@ -212,6 +212,7 @@ function applyViewZoom(factor, anchor = null) {
 function panView(deltaX, deltaY) {
     viewOffsetX += deltaX;
     viewOffsetY += deltaY;
+    syncCanvasScrollArea();
     redrawCanvas();
 }
 
@@ -220,8 +221,13 @@ function syncCanvasScrollArea() {
     const minWidth = BASE_CANVAS_WIDTH * viewScale;
     const minHeight = BASE_CANVAS_HEIGHT * viewScale;
 
-    canvas.style.minWidth = `${minWidth}px`;
-    canvas.style.minHeight = `${minHeight}px`;
+    // Expand the scrollable area to match panning in any direction so the
+    // horizontal/vertical scrollbars resize as the view moves.
+    const paddedWidth = minWidth + Math.abs(viewOffsetX) * 2;
+    const paddedHeight = minHeight + Math.abs(viewOffsetY) * 2;
+
+    canvas.style.minWidth = `${paddedWidth}px`;
+    canvas.style.minHeight = `${paddedHeight}px`;
 
     // Keep scroll positions within the new bounds
     const maxScrollLeft = Math.max(0, canvas.scrollWidth - canvasContainer.clientWidth);
@@ -1558,7 +1564,10 @@ function init() {
         canvasContainer.addEventListener('wheel', (e) => {
             if (e.ctrlKey) return; // allow browser zoom shortcuts
             e.preventDefault();
-            panView(-e.deltaX, -e.deltaY);
+            const wantsHorizontal = e.shiftKey && Math.abs(e.deltaX) < Math.abs(e.deltaY);
+            const moveX = wantsHorizontal ? -e.deltaY : -e.deltaX;
+            const moveY = wantsHorizontal ? 0 : -e.deltaY;
+            panView(moveX, moveY);
         }, { passive: false });
     }
 
