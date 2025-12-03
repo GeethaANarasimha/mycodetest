@@ -3778,7 +3778,6 @@ function handleCanvasDoubleClick(e) {
 
     if (currentTool === 'wall' && isWallDrawing) {
         e.preventDefault();
-        ignoreNextClick = true;
 
         // If there's a preview, create the final wall segment
         if (wallPreviewX !== null && wallPreviewY !== null && wallChain.length > 0) {
