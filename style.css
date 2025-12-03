@@ -31,6 +31,9 @@ body {
     align-items: center;
     flex-shrink: 0;
 }
+.toolbar-spacer {
+    flex: 1;
+}
 .tool-btn {
     background: #2d3a4d;
     color: #fff;
@@ -225,6 +228,15 @@ input[type="text"] {
     display: flex;
     justify-content: center;
     align-items: flex-start;
+    position: relative;
+}
+
+.three-container {
+    position: absolute;
+    inset: 10px;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
 }
 
 # lineColorPreview,
