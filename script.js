@@ -5,6 +5,7 @@
 // ---------------- DOM ELEMENTS ----------------
 const canvas = document.getElementById('drawingCanvas');
 const ctx = canvas.getContext('2d');
+const canvasContainer = document.querySelector('.canvas-container');
 const toolButtons = document.querySelectorAll('.tool-btn[data-tool]');
 const doorTypeSelect = document.getElementById('doorType');
 const wallThicknessFeetInput = document.getElementById('wallThicknessFeet');
@@ -84,6 +85,9 @@ let floors = [];
 let nextFloorId = 1;
 
 let objects = [];
+
+const BASE_CANVAS_WIDTH = canvas.width;
+const BASE_CANVAS_HEIGHT = canvas.height;
 
 // View transform
 let viewScale = 1;
@@ -201,6 +205,7 @@ function applyViewZoom(factor, anchor = null) {
         viewOffsetY = screenAnchor.y - anchor.y * newScale;
     }
     viewScale = newScale;
+    syncCanvasScrollArea();
     redrawCanvas();
 }
 
@@ -208,6 +213,22 @@ function panView(deltaX, deltaY) {
     viewOffsetX += deltaX;
     viewOffsetY += deltaY;
     redrawCanvas();
+}
+
+function syncCanvasScrollArea() {
+    if (!canvasContainer) return;
+    const minWidth = BASE_CANVAS_WIDTH * viewScale;
+    const minHeight = BASE_CANVAS_HEIGHT * viewScale;
+
+    canvas.style.minWidth = `${minWidth}px`;
+    canvas.style.minHeight = `${minHeight}px`;
+
+    // Keep scroll positions within the new bounds
+    const maxScrollLeft = Math.max(0, canvas.scrollWidth - canvasContainer.clientWidth);
+    const maxScrollTop = Math.max(0, canvas.scrollHeight - canvasContainer.clientHeight);
+
+    canvasContainer.scrollLeft = Math.min(canvasContainer.scrollLeft, maxScrollLeft);
+    canvasContainer.scrollTop = Math.min(canvasContainer.scrollTop, maxScrollTop);
 }
 
 function getCanvasCenterWorld() {
@@ -1533,6 +1554,14 @@ function init() {
         zoomOutButton.addEventListener('click', () => applyViewZoom(1 / VIEW_ZOOM_STEP, getCanvasCenterWorld()));
     }
 
+    if (canvasContainer) {
+        canvasContainer.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) return; // allow browser zoom shortcuts
+            e.preventDefault();
+            panView(-e.deltaX, -e.deltaY);
+        }, { passive: false });
+    }
+
     wallThicknessFeetInput.addEventListener('input', redrawCanvas);
     wallThicknessInchesInput.addEventListener('input', redrawCanvas);
     lineWidthInput.addEventListener('input', redrawCanvas);
@@ -1560,6 +1589,7 @@ function init() {
 
     canvas.addEventListener('keydown', handleKeyDown);
 
+    syncCanvasScrollArea();
     drawGrid();
     updateToolInfo();
 }
