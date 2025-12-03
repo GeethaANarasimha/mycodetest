@@ -113,6 +113,7 @@
     <label><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
 
     <button id="toggleGrid">Toggle Grid</button>
+    <button id="toggleBackgroundImage" class="hidden">Hide Background Image</button>
 </div>
 
 <div class="canvas-shell">
@@ -153,6 +154,53 @@
             <button id="applyFloorTexture" class="tool-btn">Apply</button>
             <button id="cancelFloorTexture" class="tool-btn secondary-btn" type="button">Cancel</button>
         </div>
+    </div>
+</div>
+
+<div id="backgroundImageModal" class="modal hidden">
+    <div class="modal-content wide">
+        <h3>Add Background Image</h3>
+        <p class="modal-subtitle">Upload a reference floor plan to trace over. Only image files are supported.</p>
+
+        <label class="modal-label" for="backgroundImageFile">Image file</label>
+        <input type="file" id="backgroundImageFile" accept="image/*">
+
+        <div class="preview-row">
+            <div class="preview-box">
+                <p class="modal-subtitle">Preview</p>
+                <div class="preview-frame">
+                    <img id="backgroundPreview" alt="Background preview" />
+                    <canvas id="backgroundPreviewCanvas" class="preview-measure-canvas"></canvas>
+                    <div id="backgroundPreviewPlaceholder">Upload an image to preview it here.</div>
+                </div>
+            </div>
+            <div class="measurement-box">
+                <p class="modal-subtitle">Measurement</p>
+                <label class="modal-label" for="backgroundDistance">Known distance (ft)</label>
+                <input type="text" id="backgroundDistance" inputmode="decimal" placeholder="Enter distance">
+                <p class="modal-subtitle small">You will place this distance on the image in the next step.</p>
+            </div>
+        </div>
+
+        <div class="modal-actions">
+            <button id="startBackgroundMeasurement" class="tool-btn" type="button" disabled>Next</button>
+            <button id="finishBackgroundMeasurement" class="tool-btn secondary-btn" type="button" disabled>Finish</button>
+            <button id="cancelBackgroundImage" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+
+        <div id="backgroundMeasurementHint" class="measurement-hint hidden">
+            Drag the measurement line on the canvas to match the known distance, then press Finish.
+        </div>
+    </div>
+</div>
+
+<div id="backgroundCalibrationBar" class="calibration-bar hidden">
+    <div>
+        <strong>Background calibration:</strong>
+        <span id="backgroundCalibrationText">Drag the measurement line to match the real distance.</span>
+    </div>
+    <div class="calibration-actions">
+        <button id="cancelBackgroundMeasurement" class="tool-btn secondary-btn" type="button">Cancel</button>
     </div>
 </div>
 

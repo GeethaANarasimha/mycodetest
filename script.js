@@ -33,6 +33,21 @@ const textureHeightFeetInput = document.getElementById('textureHeightFeet');
 const textureHeightInchesInput = document.getElementById('textureHeightInches');
 const applyFloorTextureButton = document.getElementById('applyFloorTexture');
 const cancelFloorTextureButton = document.getElementById('cancelFloorTexture');
+const backgroundImageModal = document.getElementById('backgroundImageModal');
+const backgroundImageFileInput = document.getElementById('backgroundImageFile');
+const backgroundPreview = document.getElementById('backgroundPreview');
+const backgroundPreviewPlaceholder = document.getElementById('backgroundPreviewPlaceholder');
+const backgroundPreviewCanvas = document.getElementById('backgroundPreviewCanvas');
+const backgroundPreviewCtx = backgroundPreviewCanvas?.getContext('2d');
+const backgroundDistanceInput = document.getElementById('backgroundDistance');
+const startBackgroundMeasurementButton = document.getElementById('startBackgroundMeasurement');
+const cancelBackgroundImageButton = document.getElementById('cancelBackgroundImage');
+const backgroundCalibrationBar = document.getElementById('backgroundCalibrationBar');
+const backgroundCalibrationText = document.getElementById('backgroundCalibrationText');
+const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgroundMeasurement');
+const finishBackgroundMeasurementButton = document.getElementById('finishBackgroundMeasurement');
+const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
+const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -51,7 +66,7 @@ contextMenu.style.cssText = `
 document.body.appendChild(contextMenu);
 
 // ---------------- CONSTANTS ----------------
-const scale = 20; // 20px = 1ft
+let scale = 20; // 20px = 1ft (can be recalibrated with background image)
 const NODE_RADIUS = 6;
 const NODE_HIT_RADIUS = 10;
 const ALIGN_HINT_COLOR = '#e74c3c';
@@ -67,7 +82,7 @@ const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
 
 // ---------------- STATE ----------------
-let currentTool = 'wall';
+let currentTool = 'select';
 let isDrawing = false;
 let startX, startY;
 let currentX, currentY;
@@ -85,6 +100,16 @@ let floors = [];
 let nextFloorId = 1;
 
 let objects = [];
+
+// Background image + measurement
+let backgroundImageData = null; // committed image { image, x, y, width, height }
+let backgroundImageDraft = null; // in-progress selection before measurement is applied
+let measurementLineNormalized = null; // normalized coordinates relative to preview image
+let isBackgroundMeasurementActive = false;
+let measurementDragHandle = null;
+let measurementDragLast = null;
+let measurementDistanceFeet = null;
+let isBackgroundImageVisible = true;
 
 const BASE_CANVAS_WIDTH = canvas.width;
 const BASE_CANVAS_HEIGHT = canvas.height;
@@ -225,6 +250,37 @@ function syncCanvasScrollArea() {
     canvas.style.minHeight = `${BASE_CANVAS_HEIGHT}px`;
 }
 
+function fitViewToBackground(data) {
+    if (!data || !canvasContainer) return;
+    const containerRect = canvasContainer.getBoundingClientRect();
+    if (!containerRect.width || !containerRect.height) return;
+
+    const pixelScale = getCanvasPixelScale();
+    const margin = 20;
+    const availableWidth = containerRect.width / pixelScale.x - margin * 2;
+    const availableHeight = containerRect.height / pixelScale.y - margin * 2;
+    if (availableWidth <= 0 || availableHeight <= 0) return;
+
+    const scaleForWidth = availableWidth / data.width;
+    const scaleForHeight = availableHeight / data.height;
+    const targetScale = Math.min(
+        MAX_VIEW_SCALE,
+        Math.max(MIN_VIEW_SCALE, Math.min(scaleForWidth, scaleForHeight, 1))
+    );
+
+    const viewCenterX = availableWidth / 2 + margin;
+    const viewCenterY = availableHeight / 2 + margin;
+    const backgroundCenterX = data.x + data.width / 2;
+    const backgroundCenterY = data.y + data.height / 2;
+
+    viewScale = targetScale;
+    viewOffsetX = viewCenterX - backgroundCenterX * viewScale;
+    viewOffsetY = viewCenterY - backgroundCenterY * viewScale;
+
+    syncCanvasScrollArea();
+    redrawCanvas();
+}
+
 function getCanvasCenterWorld() {
     return {
         x: (canvas.width / 2 - viewOffsetX) / viewScale,
@@ -233,18 +289,526 @@ function getCanvasCenterWorld() {
 }
 
 // ============================================================
+// BACKGROUND IMAGE + MEASUREMENT LINE
+// ============================================================
+function resetBackgroundModal() {
+    if (backgroundImageFileInput) backgroundImageFileInput.value = '';
+    if (backgroundPreview) backgroundPreview.style.display = 'none';
+    if (backgroundPreview) backgroundPreview.src = '';
+    if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'block';
+    if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = true;
+    measurementDistanceFeet = null;
+    if (backgroundDistanceInput) backgroundDistanceInput.value = '';
+    backgroundImageDraft = null;
+    measurementLineNormalized = null;
+    isBackgroundMeasurementActive = false;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    updateBackgroundMeasurementUI();
+}
+
+function openBackgroundImageModal() {
+    if (!backgroundImageModal) return;
+    backgroundImageModal.classList.remove('hidden');
+    const previewData = backgroundImageDraft || backgroundImageData;
+    updateBackgroundPreview(previewData);
+    if (previewData && startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
+    if (backgroundDistanceInput) backgroundDistanceInput.value = hasValidMeasurementDistance() ? measurementDistanceFeet : '';
+    if (!previewData) {
+        resetBackgroundModal();
+    }
+
+    updateBackgroundMeasurementUI();
+}
+
+function closeBackgroundImageModal() {
+    if (!backgroundImageModal) return;
+    backgroundImageModal.classList.add('hidden');
+}
+
+function createBackgroundImageData(img) {
+    const maxWidth = canvas.width * 0.9;
+    const maxHeight = canvas.height * 0.9;
+    const scaleFactor = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+    const width = img.width * scaleFactor;
+    const height = img.height * scaleFactor;
+    const x = (canvas.width - width) / 2;
+    const y = (canvas.height - height) / 2;
+    return { image: img, x, y, width, height };
+}
+
+function updateBackgroundPreview(previewData) {
+    if (!backgroundPreview) return;
+
+    if (previewData) {
+        backgroundPreview.src = previewData.image.src;
+        backgroundPreview.style.display = 'block';
+        if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'none';
+    } else {
+        backgroundPreview.src = '';
+        backgroundPreview.style.display = 'none';
+        if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'block';
+    }
+
+    syncPreviewCanvasSize();
+    redrawPreviewMeasurementOverlay();
+}
+
+function syncPreviewCanvasSize() {
+    if (!backgroundPreviewCanvas || !backgroundPreview) return;
+    const frameRect = backgroundPreviewCanvas.parentElement?.getBoundingClientRect();
+    if (!frameRect) return;
+
+    const frameWidth = frameRect.width;
+    const frameHeight = frameRect.height;
+    const naturalWidth = backgroundPreview.naturalWidth;
+    const naturalHeight = backgroundPreview.naturalHeight;
+    if (!frameWidth || !frameHeight || !naturalWidth || !naturalHeight) return;
+
+    // Calculate the rendered image size inside the contain-fit frame so that
+    // the measurement overlay matches the visible pixels instead of the full
+    // frame (which can include letterboxing for different aspect ratios).
+    const scale = Math.min(frameWidth / naturalWidth, frameHeight / naturalHeight);
+    const displayWidth = naturalWidth * scale;
+    const displayHeight = naturalHeight * scale;
+    const offsetX = (frameWidth - displayWidth) / 2;
+    const offsetY = (frameHeight - displayHeight) / 2;
+
+    backgroundPreviewCanvas.width = displayWidth;
+    backgroundPreviewCanvas.height = displayHeight;
+    backgroundPreviewCanvas.style.width = `${displayWidth}px`;
+    backgroundPreviewCanvas.style.height = `${displayHeight}px`;
+    backgroundPreviewCanvas.style.left = `${offsetX}px`;
+    backgroundPreviewCanvas.style.top = `${offsetY}px`;
+}
+
+function getPreviewDimensions() {
+    if (!backgroundPreviewCanvas || !backgroundPreview) return null;
+    if (backgroundPreview.style.display === 'none') return null;
+    const width = backgroundPreviewCanvas.width;
+    const height = backgroundPreviewCanvas.height;
+    if (!width || !height) return null;
+    return { width, height };
+}
+
+function toNormalized(value, size) {
+    return Math.min(1, Math.max(0, value / size));
+}
+
+function hasValidMeasurementDistance() {
+    return Number.isFinite(measurementDistanceFeet) && measurementDistanceFeet > 0;
+}
+
+function getMeasurementLabel() {
+    return hasValidMeasurementDistance() ? `${measurementDistanceFeet} ft` : 'distance';
+}
+
+function redrawPreviewMeasurementOverlay() {
+    if (!backgroundPreviewCtx || !backgroundPreviewCanvas) return;
+    const dims = getPreviewDimensions();
+    backgroundPreviewCtx.clearRect(0, 0, backgroundPreviewCanvas.width, backgroundPreviewCanvas.height);
+
+    const showOverlay = isBackgroundMeasurementActive && measurementLineNormalized && dims;
+    backgroundPreviewCanvas.classList.toggle('active', !!showOverlay);
+    if (!showOverlay) return;
+
+    const label = `${getMeasurementLabel()}`;
+    const start = {
+        x: measurementLineNormalized.start.x * dims.width,
+        y: measurementLineNormalized.start.y * dims.height
+    };
+    const end = {
+        x: measurementLineNormalized.end.x * dims.width,
+        y: measurementLineNormalized.end.y * dims.height
+    };
+
+    backgroundPreviewCtx.save();
+    backgroundPreviewCtx.lineWidth = 2;
+    backgroundPreviewCtx.strokeStyle = '#0ea5e9';
+    backgroundPreviewCtx.fillStyle = '#0ea5e9';
+
+    backgroundPreviewCtx.beginPath();
+    backgroundPreviewCtx.moveTo(start.x, start.y);
+    backgroundPreviewCtx.lineTo(end.x, end.y);
+    backgroundPreviewCtx.stroke();
+
+    const handleHalf = 8;
+    [start, end].forEach(point => {
+        backgroundPreviewCtx.beginPath();
+        backgroundPreviewCtx.moveTo(point.x - handleHalf, point.y);
+        backgroundPreviewCtx.lineTo(point.x + handleHalf, point.y);
+        backgroundPreviewCtx.moveTo(point.x, point.y - handleHalf);
+        backgroundPreviewCtx.lineTo(point.x, point.y + handleHalf);
+        backgroundPreviewCtx.stroke();
+    });
+
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2;
+    backgroundPreviewCtx.fillStyle = 'rgba(14, 165, 233, 0.85)';
+    backgroundPreviewCtx.strokeStyle = '#fff';
+    backgroundPreviewCtx.lineWidth = 1;
+    backgroundPreviewCtx.font = '12px Arial';
+    const textWidth = backgroundPreviewCtx.measureText(label).width;
+    const padding = 6;
+    const boxX = midX - textWidth / 2 - padding;
+    const boxY = midY - 16;
+    const boxWidth = textWidth + padding * 2;
+    const boxHeight = 20;
+
+    backgroundPreviewCtx.beginPath();
+    backgroundPreviewCtx.rect(boxX, boxY, boxWidth, boxHeight);
+    backgroundPreviewCtx.fill();
+    backgroundPreviewCtx.stroke();
+
+    backgroundPreviewCtx.fillStyle = '#fff';
+    backgroundPreviewCtx.textBaseline = 'middle';
+    backgroundPreviewCtx.fillText(label, midX - textWidth / 2, boxY + boxHeight / 2);
+    backgroundPreviewCtx.restore();
+}
+
+function updateBackgroundMeasurementUI() {
+    if (backgroundImageModal) {
+        backgroundImageModal.classList.toggle('measurement-mode', isBackgroundMeasurementActive);
+    }
+
+    const previewData = backgroundImageDraft || backgroundImageData;
+    updateBackgroundPreview(previewData);
+
+    if (backgroundMeasurementHint) {
+        const hasDistance = hasValidMeasurementDistance();
+        backgroundMeasurementHint.classList.toggle('hidden', !isBackgroundMeasurementActive || !hasDistance);
+        if (isBackgroundMeasurementActive && hasDistance) {
+            backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${getMeasurementLabel()}, then press Finish.`;
+        }
+    }
+
+    if (finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.classList.toggle('hidden', !isBackgroundMeasurementActive);
+        finishBackgroundMeasurementButton.disabled = !measurementLineNormalized || !hasValidMeasurementDistance();
+    }
+
+    if (startBackgroundMeasurementButton) {
+        startBackgroundMeasurementButton.textContent = isBackgroundMeasurementActive ? 'Reset Measurement' : 'Next';
+        const hasImage = !!(backgroundImageDraft || backgroundImageData);
+        if (!isBackgroundMeasurementActive) {
+            startBackgroundMeasurementButton.disabled = !hasImage || !hasValidMeasurementDistance();
+        }
+    }
+
+    redrawPreviewMeasurementOverlay();
+}
+
+function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
+    const parsed = parseFloat(feetValue);
+    const isValid = Number.isFinite(parsed) && parsed > 0;
+    measurementDistanceFeet = isValid ? parsed : null;
+    if (backgroundDistanceInput) {
+        backgroundDistanceInput.value = isValid ? parsed : '';
+    }
+
+    if (resetLine) {
+        measurementLineNormalized = null;
+        ensureMeasurementLine();
+    }
+
+    if (backgroundCalibrationText) {
+        const label = getMeasurementLabel();
+        backgroundCalibrationText.textContent = hasValidMeasurementDistance()
+            ? `Use the preview overlay to match ${label} on your image.`
+            : 'Enter a known distance to calibrate the preview overlay.';
+    }
+
+    if (backgroundMeasurementHint && isBackgroundMeasurementActive && hasValidMeasurementDistance()) {
+        backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${getMeasurementLabel()}, then press Finish.`;
+    }
+
+    if (finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.disabled = !measurementLineNormalized || !hasValidMeasurementDistance();
+    }
+
+    updateBackgroundMeasurementUI();
+    redrawPreviewMeasurementOverlay();
+}
+
+function syncBackgroundControls() {
+    if (!toggleBackgroundImageButton) return;
+    if (backgroundImageData) {
+        toggleBackgroundImageButton.classList.remove('hidden');
+        toggleBackgroundImageButton.textContent = isBackgroundImageVisible ? 'Hide Background Image' : 'Show Background Image';
+    } else {
+        toggleBackgroundImageButton.classList.add('hidden');
+    }
+}
+
+function handleBackgroundFileChange(e) {
+    const file = e.target.files[0];
+    if (!file) {
+        resetBackgroundModal();
+        return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+        alert('Only image formats are supported for the background.');
+        resetBackgroundModal();
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+            backgroundImageDraft = createBackgroundImageData(img);
+            measurementLineNormalized = null;
+            updateBackgroundPreview(backgroundImageDraft);
+            if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = !hasValidMeasurementDistance();
+            isBackgroundImageVisible = false;
+            syncBackgroundControls();
+            updateBackgroundMeasurementUI();
+            redrawCanvas();
+        };
+        img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function ensureMeasurementLine() {
+    const activeBackground = backgroundImageDraft || backgroundImageData;
+    if (!activeBackground) return null;
+    if (measurementLineNormalized) return measurementLineNormalized;
+
+    measurementLineNormalized = {
+        start: { x: 0.25, y: 0.85 },
+        end: { x: 0.75, y: 0.85 }
+    };
+    return measurementLineNormalized;
+}
+
+function startBackgroundMeasurement() {
+    const activeBackground = backgroundImageDraft || backgroundImageData;
+    if (!activeBackground) {
+        alert('Please upload an image first.');
+        return;
+    }
+
+    setMeasurementDistance(backgroundDistanceInput?.value, { resetLine: true });
+    if (!hasValidMeasurementDistance()) {
+        alert('Please enter a known distance in feet before measuring.');
+        updateBackgroundMeasurementUI();
+        return;
+    }
+    ensureMeasurementLine();
+    isBackgroundMeasurementActive = true;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    if (backgroundCalibrationBar) backgroundCalibrationBar.classList.remove('hidden');
+    isBackgroundImageVisible = false;
+    updateBackgroundMeasurementUI();
+    updateToolInfo();
+    redrawPreviewMeasurementOverlay();
+}
+
+function cancelBackgroundMeasurement() {
+    isBackgroundMeasurementActive = false;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    measurementLineNormalized = null;
+    if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
+    updateBackgroundMeasurementUI();
+    updateToolInfo();
+    redrawPreviewMeasurementOverlay();
+}
+
+function applyBackgroundMeasurement(closeModal = false) {
+    if (!measurementLineNormalized) return false;
+    const activeBackground = backgroundImageDraft || backgroundImageData;
+    if (!activeBackground) return false;
+    const dx = (measurementLineNormalized.end.x - measurementLineNormalized.start.x) * activeBackground.width;
+    const dy = (measurementLineNormalized.end.y - measurementLineNormalized.start.y) * activeBackground.height;
+    const pixelDistance = Math.hypot(dx, dy);
+    if (!pixelDistance) {
+        alert('Place the measurement line to calculate scale.');
+        return false;
+    }
+
+    if (!hasValidMeasurementDistance()) {
+        alert('Enter a valid distance in feet to calculate scale.');
+        return false;
+    }
+
+    const newScale = pixelDistance / measurementDistanceFeet;
+    scale = newScale;
+    gridSize = newScale;
+    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+    showGrid = true;
+    backgroundImageData = activeBackground;
+    backgroundImageDraft = null;
+    measurementLineNormalized = null;
+    isBackgroundMeasurementActive = false;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
+    isBackgroundImageVisible = true;
+    updateBackgroundMeasurementUI();
+    syncBackgroundControls();
+    updateToolInfo();
+    redrawPreviewMeasurementOverlay();
+    redrawCanvas();
+    fitViewToBackground(backgroundImageData);
+    if (closeModal) closeBackgroundImageModal();
+    return true;
+}
+
+function finishBackgroundMeasurement() {
+    setMeasurementDistance(backgroundDistanceInput?.value);
+    const applied = applyBackgroundMeasurement(true);
+    if (!applied && finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.disabled = !measurementLineNormalized;
+    }
+}
+
+function startMeasurementDragOnPreview(x, y) {
+    if (!measurementLineNormalized) return false;
+    const dims = getPreviewDimensions();
+    if (!dims) return false;
+    const radius = 10;
+
+    const start = {
+        x: measurementLineNormalized.start.x * dims.width,
+        y: measurementLineNormalized.start.y * dims.height
+    };
+    const end = {
+        x: measurementLineNormalized.end.x * dims.width,
+        y: measurementLineNormalized.end.y * dims.height
+    };
+
+    const hitStart = Math.hypot(x - start.x, y - start.y) <= radius;
+    const hitEnd = Math.hypot(x - end.x, y - end.y) <= radius;
+    if (hitStart) {
+        measurementDragHandle = 'start';
+    } else if (hitEnd) {
+        measurementDragHandle = 'end';
+    } else {
+        const distToLine = distanceToSegment(x, y, start.x, start.y, end.x, end.y);
+        if (distToLine <= 8) {
+            measurementDragHandle = 'line';
+        } else {
+            const halfLength = (measurementDistanceFeet || 10) * dims.width / 8;
+            measurementLineNormalized.start = {
+                x: toNormalized(x - halfLength, dims.width),
+                y: toNormalized(y, dims.height)
+            };
+            measurementLineNormalized.end = {
+                x: toNormalized(x + halfLength, dims.width),
+                y: toNormalized(y, dims.height)
+            };
+            measurementDragHandle = 'line';
+        }
+    }
+
+    measurementDragLast = { x, y };
+    return true;
+}
+
+function updateMeasurementDragOnPreview(x, y) {
+    if (!measurementLineNormalized || !measurementDragHandle) return;
+    const dims = getPreviewDimensions();
+    if (!dims) return;
+
+    if (measurementDragHandle === 'start') {
+        measurementLineNormalized.start = { x: toNormalized(x, dims.width), y: toNormalized(y, dims.height) };
+    } else if (measurementDragHandle === 'end') {
+        measurementLineNormalized.end = { x: toNormalized(x, dims.width), y: toNormalized(y, dims.height) };
+    } else if (measurementDragHandle === 'line' && measurementDragLast) {
+        const dx = x - measurementDragLast.x;
+        const dy = y - measurementDragLast.y;
+        const start = {
+            x: measurementLineNormalized.start.x * dims.width + dx,
+            y: measurementLineNormalized.start.y * dims.height + dy
+        };
+        const end = {
+            x: measurementLineNormalized.end.x * dims.width + dx,
+            y: measurementLineNormalized.end.y * dims.height + dy
+        };
+        measurementLineNormalized.start = { x: toNormalized(start.x, dims.width), y: toNormalized(start.y, dims.height) };
+        measurementLineNormalized.end = { x: toNormalized(end.x, dims.width), y: toNormalized(end.y, dims.height) };
+    }
+
+    measurementDragLast = { x, y };
+    redrawPreviewMeasurementOverlay();
+    if (finishBackgroundMeasurementButton) finishBackgroundMeasurementButton.disabled = !measurementLineNormalized || !hasValidMeasurementDistance();
+}
+
+function finalizeMeasurementDragOnPreview() {
+    measurementDragHandle = null;
+    measurementDragLast = null;
+}
+
+function getPreviewPointerPosition(event) {
+    if (!backgroundPreviewCanvas) return null;
+    const rect = backgroundPreviewCanvas.getBoundingClientRect();
+    return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+    };
+}
+
+function toggleBackgroundImageVisibility() {
+    if (!backgroundImageData) return;
+    isBackgroundImageVisible = !isBackgroundImageVisible;
+    syncBackgroundControls();
+    redrawCanvas();
+}
+
+function deleteBackgroundImage() {
+    if (!backgroundImageData) return;
+    backgroundImageData = null;
+    backgroundImageDraft = null;
+    measurementLineNormalized = null;
+    isBackgroundMeasurementActive = false;
+    isBackgroundImageVisible = true;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
+    resetBackgroundModal();
+    closeBackgroundImageModal();
+    syncBackgroundControls();
+    updateBackgroundMeasurementUI();
+    redrawCanvas();
+}
+
+// ============================================================
 // CONTEXT MENU FUNCTIONS
 // ============================================================
 
 function showContextMenu(x, y, wall = null) {
     rightClickedWall = wall;
-    
+
     const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
-    
+    const hasBackgroundImage = !!backgroundImageData;
+    const backgroundVisibilityLabel = isBackgroundImageVisible ? 'Hide Background Image' : 'Show Background Image';
+    const backgroundMenu = hasBackgroundImage ? `
+        <div class="context-item" data-action="toggleBackgroundVisibility" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+            ${backgroundVisibilityLabel}
+        </div>
+        ${isBackgroundImageVisible ? `
+            <div class="context-item" data-action="deleteBackground" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+                Delete Background Image
+            </div>
+        ` : ''}
+    ` : '';
+
+    const backgroundAddItem = hasBackgroundImage ? '' : `
+        <div class="context-item" data-action="background" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+            Add Background Image
+        </div>
+    `;
+
     contextMenu.innerHTML = `
         <div style="padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #eee; font-weight: bold;">
             ${wall ? 'Wall Options' : 'Designer Options'}
         </div>
+        ${backgroundAddItem}
+        ${backgroundMenu}
         ${wall ? `
             <div class="context-item" data-action="split" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
                 Split Wall
@@ -312,6 +876,15 @@ function handleContextMenuAction(action) {
             break;
         case 'paste':
             startPasteMode(lastContextMenuCanvasX, lastContextMenuCanvasY);
+            break;
+        case 'background':
+            openBackgroundImageModal();
+            break;
+        case 'toggleBackgroundVisibility':
+            toggleBackgroundImageVisibility();
+            break;
+        case 'deleteBackground':
+            deleteBackgroundImage();
             break;
         case 'undo':
             undo();
@@ -1479,6 +2052,8 @@ function init() {
                 redrawCanvas();
             }
             closeFloorTextureModal();
+            closeBackgroundImageModal();
+            cancelBackgroundMeasurement();
         }
     });
 
@@ -1527,6 +2102,56 @@ function init() {
     }
     if (cancelFloorTextureButton) {
         cancelFloorTextureButton.addEventListener('click', closeFloorTextureModal);
+    }
+
+    if (backgroundImageFileInput) {
+        backgroundImageFileInput.addEventListener('change', handleBackgroundFileChange);
+    }
+    if (startBackgroundMeasurementButton) {
+        startBackgroundMeasurementButton.addEventListener('click', startBackgroundMeasurement);
+    }
+    if (cancelBackgroundImageButton) {
+        cancelBackgroundImageButton.addEventListener('click', () => {
+            resetBackgroundModal();
+            closeBackgroundImageModal();
+        });
+    }
+    if (finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.addEventListener('click', finishBackgroundMeasurement);
+    }
+    if (cancelBackgroundMeasurementButton) {
+        cancelBackgroundMeasurementButton.addEventListener('click', cancelBackgroundMeasurement);
+    }
+
+    if (backgroundPreview) {
+        backgroundPreview.addEventListener('load', () => {
+            syncPreviewCanvasSize();
+            redrawPreviewMeasurementOverlay();
+        });
+    }
+
+    if (backgroundPreviewCanvas) {
+        backgroundPreviewCanvas.addEventListener('mousedown', (event) => {
+            if (!isBackgroundMeasurementActive) return;
+            ensureMeasurementLine();
+            const pos = getPreviewPointerPosition(event);
+            if (!pos) return;
+            if (startMeasurementDragOnPreview(pos.x, pos.y)) {
+                redrawPreviewMeasurementOverlay();
+            }
+        });
+
+        backgroundPreviewCanvas.addEventListener('mousemove', (event) => {
+            if (!isBackgroundMeasurementActive || !measurementDragHandle) return;
+            const pos = getPreviewPointerPosition(event);
+            if (!pos) return;
+            updateMeasurementDragOnPreview(pos.x, pos.y);
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (!measurementDragHandle) return;
+            finalizeMeasurementDragOnPreview();
+        });
     }
 
     const transformActions = [
@@ -1579,15 +2204,36 @@ function init() {
         redrawCanvas();
     });
 
+    if (backgroundDistanceInput) {
+        backgroundDistanceInput.addEventListener('input', () => {
+            setMeasurementDistance(backgroundDistanceInput.value, { resetLine: true });
+            redrawPreviewMeasurementOverlay();
+        });
+    }
+
+    window.addEventListener('resize', () => {
+        syncPreviewCanvasSize();
+        redrawPreviewMeasurementOverlay();
+    });
+
     toggleGridButton.addEventListener('click', () => {
         showGrid = !showGrid;
         redrawCanvas();
     });
 
+    if (toggleBackgroundImageButton) {
+        toggleBackgroundImageButton.addEventListener('click', toggleBackgroundImageVisibility);
+    }
+
     canvas.addEventListener('keydown', handleKeyDown);
+
+    toolButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-tool') === currentTool);
+    });
 
     syncCanvasScrollArea();
     drawGrid();
+    syncBackgroundControls();
     updateToolInfo();
 }
 
@@ -2182,6 +2828,10 @@ function handleMouseDown(e) {
     // Right clicks are handled by contextmenu event
     if (e.button !== 0) return;
 
+    if (isBackgroundMeasurementActive) {
+        return;
+    }
+
     if (currentTool === 'pan') {
         isViewPanning = true;
         panOrigin = { x: e.clientX, y: e.clientY };
@@ -2426,6 +3076,10 @@ function handleMouseMove(e) {
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
 
+    if (isBackgroundMeasurementActive) {
+        return;
+    }
+
     if (isViewPanning && panOrigin && panStartOffset) {
         viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x);
         viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y);
@@ -2632,6 +3286,11 @@ function handleMouseUp() {
         return;
     }
 
+    if (isBackgroundMeasurementActive) {
+        finalizeMeasurementDragOnPreview();
+        return;
+    }
+
     if (draggingObjectIndex !== null) {
         stopObjectDrag();
         redrawCanvas();
@@ -2826,8 +3485,31 @@ function handleCanvasDoubleClick(e) {
 // ============================================================
 // DRAWING (WITH MULTIPLE WALL SELECTION)
 // ============================================================
+function drawBackgroundImage() {
+    if (isBackgroundMeasurementActive) return;
+    const data = backgroundImageData;
+    if (!data || !isBackgroundImageVisible) return;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.drawImage(
+        data.image,
+        data.x,
+        data.y,
+        data.width,
+        data.height
+    );
+    ctx.restore();
+}
+
+function drawBackgroundMeasurementLine() {
+    // Measurement line is drawn only inside the preview modal overlay.
+}
+
 function drawGrid() {
     if (!showGrid) return;
+    ctx.save();
+    const hasVisibleBackground = backgroundImageData && isBackgroundImageVisible;
+    ctx.globalAlpha = hasVisibleBackground ? 0.5 : 1;
     const visibleStartX = -viewOffsetX / viewScale;
     const visibleStartY = -viewOffsetY / viewScale;
     const visibleEndX = visibleStartX + canvas.width / viewScale;
@@ -2848,6 +3530,7 @@ function drawGrid() {
         ctx.lineTo(visibleEndX, y);
     }
     ctx.stroke();
+    ctx.restore();
 }
 
 function drawWalls() {
@@ -3016,7 +3699,7 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     withViewTransform(() => {
         ctx.save();
         ctx.fillStyle = '#e74c3c';
-        ctx.font = '10px Arial';
+        ctx.font = '12px Arial';
         ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
         ctx.restore();
     });
@@ -3226,11 +3909,13 @@ function redrawCanvas() {
 
     ctx.save();
     ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
+    drawBackgroundImage();
     drawGrid();
     drawFloors();
     drawWalls();
     drawObjects();
     drawDimensions();
+    drawBackgroundMeasurementLine();
     drawSelectionBoxOverlay();
     ctx.restore();
 }
@@ -3432,6 +4117,12 @@ function handleKeyDown(e) {
 // UI
 // ============================================================
 function updateToolInfo() {
+    if (isBackgroundMeasurementActive) {
+        toolInfoDisplay.textContent = hasValidMeasurementDistance()
+            ? `Calibrating background: set ${getMeasurementLabel()} on the preview overlay`
+            : 'Calibrating background: enter a known distance to place on the preview overlay';
+        return;
+    }
     let name = '';
     switch (currentTool) {
         case 'wall': name = 'Wall'; break;

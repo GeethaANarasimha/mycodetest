@@ -1,1 +1,0 @@
-wall all function working Paste function not working
