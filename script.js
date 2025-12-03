@@ -357,15 +357,29 @@ function updateBackgroundPreview(previewData) {
 function syncPreviewCanvasSize() {
     if (!backgroundPreviewCanvas || !backgroundPreview) return;
     const frameRect = backgroundPreviewCanvas.parentElement?.getBoundingClientRect();
-    const imageRect = backgroundPreview.getBoundingClientRect();
-    if (!frameRect || imageRect.width === 0 || imageRect.height === 0) return;
+    if (!frameRect) return;
 
-    backgroundPreviewCanvas.width = imageRect.width;
-    backgroundPreviewCanvas.height = imageRect.height;
-    backgroundPreviewCanvas.style.width = `${imageRect.width}px`;
-    backgroundPreviewCanvas.style.height = `${imageRect.height}px`;
-    backgroundPreviewCanvas.style.left = `${imageRect.left - frameRect.left}px`;
-    backgroundPreviewCanvas.style.top = `${imageRect.top - frameRect.top}px`;
+    const frameWidth = frameRect.width;
+    const frameHeight = frameRect.height;
+    const naturalWidth = backgroundPreview.naturalWidth;
+    const naturalHeight = backgroundPreview.naturalHeight;
+    if (!frameWidth || !frameHeight || !naturalWidth || !naturalHeight) return;
+
+    // Calculate the rendered image size inside the contain-fit frame so that
+    // the measurement overlay matches the visible pixels instead of the full
+    // frame (which can include letterboxing for different aspect ratios).
+    const scale = Math.min(frameWidth / naturalWidth, frameHeight / naturalHeight);
+    const displayWidth = naturalWidth * scale;
+    const displayHeight = naturalHeight * scale;
+    const offsetX = (frameWidth - displayWidth) / 2;
+    const offsetY = (frameHeight - displayHeight) / 2;
+
+    backgroundPreviewCanvas.width = displayWidth;
+    backgroundPreviewCanvas.height = displayHeight;
+    backgroundPreviewCanvas.style.width = `${displayWidth}px`;
+    backgroundPreviewCanvas.style.height = `${displayHeight}px`;
+    backgroundPreviewCanvas.style.left = `${offsetX}px`;
+    backgroundPreviewCanvas.style.top = `${offsetY}px`;
 }
 
 function getPreviewDimensions() {
