@@ -633,7 +633,7 @@ function drawPastePreview() {
             
             ctx.lineWidth = oldWall.thicknessPx;
             ctx.strokeStyle = oldWall.lineColor || '#000000';
-            ctx.lineCap = 'butt';
+            ctx.lineCap = 'square';
             ctx.beginPath();
             ctx.moveTo(sx, sy);
             ctx.lineTo(ex, ey);
@@ -2859,7 +2859,7 @@ function drawWalls() {
         ctx.save();
         ctx.lineWidth = w.thicknessPx;
         ctx.strokeStyle = w.lineColor;
-        ctx.lineCap = 'butt';
+        ctx.lineCap = 'square';
         ctx.beginPath();
         ctx.moveTo(n1.x, n1.y);
         ctx.lineTo(n2.x, n2.y);
@@ -2983,7 +2983,7 @@ function drawWallPreview() {
         ctx.globalAlpha = 0.6;
         ctx.lineWidth = thicknessPx;
         ctx.strokeStyle = lineColorInput.value;
-        ctx.lineCap = 'butt';
+        ctx.lineCap = 'square';
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.lineTo(ex, ey);
