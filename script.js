@@ -4784,8 +4784,7 @@ function getCameraTargetBoundingBox() {
     }
 
     if (!hasSelection) {
-        const fallback = wallMeshes[wallMeshes.length - 1];
-        if (fallback) box.expandByObject(fallback.mesh);
+        wallMeshes.forEach(({ mesh }) => box.expandByObject(mesh));
     }
 
     if (box.isEmpty() && threeContentGroup) {
