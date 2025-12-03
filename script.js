@@ -174,6 +174,10 @@ function updateCanvasSizeForDisplay() {
 }
 
 function screenToWorld(clientX, clientY) {
+    // Keep canvas/device scaling in sync with the latest browser zoom level so
+    // pointer math stays accurate even after changing page zoom (e.g., 135%).
+    updateCanvasSizeForDisplay();
+
     const rect = canvas.getBoundingClientRect();
     const canvasX = clientX - rect.left;
     const canvasY = clientY - rect.top;
