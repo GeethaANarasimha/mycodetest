@@ -250,6 +250,37 @@ function syncCanvasScrollArea() {
     canvas.style.minHeight = `${BASE_CANVAS_HEIGHT}px`;
 }
 
+function fitViewToBackground(data) {
+    if (!data || !canvasContainer) return;
+    const containerRect = canvasContainer.getBoundingClientRect();
+    if (!containerRect.width || !containerRect.height) return;
+
+    const pixelScale = getCanvasPixelScale();
+    const margin = 20;
+    const availableWidth = containerRect.width / pixelScale.x - margin * 2;
+    const availableHeight = containerRect.height / pixelScale.y - margin * 2;
+    if (availableWidth <= 0 || availableHeight <= 0) return;
+
+    const scaleForWidth = availableWidth / data.width;
+    const scaleForHeight = availableHeight / data.height;
+    const targetScale = Math.min(
+        MAX_VIEW_SCALE,
+        Math.max(MIN_VIEW_SCALE, Math.min(scaleForWidth, scaleForHeight, 1))
+    );
+
+    const viewCenterX = availableWidth / 2 + margin;
+    const viewCenterY = availableHeight / 2 + margin;
+    const backgroundCenterX = data.x + data.width / 2;
+    const backgroundCenterY = data.y + data.height / 2;
+
+    viewScale = targetScale;
+    viewOffsetX = viewCenterX - backgroundCenterX * viewScale;
+    viewOffsetY = viewCenterY - backgroundCenterY * viewScale;
+
+    syncCanvasScrollArea();
+    redrawCanvas();
+}
+
 function getCanvasCenterWorld() {
     return {
         x: (canvas.width / 2 - viewOffsetX) / viewScale,
@@ -608,6 +639,7 @@ function applyBackgroundMeasurement(closeModal = false) {
     updateToolInfo();
     redrawPreviewMeasurementOverlay();
     redrawCanvas();
+    fitViewToBackground(backgroundImageData);
     if (closeModal) closeBackgroundImageModal();
     return true;
 }
