@@ -284,9 +284,23 @@ input[type="text"] {
 }
 
 #backgroundPreview {
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     display: none;
+}
+
+.preview-measure-canvas {
+    position: absolute;
+    display: none;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.preview-measure-canvas.active {
+    display: block;
+    cursor: crosshair;
+    pointer-events: auto;
 }
 
 #backgroundPreviewPlaceholder {
