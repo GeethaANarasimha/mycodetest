@@ -688,132 +688,123 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
 
     if (!wallN1 || !wallN2) return null;
 
-    const leftNode = wallN1.x <= wallN2.x ? wallN1 : wallN2;
-    const rightNode = wallN1.x <= wallN2.x ? wallN2 : wallN1;
-    
-    // Only process horizontal walls for space measurement
-    if (!isWallHorizontal(wallN1, wallN2)) return null;
-    
     const wallThickness = getWallThicknessPx(wall);
     const intersectingWalls = findIntersectingWalls(wall);
-    const verticalWalls = intersectingWalls.filter(w => {
+    const isHorizontalWall = isWallHorizontal(wallN1, wallN2);
+
+    const perpendicularWalls = intersectingWalls.filter(w => {
         const wn1 = getNodeById(w.startNodeId);
         const wn2 = getNodeById(w.endNodeId);
-        return wn1 && wn2 && isWallVertical(wn1, wn2);
+        if (!wn1 || !wn2) return false;
+        return isHorizontalWall ? isWallVertical(wn1, wn2) : isWallHorizontal(wn1, wn2);
     });
-    
-    if (verticalWalls.length === 0) return null;
-    
-    // Sort vertical walls by x position
-    verticalWalls.sort((a, b) => {
-        const aX = getNodeById(a.startNodeId).x;
-        const bX = getNodeById(b.startNodeId).x;
-        return aX - bX;
+
+    if (perpendicularWalls.length === 0) return null;
+
+    perpendicularWalls.sort((a, b) => {
+        const aNode = getNodeById(a.startNodeId);
+        const bNode = getNodeById(b.startNodeId);
+        return isHorizontalWall ? aNode.x - bNode.x : aNode.y - bNode.y;
     });
-    
+
     const spaces = [];
-    
-    // Calculate space from start of horizontal wall to first vertical wall
-    if (verticalWalls.length > 0) {
-        const firstVerticalWall = verticalWalls[0];
-        const firstVerticalNode = getNodeById(firstVerticalWall.startNodeId);
 
-        const leftSpaceStart = leftNode.x + (wallThickness / 2);
-        const leftSpaceEnd = firstVerticalNode.x - (wallThickness / 2);
-        const leftSpaceLength = leftSpaceEnd - leftSpaceStart;
-        
-        if (leftSpaceLength > 0) {
-            const totalInches = Math.round((leftSpaceLength / scale) * 12);
-            const feet = Math.floor(totalInches / 12);
-            const inches = totalInches % 12;
-            
-            spaces.push({
-                leftWall: null,
-                rightWall: firstVerticalWall,
-                leftBoundary: leftSpaceStart,
-                rightBoundary: leftSpaceEnd,
-                spaceLength: leftSpaceLength,
-                feet: feet,
-                inches: inches,
-                text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
-                wallY: wallN1.y,
-                wallThickness: wallThickness,
-                type: 'left_space'
-            });
-        }
-    }
-    
-    // Calculate spaces between vertical walls
-    for (let i = 0; i < verticalWalls.length - 1; i++) {
-        const leftWall = verticalWalls[i];
-        const rightWall = verticalWalls[i + 1];
-        
-        const leftWallNode = getNodeById(leftWall.startNodeId);
-        const rightWallNode = getNodeById(rightWall.startNodeId);
+    if (isHorizontalWall) {
+        const leftNode = wallN1.x <= wallN2.x ? wallN1 : wallN2;
+        const rightNode = wallN1.x <= wallN2.x ? wallN2 : wallN1;
 
-        const spaceStart = leftWallNode.x + (wallThickness / 2);
-        const spaceEnd = rightWallNode.x - (wallThickness / 2);
-        const spaceLength = spaceEnd - spaceStart;
-        
-        if (spaceLength > 0) {
+        const addSpace = (startX, endX, leftWall, rightWall) => {
+            const spaceLength = endX - startX;
+            if (spaceLength <= 0) return;
             const totalInches = Math.round((spaceLength / scale) * 12);
             const feet = Math.floor(totalInches / 12);
             const inches = totalInches % 12;
-            
             spaces.push({
-                leftWall: leftWall,
-                rightWall: rightWall,
-                leftBoundary: spaceStart,
-                rightBoundary: spaceEnd,
-                spaceLength: spaceLength,
-                feet: feet,
-                inches: inches,
+                leftWall,
+                rightWall,
+                leftBoundary: startX,
+                rightBoundary: endX,
+                spaceLength,
+                feet,
+                inches,
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
                 wallY: wallN1.y,
-                wallThickness: wallThickness,
-                type: 'middle_space'
+                wallThickness,
+                hoverX, hoverY
             });
-        }
-    }
-    
-    // Calculate space from last vertical wall to end of horizontal wall
-    if (verticalWalls.length > 0) {
-        const lastVerticalWall = verticalWalls[verticalWalls.length - 1];
-        const lastVerticalNode = getNodeById(lastVerticalWall.startNodeId);
+        };
 
-        const rightSpaceStart = lastVerticalNode.x + (wallThickness / 2);
-        const rightSpaceEnd = rightNode.x - (wallThickness / 2);
-        const rightSpaceLength = rightSpaceEnd - rightSpaceStart;
-        
-        if (rightSpaceLength > 0) {
-            const totalInches = Math.round((rightSpaceLength / scale) * 12);
+        const firstWall = perpendicularWalls[0];
+        addSpace(leftNode.x + wallThickness / 2, getNodeById(firstWall.startNodeId).x - wallThickness / 2, null, firstWall);
+
+        for (let i = 0; i < perpendicularWalls.length - 1; i++) {
+            const leftWall = perpendicularWalls[i];
+            const rightWall = perpendicularWalls[i + 1];
+            const leftX = getNodeById(leftWall.startNodeId).x;
+            const rightX = getNodeById(rightWall.startNodeId).x;
+            addSpace(leftX + wallThickness / 2, rightX - wallThickness / 2, leftWall, rightWall);
+        }
+
+        const lastWall = perpendicularWalls[perpendicularWalls.length - 1];
+        addSpace(getNodeById(lastWall.startNodeId).x + wallThickness / 2, rightNode.x - wallThickness / 2, lastWall, null);
+    } else {
+        const topNode = wallN1.y <= wallN2.y ? wallN1 : wallN2;
+        const bottomNode = wallN1.y <= wallN2.y ? wallN2 : wallN1;
+
+        const addSpace = (startY, endY, topWall, bottomWall) => {
+            const spaceLength = endY - startY;
+            if (spaceLength <= 0) return;
+            const totalInches = Math.round((spaceLength / scale) * 12);
             const feet = Math.floor(totalInches / 12);
             const inches = totalInches % 12;
-            
             spaces.push({
-                leftWall: lastVerticalWall,
-                rightWall: null,
-                leftBoundary: rightSpaceStart,
-                rightBoundary: rightSpaceEnd,
-                spaceLength: rightSpaceLength,
-                feet: feet,
-                inches: inches,
+                topWall,
+                bottomWall,
+                topBoundary: startY,
+                bottomBoundary: endY,
+                spaceLength,
+                feet,
+                inches,
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
-                wallY: wallN1.y,
-                wallThickness: wallThickness,
-                type: 'right_space'
+                wallX: wallN1.x,
+                wallThickness,
+                hoverX, hoverY
             });
+        };
+
+        const firstWall = perpendicularWalls[0];
+        addSpace(topNode.y + wallThickness / 2, getNodeById(firstWall.startNodeId).y - wallThickness / 2, null, firstWall);
+
+        for (let i = 0; i < perpendicularWalls.length - 1; i++) {
+            const topWall = perpendicularWalls[i];
+            const bottomWall = perpendicularWalls[i + 1];
+            const topY = getNodeById(topWall.startNodeId).y;
+            const bottomY = getNodeById(bottomWall.startNodeId).y;
+            addSpace(topY + wallThickness / 2, bottomY - wallThickness / 2, topWall, bottomWall);
         }
+
+        const lastWall = perpendicularWalls[perpendicularWalls.length - 1];
+        addSpace(getNodeById(lastWall.startNodeId).y + wallThickness / 2, bottomNode.y - wallThickness / 2, lastWall, null);
     }
-    
-    // Find which space segment contains the hover point
-    for (const space of spaces) {
-        if (hoverX >= space.leftBoundary && hoverX <= space.rightBoundary) {
-            return space;
+
+    if (spaces.length === 0) return null;
+
+    let bestSpace = null;
+    let minDistance = Infinity;
+
+    spaces.forEach(space => {
+        const mid = isHorizontalWall
+            ? (space.leftBoundary + space.rightBoundary) / 2
+            : (space.topBoundary + space.bottomBoundary) / 2;
+        const distance = Math.abs((isHorizontalWall ? hoverX : hoverY) - mid);
+
+        if (distance < minDistance) {
+            minDistance = distance;
+            bestSpace = space;
         }
-    }
-    
-    return null;
+    });
+
+    return bestSpace;
 };
 
 /**
