@@ -139,8 +139,9 @@ input[type="text"] {
 
 .property-group {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
 }
 
 .property-group.inline {
@@ -155,7 +156,7 @@ input[type="text"] {
 }
 
 .property-input-row {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
 }
@@ -166,6 +167,27 @@ input[type="text"] {
 
 .property-group label.checkbox {
     font-weight: normal;
+}
+
+.property-hint {
+    font-size: 12px;
+    color: #444;
+}
+
+.pill-btn {
+    background: #2d3a4d;
+    color: #fff;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    min-width: 42px;
+}
+
+.pill-btn.active {
+    background: #14b8a6;
+    color: #0f172a;
 }
 
 #drawingCanvas {
@@ -212,12 +234,6 @@ input[type="text"] {
     flex-shrink: 0;
 }
 
-.tool-info {
-    color: #fff;
-    margin-left: auto;
-    padding: 6px;
-}
-
 .modal {
     position: fixed;
     inset: 0;
@@ -238,6 +254,14 @@ input[type="text"] {
     border-radius: 6px;
     width: 420px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.modal-content input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    margin: 8px 0;
+    font-size: 14px;
 }
 
 .modal-content.wide {
