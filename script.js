@@ -33,6 +33,17 @@ const textureHeightFeetInput = document.getElementById('textureHeightFeet');
 const textureHeightInchesInput = document.getElementById('textureHeightInches');
 const applyFloorTextureButton = document.getElementById('applyFloorTexture');
 const cancelFloorTextureButton = document.getElementById('cancelFloorTexture');
+const backgroundImageModal = document.getElementById('backgroundImageModal');
+const backgroundImageFileInput = document.getElementById('backgroundImageFile');
+const backgroundPreview = document.getElementById('backgroundPreview');
+const backgroundPreviewPlaceholder = document.getElementById('backgroundPreviewPlaceholder');
+const backgroundDistanceInput = document.getElementById('backgroundDistance');
+const startBackgroundMeasurementButton = document.getElementById('startBackgroundMeasurement');
+const cancelBackgroundImageButton = document.getElementById('cancelBackgroundImage');
+const backgroundCalibrationBar = document.getElementById('backgroundCalibrationBar');
+const backgroundCalibrationText = document.getElementById('backgroundCalibrationText');
+const applyBackgroundMeasurementButton = document.getElementById('applyBackgroundMeasurement');
+const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgroundMeasurement');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -51,7 +62,7 @@ contextMenu.style.cssText = `
 document.body.appendChild(contextMenu);
 
 // ---------------- CONSTANTS ----------------
-const scale = 20; // 20px = 1ft
+let scale = 20; // 20px = 1ft (can be recalibrated with background image)
 const NODE_RADIUS = 6;
 const NODE_HIT_RADIUS = 10;
 const ALIGN_HINT_COLOR = '#e74c3c';
@@ -85,6 +96,14 @@ let floors = [];
 let nextFloorId = 1;
 
 let objects = [];
+
+// Background image + measurement
+let backgroundImageData = null; // { image, x, y, width, height }
+let measurementLine = null; // { start: {x, y}, end: {x, y} }
+let isBackgroundMeasurementActive = false;
+let measurementDragHandle = null;
+let measurementDragLast = null;
+let measurementDistanceFeet = 10;
 
 const BASE_CANVAS_WIDTH = canvas.width;
 const BASE_CANVAS_HEIGHT = canvas.height;
@@ -233,6 +252,193 @@ function getCanvasCenterWorld() {
 }
 
 // ============================================================
+// BACKGROUND IMAGE + MEASUREMENT LINE
+// ============================================================
+function resetBackgroundModal() {
+    if (backgroundImageFileInput) backgroundImageFileInput.value = '';
+    if (backgroundPreview) backgroundPreview.style.display = 'none';
+    if (backgroundPreview) backgroundPreview.src = '';
+    if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'block';
+    if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = true;
+}
+
+function openBackgroundImageModal() {
+    if (!backgroundImageModal) return;
+    backgroundImageModal.classList.remove('hidden');
+    if (backgroundImageData && backgroundPreview) {
+        backgroundPreview.src = backgroundImageData.image.src;
+        backgroundPreview.style.display = 'block';
+        if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'none';
+        if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
+        if (backgroundDistanceInput) backgroundDistanceInput.value = measurementDistanceFeet;
+    } else {
+        resetBackgroundModal();
+    }
+}
+
+function closeBackgroundImageModal() {
+    if (!backgroundImageModal) return;
+    backgroundImageModal.classList.add('hidden');
+}
+
+function createBackgroundImageData(img) {
+    const maxWidth = canvas.width * 0.9;
+    const maxHeight = canvas.height * 0.9;
+    const scaleFactor = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+    const width = img.width * scaleFactor;
+    const height = img.height * scaleFactor;
+    const x = (canvas.width - width) / 2;
+    const y = (canvas.height - height) / 2;
+    return { image: img, x, y, width, height };
+}
+
+function handleBackgroundFileChange(e) {
+    const file = e.target.files[0];
+    if (!file) {
+        resetBackgroundModal();
+        return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+        alert('Only image formats are supported for the background.');
+        resetBackgroundModal();
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+            backgroundImageData = createBackgroundImageData(img);
+            if (backgroundPreview) {
+                backgroundPreview.src = img.src;
+                backgroundPreview.style.display = 'block';
+            }
+            if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'none';
+            if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
+            redrawCanvas();
+        };
+        img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function ensureMeasurementLine() {
+    if (!backgroundImageData) return null;
+    if (measurementLine) return measurementLine;
+
+    const startX = backgroundImageData.x + backgroundImageData.width * 0.25;
+    const endX = backgroundImageData.x + backgroundImageData.width * 0.75;
+    const y = backgroundImageData.y + backgroundImageData.height * 0.85;
+    measurementLine = {
+        start: { x: startX, y },
+        end: { x: endX, y }
+    };
+    return measurementLine;
+}
+
+function startBackgroundMeasurement() {
+    if (!backgroundImageData) {
+        alert('Please upload an image first.');
+        return;
+    }
+
+    const distance = parseFloat(backgroundDistanceInput?.value || '0');
+    measurementDistanceFeet = Math.max(1, distance || 10);
+    ensureMeasurementLine();
+    isBackgroundMeasurementActive = true;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    if (backgroundCalibrationText) {
+        backgroundCalibrationText.textContent = `Drag the measurement line to match ${measurementDistanceFeet} ft on your image.`;
+    }
+    if (backgroundCalibrationBar) backgroundCalibrationBar.classList.remove('hidden');
+    closeBackgroundImageModal();
+    updateToolInfo();
+    redrawCanvas();
+}
+
+function cancelBackgroundMeasurement() {
+    isBackgroundMeasurementActive = false;
+    measurementDragHandle = null;
+    measurementDragLast = null;
+    measurementLine = null;
+    if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
+    updateToolInfo();
+    redrawCanvas();
+}
+
+function applyBackgroundMeasurement() {
+    if (!measurementLine) return;
+    const dx = measurementLine.end.x - measurementLine.start.x;
+    const dy = measurementLine.end.y - measurementLine.start.y;
+    const pixelDistance = Math.hypot(dx, dy);
+    if (!pixelDistance || measurementDistanceFeet <= 0) {
+        alert('Place the measurement line to calculate scale.');
+        return;
+    }
+
+    const newScale = pixelDistance / measurementDistanceFeet;
+    scale = newScale;
+    gridSize = newScale;
+    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+    showGrid = true;
+    measurementLine = null;
+    cancelBackgroundMeasurement();
+    redrawCanvas();
+}
+
+function startMeasurementDrag(x, y) {
+    if (!measurementLine) return false;
+    const radius = 10;
+
+    const hitStart = Math.hypot(x - measurementLine.start.x, y - measurementLine.start.y) <= radius;
+    const hitEnd = Math.hypot(x - measurementLine.end.x, y - measurementLine.end.y) <= radius;
+    if (hitStart) {
+        measurementDragHandle = 'start';
+    } else if (hitEnd) {
+        measurementDragHandle = 'end';
+    } else {
+        const distToLine = distanceToSegment(x, y, measurementLine.start.x, measurementLine.start.y, measurementLine.end.x, measurementLine.end.y);
+        if (distToLine <= 8) {
+            measurementDragHandle = 'line';
+        } else {
+            const halfLength = (measurementDistanceFeet || 10) * scale / 2;
+            measurementLine.start = { x: x - halfLength, y };
+            measurementLine.end = { x: x + halfLength, y };
+            measurementDragHandle = 'line';
+        }
+    }
+
+    measurementDragLast = { x, y };
+    return true;
+}
+
+function updateMeasurementDrag(x, y) {
+    if (!measurementLine || !measurementDragHandle) return;
+
+    if (measurementDragHandle === 'start') {
+        measurementLine.start = { x, y };
+    } else if (measurementDragHandle === 'end') {
+        measurementLine.end = { x, y };
+    } else if (measurementDragHandle === 'line' && measurementDragLast) {
+        const dx = x - measurementDragLast.x;
+        const dy = y - measurementDragLast.y;
+        measurementLine.start.x += dx;
+        measurementLine.start.y += dy;
+        measurementLine.end.x += dx;
+        measurementLine.end.y += dy;
+    }
+
+    measurementDragLast = { x, y };
+}
+
+function finalizeMeasurementDrag() {
+    measurementDragHandle = null;
+    measurementDragLast = null;
+}
+
+// ============================================================
 // CONTEXT MENU FUNCTIONS
 // ============================================================
 
@@ -244,6 +450,9 @@ function showContextMenu(x, y, wall = null) {
     contextMenu.innerHTML = `
         <div style="padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #eee; font-weight: bold;">
             ${wall ? 'Wall Options' : 'Designer Options'}
+        </div>
+        <div class="context-item" data-action="background" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+            Add Background Image
         </div>
         ${wall ? `
             <div class="context-item" data-action="split" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
@@ -312,6 +521,9 @@ function handleContextMenuAction(action) {
             break;
         case 'paste':
             startPasteMode(lastContextMenuCanvasX, lastContextMenuCanvasY);
+            break;
+        case 'background':
+            openBackgroundImageModal();
             break;
         case 'undo':
             undo();
@@ -1479,6 +1691,8 @@ function init() {
                 redrawCanvas();
             }
             closeFloorTextureModal();
+            closeBackgroundImageModal();
+            cancelBackgroundMeasurement();
         }
     });
 
@@ -1527,6 +1741,25 @@ function init() {
     }
     if (cancelFloorTextureButton) {
         cancelFloorTextureButton.addEventListener('click', closeFloorTextureModal);
+    }
+
+    if (backgroundImageFileInput) {
+        backgroundImageFileInput.addEventListener('change', handleBackgroundFileChange);
+    }
+    if (startBackgroundMeasurementButton) {
+        startBackgroundMeasurementButton.addEventListener('click', startBackgroundMeasurement);
+    }
+    if (cancelBackgroundImageButton) {
+        cancelBackgroundImageButton.addEventListener('click', () => {
+            resetBackgroundModal();
+            closeBackgroundImageModal();
+        });
+    }
+    if (applyBackgroundMeasurementButton) {
+        applyBackgroundMeasurementButton.addEventListener('click', applyBackgroundMeasurement);
+    }
+    if (cancelBackgroundMeasurementButton) {
+        cancelBackgroundMeasurementButton.addEventListener('click', cancelBackgroundMeasurement);
     }
 
     const transformActions = [
@@ -2182,6 +2415,13 @@ function handleMouseDown(e) {
     // Right clicks are handled by contextmenu event
     if (e.button !== 0) return;
 
+    if (isBackgroundMeasurementActive) {
+        ensureMeasurementLine();
+        startMeasurementDrag(x, y);
+        redrawCanvas();
+        return;
+    }
+
     if (currentTool === 'pan') {
         isViewPanning = true;
         panOrigin = { x: e.clientX, y: e.clientY };
@@ -2426,6 +2666,14 @@ function handleMouseMove(e) {
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
 
+    if (isBackgroundMeasurementActive) {
+        if (measurementDragHandle) {
+            updateMeasurementDrag(x, y);
+            redrawCanvas();
+        }
+        return;
+    }
+
     if (isViewPanning && panOrigin && panStartOffset) {
         viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x);
         viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y);
@@ -2632,6 +2880,11 @@ function handleMouseUp() {
         return;
     }
 
+    if (isBackgroundMeasurementActive) {
+        finalizeMeasurementDrag();
+        return;
+    }
+
     if (draggingObjectIndex !== null) {
         stopObjectDrag();
         redrawCanvas();
@@ -2826,8 +3079,70 @@ function handleCanvasDoubleClick(e) {
 // ============================================================
 // DRAWING (WITH MULTIPLE WALL SELECTION)
 // ============================================================
+function drawBackgroundImage() {
+    if (!backgroundImageData) return;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.drawImage(
+        backgroundImageData.image,
+        backgroundImageData.x,
+        backgroundImageData.y,
+        backgroundImageData.width,
+        backgroundImageData.height
+    );
+    ctx.restore();
+}
+
+function drawBackgroundMeasurementLine() {
+    if (!measurementLine || (!isBackgroundMeasurementActive && !backgroundImageData)) return;
+    const label = `${measurementDistanceFeet} ft`;
+
+    ctx.save();
+    ctx.lineWidth = 2 / viewScale;
+    ctx.strokeStyle = '#0ea5e9';
+    ctx.fillStyle = '#0ea5e9';
+
+    ctx.beginPath();
+    ctx.moveTo(measurementLine.start.x, measurementLine.start.y);
+    ctx.lineTo(measurementLine.end.x, measurementLine.end.y);
+    ctx.stroke();
+
+    const handleSize = 6 / viewScale;
+    [measurementLine.start, measurementLine.end].forEach(point => {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, handleSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    });
+
+    const midX = (measurementLine.start.x + measurementLine.end.x) / 2;
+    const midY = (measurementLine.start.y + measurementLine.end.y) / 2;
+    ctx.fillStyle = 'rgba(14, 165, 233, 0.85)';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1 / viewScale;
+    ctx.font = `${12 / viewScale}px Arial`;
+    const textWidth = ctx.measureText(label).width;
+    const padding = 6 / viewScale;
+    const boxX = midX - textWidth / 2 - padding;
+    const boxY = midY - 16 / viewScale;
+    const boxWidth = textWidth + padding * 2;
+    const boxHeight = 20 / viewScale;
+
+    ctx.beginPath();
+    ctx.rect(boxX, boxY, boxWidth, boxHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, midX - textWidth / 2, boxY + boxHeight / 2);
+    ctx.restore();
+}
+
 function drawGrid() {
     if (!showGrid) return;
+    ctx.save();
+    ctx.globalAlpha = backgroundImageData ? 0.5 : 1;
     const visibleStartX = -viewOffsetX / viewScale;
     const visibleStartY = -viewOffsetY / viewScale;
     const visibleEndX = visibleStartX + canvas.width / viewScale;
@@ -2848,6 +3163,7 @@ function drawGrid() {
         ctx.lineTo(visibleEndX, y);
     }
     ctx.stroke();
+    ctx.restore();
 }
 
 function drawWalls() {
@@ -3226,11 +3542,13 @@ function redrawCanvas() {
 
     ctx.save();
     ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
+    drawBackgroundImage();
     drawGrid();
     drawFloors();
     drawWalls();
     drawObjects();
     drawDimensions();
+    drawBackgroundMeasurementLine();
     drawSelectionBoxOverlay();
     ctx.restore();
 }
@@ -3432,6 +3750,10 @@ function handleKeyDown(e) {
 // UI
 // ============================================================
 function updateToolInfo() {
+    if (isBackgroundMeasurementActive) {
+        toolInfoDisplay.textContent = `Calibrating background: drag line to ${measurementDistanceFeet} ft`;
+        return;
+    }
     let name = '';
     switch (currentTool) {
         case 'wall': name = 'Wall'; break;
