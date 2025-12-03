@@ -98,7 +98,8 @@ let nextFloorId = 1;
 let objects = [];
 
 // Background image + measurement
-let backgroundImageData = null; // { image, x, y, width, height }
+let backgroundImageData = null; // committed image { image, x, y, width, height }
+let backgroundImageDraft = null; // in-progress selection before measurement is applied
 let measurementLine = null; // { start: {x, y}, end: {x, y} }
 let isBackgroundMeasurementActive = false;
 let measurementDragHandle = null;
@@ -260,13 +261,16 @@ function resetBackgroundModal() {
     if (backgroundPreview) backgroundPreview.src = '';
     if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'block';
     if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = true;
+    backgroundImageDraft = null;
+    measurementLine = null;
 }
 
 function openBackgroundImageModal() {
     if (!backgroundImageModal) return;
     backgroundImageModal.classList.remove('hidden');
-    if (backgroundImageData && backgroundPreview) {
-        backgroundPreview.src = backgroundImageData.image.src;
+    const previewData = backgroundImageDraft || backgroundImageData;
+    if (previewData && backgroundPreview) {
+        backgroundPreview.src = previewData.image.src;
         backgroundPreview.style.display = 'block';
         if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'none';
         if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
@@ -309,7 +313,8 @@ function handleBackgroundFileChange(e) {
     reader.onload = () => {
         const img = new Image();
         img.onload = () => {
-            backgroundImageData = createBackgroundImageData(img);
+            backgroundImageDraft = createBackgroundImageData(img);
+            measurementLine = null;
             if (backgroundPreview) {
                 backgroundPreview.src = img.src;
                 backgroundPreview.style.display = 'block';
@@ -324,12 +329,13 @@ function handleBackgroundFileChange(e) {
 }
 
 function ensureMeasurementLine() {
-    if (!backgroundImageData) return null;
+    const activeBackground = backgroundImageDraft || backgroundImageData;
+    if (!activeBackground) return null;
     if (measurementLine) return measurementLine;
 
-    const startX = backgroundImageData.x + backgroundImageData.width * 0.25;
-    const endX = backgroundImageData.x + backgroundImageData.width * 0.75;
-    const y = backgroundImageData.y + backgroundImageData.height * 0.85;
+    const startX = activeBackground.x + activeBackground.width * 0.25;
+    const endX = activeBackground.x + activeBackground.width * 0.75;
+    const y = activeBackground.y + activeBackground.height * 0.85;
     measurementLine = {
         start: { x: startX, y },
         end: { x: endX, y }
@@ -338,7 +344,8 @@ function ensureMeasurementLine() {
 }
 
 function startBackgroundMeasurement() {
-    if (!backgroundImageData) {
+    const activeBackground = backgroundImageDraft || backgroundImageData;
+    if (!activeBackground) {
         alert('Please upload an image first.');
         return;
     }
@@ -363,6 +370,7 @@ function cancelBackgroundMeasurement() {
     measurementDragHandle = null;
     measurementDragLast = null;
     measurementLine = null;
+    backgroundImageDraft = null;
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
     updateToolInfo();
     redrawCanvas();
@@ -370,6 +378,8 @@ function cancelBackgroundMeasurement() {
 
 function applyBackgroundMeasurement() {
     if (!measurementLine) return;
+    const activeBackground = backgroundImageDraft || backgroundImageData;
+    if (!activeBackground) return;
     const dx = measurementLine.end.x - measurementLine.start.x;
     const dy = measurementLine.end.y - measurementLine.start.y;
     const pixelDistance = Math.hypot(dx, dy);
@@ -383,6 +393,8 @@ function applyBackgroundMeasurement() {
     gridSize = newScale;
     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
     showGrid = true;
+    backgroundImageData = activeBackground;
+    backgroundImageDraft = null;
     measurementLine = null;
     cancelBackgroundMeasurement();
     redrawCanvas();
@@ -3080,15 +3092,18 @@ function handleCanvasDoubleClick(e) {
 // DRAWING (WITH MULTIPLE WALL SELECTION)
 // ============================================================
 function drawBackgroundImage() {
-    if (!backgroundImageData) return;
+    const data = isBackgroundMeasurementActive
+        ? (backgroundImageDraft || backgroundImageData)
+        : backgroundImageData;
+    if (!data) return;
     ctx.save();
     ctx.globalAlpha = 1;
     ctx.drawImage(
-        backgroundImageData.image,
-        backgroundImageData.x,
-        backgroundImageData.y,
-        backgroundImageData.width,
-        backgroundImageData.height
+        data.image,
+        data.x,
+        data.y,
+        data.width,
+        data.height
     );
     ctx.restore();
 }
