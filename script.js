@@ -185,6 +185,13 @@ let isViewPanning = false;
 let panOrigin = null;
 let panStartOffset = null;
 
+function withViewTransform(drawFn) {
+    ctx.save();
+    ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
+    drawFn();
+    ctx.restore();
+}
+
 function applyViewZoom(factor, anchor = null) {
     const newScale = Math.min(MAX_VIEW_SCALE, Math.max(MIN_VIEW_SCALE, viewScale * factor));
     if (anchor) {
@@ -1877,14 +1884,16 @@ function drawSelectionBoxOverlay() {
     const rect = getSelectionRect();
     if (!isSelectionBoxActive || !rect) return;
 
-    ctx.save();
-    ctx.strokeStyle = '#3498db';
-    ctx.setLineDash([6, 4]);
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    ctx.fillStyle = 'rgba(52, 152, 219, 0.12)';
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-    ctx.restore();
+    withViewTransform(() => {
+        ctx.save();
+        ctx.strokeStyle = '#3498db';
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        ctx.fillStyle = 'rgba(52, 152, 219, 0.12)';
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        ctx.restore();
+    });
 }
 
 function rectContainsPoint(rect, x, y) {
@@ -2914,20 +2923,22 @@ function drawAlignmentHint() {
     if (!alignmentHint) return;
     const { ax, ay, ex, ey } = alignmentHint;
 
-    ctx.save();
-    ctx.strokeStyle = ALIGN_HINT_COLOR;
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(ex, ey);
-    ctx.stroke();
+    withViewTransform(() => {
+        ctx.save();
+        ctx.strokeStyle = ALIGN_HINT_COLOR;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
 
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(ax, ay, 6, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(ax, ay, 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    });
 }
 
 function drawWallPreview() {
@@ -2940,16 +2951,18 @@ function drawWallPreview() {
     const ey = wallPreviewY;
     const thicknessPx = getThicknessPx() || (0.5 * scale);
 
-    ctx.save();
-    ctx.globalAlpha = 0.6;
-    ctx.lineWidth = thicknessPx;
-    ctx.strokeStyle = lineColorInput.value;
-    ctx.lineCap = 'butt';
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(ex, ey);
-    ctx.stroke();
-    ctx.restore();
+    withViewTransform(() => {
+        ctx.save();
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = thicknessPx;
+        ctx.strokeStyle = lineColorInput.value;
+        ctx.lineCap = 'butt';
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+        ctx.restore();
+    });
 
     if (showDimensions) drawWallDimension(sx, sy, ex, ey, thicknessPx);
 }
@@ -2973,11 +2986,13 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const tx = midX + nx * offset;
     const ty = midY + ny * offset;
 
-    ctx.save();
-    ctx.fillStyle = '#e74c3c';
-    ctx.font = '10px Arial';
-    ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
-    ctx.restore();
+    withViewTransform(() => {
+        ctx.save();
+        ctx.fillStyle = '#e74c3c';
+        ctx.font = '10px Arial';
+        ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
+        ctx.restore();
+    });
 }
 
 // ============================================================
@@ -3144,34 +3159,36 @@ function drawCurrentDragObject() {
 
     const previewStyles = getDefaultStyleForType(currentTool);
 
-    ctx.save();
-    ctx.strokeStyle = previewStyles.lineColor;
-    ctx.fillStyle = previewStyles.fillColor;
-    ctx.lineWidth = parseInt(lineWidthInput.value, 10) || 2;
+    withViewTransform(() => {
+        ctx.save();
+        ctx.strokeStyle = previewStyles.lineColor;
+        ctx.fillStyle = previewStyles.fillColor;
+        ctx.lineWidth = parseInt(lineWidthInput.value, 10) || 2;
 
-    if (currentTool === 'door') {
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeRect(x, y, w, h);
-        ctx.beginPath();
-        ctx.arc(x + w, y + h / 2, w, Math.PI, Math.PI * 1.5);
-        ctx.moveTo(x + w, y + h / 2);
-        ctx.lineTo(x + w, y + h / 2 - w);
-        ctx.stroke();
-    } else if (currentTool === 'window') {
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeRect(x, y, w, h);
-        ctx.beginPath();
-        ctx.moveTo(x + w / 2, y);
-        ctx.lineTo(x + w / 2, y + h);
-        ctx.moveTo(x, y + h / 2);
-        ctx.lineTo(x + w, y + h / 2);
-        ctx.stroke();
-    } else if (currentTool === 'furniture') {
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeRect(x, y, w, h);
-    }
+        if (currentTool === 'door') {
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeRect(x, y, w, h);
+            ctx.beginPath();
+            ctx.arc(x + w, y + h / 2, w, Math.PI, Math.PI * 1.5);
+            ctx.moveTo(x + w, y + h / 2);
+            ctx.lineTo(x + w, y + h / 2 - w);
+            ctx.stroke();
+        } else if (currentTool === 'window') {
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeRect(x, y, w, h);
+            ctx.beginPath();
+            ctx.moveTo(x + w / 2, y);
+            ctx.lineTo(x + w / 2, y + h);
+            ctx.moveTo(x, y + h / 2);
+            ctx.lineTo(x + w, y + h / 2);
+            ctx.stroke();
+        } else if (currentTool === 'furniture') {
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeRect(x, y, w, h);
+        }
 
-    ctx.restore();
+        ctx.restore();
+    });
 }
 
 function redrawCanvas() {
