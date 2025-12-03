@@ -218,23 +218,11 @@ function panView(deltaX, deltaY) {
 
 function syncCanvasScrollArea() {
     if (!canvasContainer) return;
-    const minWidth = BASE_CANVAS_WIDTH * viewScale;
-    const minHeight = BASE_CANVAS_HEIGHT * viewScale;
-
-    // Expand the scrollable area to match panning in any direction so the
-    // horizontal/vertical scrollbars resize as the view moves.
-    const paddedWidth = minWidth + Math.abs(viewOffsetX) * 2;
-    const paddedHeight = minHeight + Math.abs(viewOffsetY) * 2;
-
-    canvas.style.minWidth = `${paddedWidth}px`;
-    canvas.style.minHeight = `${paddedHeight}px`;
-
-    // Keep scroll positions within the new bounds
-    const maxScrollLeft = Math.max(0, canvas.scrollWidth - canvasContainer.clientWidth);
-    const maxScrollTop = Math.max(0, canvas.scrollHeight - canvasContainer.clientHeight);
-
-    canvasContainer.scrollLeft = Math.min(canvasContainer.scrollLeft, maxScrollLeft);
-    canvasContainer.scrollTop = Math.min(canvasContainer.scrollTop, maxScrollTop);
+    // Keep the canvas at its base size so panning/scrolling uses view transforms
+    // instead of stretching the element itself. This avoids the grid appearing
+    // to scale when using the mouse wheel to pan vertically.
+    canvas.style.minWidth = `${BASE_CANVAS_WIDTH}px`;
+    canvas.style.minHeight = `${BASE_CANVAS_HEIGHT}px`;
 }
 
 function getCanvasCenterWorld() {
