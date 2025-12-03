@@ -7,6 +7,8 @@
 </head>
 <body>
 
+<div class="app-shell">
+
 <div class="toolbar">
     <button class="tool-btn" data-tool="select">Select</button>
     <button class="tool-btn" data-tool="wall">Wall</button>
@@ -68,8 +70,14 @@
     <button id="toggleGrid">Toggle Grid</button>
 </div>
 
-<div class="canvas-container">
-    <canvas id="drawingCanvas" width="1000" height="700"></canvas>
+<div class="canvas-shell">
+    <div class="canvas-container">
+        <canvas id="drawingCanvas" width="1800" height="1200"></canvas>
+    </div>
+</div>
+
+<div class="coordinates">X: 0, Y: 0</div>
+
 </div>
 
 <div id="floorTextureModal" class="modal hidden">
@@ -102,8 +110,6 @@
         </div>
     </div>
 </div>
-
-<div class="coordinates">X: 0, Y: 0</div>
 
 <script src="transformTools.js"></script>
 <script src="script.js"></script>
