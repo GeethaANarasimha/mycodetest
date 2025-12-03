@@ -12,6 +12,7 @@ const wallThicknessFeetInput = document.getElementById('wallThicknessFeet');
 const wallThicknessInchesInput = document.getElementById('wallThicknessInches');
 const lineWidthInput = document.getElementById('lineWidth');
 const lineColorInput = document.getElementById('lineColor');
+const textColorInput = document.getElementById('textColor');
 const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
 const snapToGridCheckbox = document.getElementById('snapToGrid');
@@ -2875,6 +2876,45 @@ function handleMouseDown(e) {
         return;
     }
 
+    if (currentTool === 'text') {
+        ({ x, y } = snapPointToInch(x, y));
+        const textValue = prompt('Enter text to place on the grid:', 'New label');
+        if (!textValue || !textValue.trim()) {
+            return;
+        }
+
+        pushUndoState();
+        const trimmed = textValue.trim();
+        const fontSize = 18;
+        const { width, height } = measureTextDimensions(trimmed, fontSize);
+        const color = textColorInput?.value || '#000000';
+
+        const newObj = {
+            type: 'text',
+            text: trimmed,
+            x,
+            y,
+            width,
+            height,
+            lineWidth: 0,
+            lineColor: color,
+            fillColor: 'transparent',
+            textColor: color,
+            fontSize,
+            rotation: 0,
+            flipH: false,
+            flipV: false
+        };
+
+        objects.push(newObj);
+        selectedObjectIndices = new Set([objects.length - 1]);
+        selectedWalls.clear();
+        selectedFloorIds.clear();
+        selectAllMode = false;
+        redrawCanvas();
+        return;
+    }
+
     if (currentTool === 'select') {
         const windowHandle = getWindowHandleHit(x, y);
         if (windowHandle) {
@@ -3071,7 +3111,22 @@ function getDefaultStyleForType(type) {
         return { lineColor: DEFAULT_WINDOW_LINE, fillColor: DEFAULT_WINDOW_FILL };
     }
 
+    if (type === 'text') {
+        const textColor = textColorInput?.value || '#000000';
+        return { lineColor: textColor, fillColor: 'transparent' };
+    }
+
     return { lineColor: baseLine, fillColor: baseFill };
+}
+
+function measureTextDimensions(text, fontSize = 18) {
+    ctx.save();
+    ctx.font = `${fontSize}px Arial`;
+    const metrics = ctx.measureText(text);
+    const width = metrics.width;
+    const height = fontSize * 1.2;
+    ctx.restore();
+    return { width, height };
 }
 
 function handleMouseMove(e) {
@@ -3812,6 +3867,11 @@ function drawObjects() {
             ctx.moveTo(localX, localY + height / 2);
             ctx.lineTo(localX + width, localY + height / 2);
             ctx.stroke();
+        } else if (obj.type === 'text') {
+            ctx.font = `${obj.fontSize || 18}px Arial`;
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = obj.textColor || obj.lineColor || '#000000';
+            ctx.fillText(obj.text, localX, localY);
         } else if (obj.type === 'furniture') {
             ctx.fillRect(localX, localY, width, height);
             ctx.strokeRect(localX, localY, width, height);
@@ -4185,13 +4245,14 @@ function updateToolInfo() {
         case 'select': name = 'Select'; break;
         case 'erase': name = 'Eraser'; break;
         case 'dimension': name = 'Dimension'; break;
+        case 'text': name = 'Text'; break;
     }
 
     if (isPasteMode) {
         name = 'Paste Mode (click to set point)';
     }
 
-    toolInfoDisplay.textContent = `Current Tool: ${name}`;
+    toolInfoDisplay.textContent = name;
 }
 
 // ============================================================
