@@ -90,7 +90,6 @@
         </button>
     </div>
 
-    <div class="tool-info"></div>
 </div>
 
 <div class="properties">
@@ -118,6 +117,26 @@
     <div class="property-group" data-contexts="text">
         <label>Text Color</label>
         <input id="textColor" type="color" value="#000000">
+    </div>
+
+    <div class="property-group" data-contexts="text">
+        <label>Text Style</label>
+        <div class="property-input-row">
+            <button id="textBold" type="button" class="pill-btn">B</button>
+            <button id="textItalic" type="button" class="pill-btn">I</button>
+            <button id="textFontDecrease" type="button" class="pill-btn">A−</button>
+            <button id="textFontIncrease" type="button" class="pill-btn">A+</button>
+        </div>
+    </div>
+
+    <div class="property-group" data-contexts="wall">
+        <label>Measurements</label>
+        <div class="property-input-row">
+            <button id="measurementFontDecrease" type="button" class="pill-btn">A−</button>
+            <button id="measurementFontIncrease" type="button" class="pill-btn">A+</button>
+            <button id="measurementDescribe" type="button" class="pill-btn">Describe</button>
+        </div>
+        <span id="measurementDescriptionPreview" class="property-hint"></span>
     </div>
 
     <div class="property-group" data-contexts="floor">
@@ -152,6 +171,17 @@
 
 <div class="coordinates">X: 0, Y: 0</div>
 
+</div>
+
+<div id="textModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Enter Text</h3>
+        <input id="textModalInput" type="text" value="New label" aria-label="Enter text" />
+        <div class="modal-actions">
+            <button id="textModalConfirm" class="tool-btn" type="button">Add Text</button>
+            <button id="textModalCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
 </div>
 
 <div id="floorTextureModal" class="modal hidden">

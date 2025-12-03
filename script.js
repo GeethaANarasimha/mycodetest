@@ -13,6 +13,10 @@ const wallThicknessInchesInput = document.getElementById('wallThicknessInches');
 const lineWidthInput = document.getElementById('lineWidth');
 const lineColorInput = document.getElementById('lineColor');
 const textColorInput = document.getElementById('textColor');
+const textBoldButton = document.getElementById('textBold');
+const textItalicButton = document.getElementById('textItalic');
+const textFontIncreaseButton = document.getElementById('textFontIncrease');
+const textFontDecreaseButton = document.getElementById('textFontDecrease');
 const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
 const snapToGridCheckbox = document.getElementById('snapToGrid');
@@ -20,6 +24,10 @@ const showDimensionsCheckbox = document.getElementById('showDimensions');
 const toggleGridButton = document.getElementById('toggleGrid');
 const coordinatesDisplay = document.querySelector('.coordinates');
 const toolInfoDisplay = document.querySelector('.tool-info');
+const measurementFontIncreaseButton = document.getElementById('measurementFontIncrease');
+const measurementFontDecreaseButton = document.getElementById('measurementFontDecrease');
+const measurementDescribeButton = document.getElementById('measurementDescribe');
+const measurementDescriptionPreview = document.getElementById('measurementDescriptionPreview');
 const rotateLeftButton = document.getElementById('rotateLeft');
 const rotateRightButton = document.getElementById('rotateRight');
 const flipHorizontalButton = document.getElementById('flipHorizontal');
@@ -49,6 +57,10 @@ const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgro
 const finishBackgroundMeasurementButton = document.getElementById('finishBackgroundMeasurement');
 const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
 const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
+const textModal = document.getElementById('textModal');
+const textModalInput = document.getElementById('textModalInput');
+const textModalConfirm = document.getElementById('textModalConfirm');
+const textModalCancel = document.getElementById('textModalCancel');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -92,6 +104,11 @@ let gridSize = parseInt(gridSizeInput.value, 10);
 let snapToGrid = snapToGridCheckbox.checked;
 let showGrid = true;
 let showDimensions = showDimensionsCheckbox.checked;
+let textFontSize = 18;
+let textIsBold = false;
+let textIsItalic = false;
+let measurementFontSize = 12;
+let measurementDescription = '';
 
 let nodes = [];
 let walls = [];
@@ -168,6 +185,8 @@ let lastPointerCanvasY = null;
 // undo / redo
 let undoStack = [];
 let redoStack = [];
+let pendingTextPlacement = null;
+let textModalResolver = null;
 
 // CUT/COPY/PASTE CLIPBOARD
 let clipboard = {
@@ -2063,6 +2082,7 @@ function init() {
             closeFloorTextureModal();
             closeBackgroundImageModal();
             cancelBackgroundMeasurement();
+            closeTextModal();
         }
     });
 
@@ -2130,6 +2150,24 @@ function init() {
     }
     if (cancelBackgroundMeasurementButton) {
         cancelBackgroundMeasurementButton.addEventListener('click', cancelBackgroundMeasurement);
+    }
+
+    if (textModalConfirm) {
+        textModalConfirm.addEventListener('click', submitTextModal);
+    }
+    if (textModalCancel) {
+        textModalCancel.addEventListener('click', closeTextModal);
+    }
+    if (textModalInput) {
+        textModalInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                submitTextModal();
+            }
+            if (event.key === 'Escape') {
+                closeTextModal();
+            }
+        });
     }
 
     if (backgroundPreview) {
@@ -2213,6 +2251,42 @@ function init() {
         redrawCanvas();
     });
 
+    if (textBoldButton) {
+        textBoldButton.addEventListener('click', toggleTextBold);
+    }
+    if (textItalicButton) {
+        textItalicButton.addEventListener('click', toggleTextItalic);
+    }
+    if (textFontIncreaseButton) {
+        textFontIncreaseButton.addEventListener('click', () => {
+            changeTextFontSize(2);
+            updateTextStyleButtons();
+        });
+    }
+    if (textFontDecreaseButton) {
+        textFontDecreaseButton.addEventListener('click', () => {
+            changeTextFontSize(-2);
+            updateTextStyleButtons();
+        });
+    }
+
+    if (measurementFontIncreaseButton) {
+        measurementFontIncreaseButton.addEventListener('click', () => changeMeasurementFontSize(2));
+    }
+    if (measurementFontDecreaseButton) {
+        measurementFontDecreaseButton.addEventListener('click', () => changeMeasurementFontSize(-2));
+    }
+    if (measurementDescribeButton) {
+        measurementDescribeButton.addEventListener('click', () => {
+            pendingTextPlacement = null;
+            openTextModal({
+                defaultValue: measurementDescription || '',
+                confirmLabel: 'Save Label',
+                onSubmit: setMeasurementDescription
+            });
+        });
+    }
+
     if (backgroundDistanceInput) {
         backgroundDistanceInput.addEventListener('input', () => {
             setMeasurementDistance(backgroundDistanceInput.value, { resetLine: true });
@@ -2243,6 +2317,8 @@ function init() {
     syncCanvasScrollArea();
     drawGrid();
     syncBackgroundControls();
+    updateTextStyleButtons();
+    updateMeasurementPreview();
     updateToolInfo();
     updatePropertiesPanel();
 }
@@ -2880,40 +2956,12 @@ function handleMouseDown(e) {
 
     if (currentTool === 'text') {
         ({ x, y } = snapPointToInch(x, y));
-        const textValue = prompt('Enter text to place on the grid:', 'New label');
-        if (!textValue || !textValue.trim()) {
-            return;
-        }
-
-        pushUndoState();
-        const trimmed = textValue.trim();
-        const fontSize = 18;
-        const { width, height } = measureTextDimensions(trimmed, fontSize);
-        const color = textColorInput?.value || '#000000';
-
-        const newObj = {
-            type: 'text',
-            text: trimmed,
-            x,
-            y,
-            width,
-            height,
-            lineWidth: 0,
-            lineColor: color,
-            fillColor: 'transparent',
-            textColor: color,
-            fontSize,
-            rotation: 0,
-            flipH: false,
-            flipV: false
-        };
-
-        objects.push(newObj);
-        selectedObjectIndices = new Set([objects.length - 1]);
-        selectedWalls.clear();
-        selectedFloorIds.clear();
-        selectAllMode = false;
-        redrawCanvas();
+        pendingTextPlacement = { x, y };
+        openTextModal({
+            defaultValue: 'New label',
+            confirmLabel: 'Add Text',
+            onSubmit: handleTextPlacement
+        });
         return;
     }
 
@@ -3121,9 +3169,9 @@ function getDefaultStyleForType(type) {
     return { lineColor: baseLine, fillColor: baseFill };
 }
 
-function measureTextDimensions(text, fontSize = 18) {
+function measureTextDimensions(text, fontSize = 18, fontWeight = 'normal', fontStyle = 'normal') {
     ctx.save();
-    ctx.font = `${fontSize}px Arial`;
+    ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`.trim();
     const metrics = ctx.measureText(text);
     const width = metrics.width;
     const height = fontSize * 1.2;
@@ -3805,11 +3853,15 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const tx = midX + nx * offset;
     const ty = midY + ny * offset;
 
+    const label = measurementDescription
+        ? `${text} (${measurementDescription})`
+        : text;
+
     withViewTransform(() => {
         ctx.save();
         ctx.fillStyle = '#e74c3c';
-        ctx.font = '12px Arial';
-        ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
+        ctx.font = `${measurementFontSize}px Arial`;
+        ctx.fillText(label, tx - ctx.measureText(label).width / 2, ty - 2);
         ctx.restore();
     });
 }
@@ -3870,7 +3922,10 @@ function drawObjects() {
             ctx.lineTo(localX + width, localY + height / 2);
             ctx.stroke();
         } else if (obj.type === 'text') {
-            ctx.font = `${obj.fontSize || 18}px Arial`;
+            const fontSize = obj.fontSize || 18;
+            const fontWeight = obj.fontWeight || 'normal';
+            const fontStyle = obj.fontStyle || 'normal';
+            ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`.trim();
             ctx.textBaseline = 'top';
             ctx.fillStyle = obj.textColor || obj.lineColor || '#000000';
             ctx.fillText(obj.text, localX, localY);
@@ -4271,7 +4326,49 @@ function updatePropertiesPanel() {
     });
 }
 
+function clampValue(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function recalcTextObjectDimensions(obj) {
+    const dims = measureTextDimensions(
+        obj.text,
+        obj.fontSize || 18,
+        obj.fontWeight || 'normal',
+        obj.fontStyle || 'normal'
+    );
+    obj.width = dims.width;
+    obj.height = dims.height;
+}
+
+function applyTextChangesToSelection(mutator) {
+    const indices = Array.from(selectedObjectIndices).filter(i => objects[i]?.type === 'text');
+    if (!indices.length) return false;
+
+    pushUndoState();
+    indices.forEach(index => {
+        const obj = objects[index];
+        mutator(obj);
+        recalcTextObjectDimensions(obj);
+    });
+    redrawCanvas();
+    return true;
+}
+
+function updateTextStyleButtons() {
+    if (textBoldButton) textBoldButton.classList.toggle('active', textIsBold);
+    if (textItalicButton) textItalicButton.classList.toggle('active', textIsItalic);
+}
+
+function updateMeasurementPreview() {
+    if (!measurementDescriptionPreview) return;
+    measurementDescriptionPreview.textContent = measurementDescription
+        ? `Label: ${measurementDescription}`
+        : '';
+}
+
 function updateToolInfo() {
+    if (!toolInfoDisplay) return;
     if (isBackgroundMeasurementActive) {
         toolInfoDisplay.textContent = hasValidMeasurementDistance()
             ? `Calibrating background: set ${getMeasurementLabel()} on the preview overlay`
@@ -4296,6 +4393,122 @@ function updateToolInfo() {
     }
 
     toolInfoDisplay.textContent = name;
+}
+
+function openTextModal({ defaultValue = 'New label', confirmLabel = 'Save', onSubmit } = {}) {
+    if (!textModal || !textModalInput || !textModalConfirm) return;
+    textModalInput.value = defaultValue;
+    textModalConfirm.textContent = confirmLabel;
+    textModal.classList.remove('hidden');
+    textModalResolver = onSubmit;
+    setTimeout(() => textModalInput.focus(), 0);
+}
+
+function closeTextModal() {
+    if (!textModal) return;
+    textModal.classList.add('hidden');
+    textModalResolver = null;
+    pendingTextPlacement = null;
+}
+
+function submitTextModal() {
+    if (!textModalResolver || !textModalInput) {
+        closeTextModal();
+        return;
+    }
+    const value = textModalInput.value.trim();
+    textModalResolver(value);
+}
+
+function handleTextPlacement(textValue) {
+    const placement = pendingTextPlacement;
+    pendingTextPlacement = null;
+    if (!placement) {
+        closeTextModal();
+        return;
+    }
+
+    if (!textValue) {
+        closeTextModal();
+        return;
+    }
+
+    pushUndoState();
+    const color = textColorInput?.value || '#000000';
+    const fontWeight = textIsBold ? 'bold' : 'normal';
+    const fontStyle = textIsItalic ? 'italic' : 'normal';
+    const { width, height } = measureTextDimensions(textValue, textFontSize, fontWeight, fontStyle);
+
+    const newObj = {
+        type: 'text',
+        text: textValue,
+        x: placement.x,
+        y: placement.y,
+        width,
+        height,
+        lineWidth: 0,
+        lineColor: color,
+        fillColor: 'transparent',
+        textColor: color,
+        fontSize: textFontSize,
+        fontWeight,
+        fontStyle,
+        rotation: 0,
+        flipH: false,
+        flipV: false
+    };
+
+    objects.push(newObj);
+    selectedObjectIndices = new Set([objects.length - 1]);
+    selectedWalls.clear();
+    selectedFloorIds.clear();
+    selectAllMode = false;
+    redrawCanvas();
+    closeTextModal();
+}
+
+function changeTextFontSize(delta) {
+    textFontSize = clampValue(textFontSize + delta, 8, 96);
+    const applied = applyTextChangesToSelection(obj => {
+        obj.fontSize = textFontSize;
+    });
+    if (!applied) {
+        redrawCanvas();
+    }
+}
+
+function toggleTextBold() {
+    textIsBold = !textIsBold;
+    const applied = applyTextChangesToSelection(obj => {
+        obj.fontWeight = textIsBold ? 'bold' : 'normal';
+    });
+    if (!applied) {
+        redrawCanvas();
+    }
+    updateTextStyleButtons();
+}
+
+function toggleTextItalic() {
+    textIsItalic = !textIsItalic;
+    const applied = applyTextChangesToSelection(obj => {
+        obj.fontStyle = textIsItalic ? 'italic' : 'normal';
+    });
+    if (!applied) {
+        redrawCanvas();
+    }
+    updateTextStyleButtons();
+}
+
+function changeMeasurementFontSize(delta) {
+    measurementFontSize = clampValue(measurementFontSize + delta, 8, 48);
+    redrawCanvas();
+}
+
+function setMeasurementDescription(description) {
+    measurementDescription = (description || '').trim();
+    updateMeasurementPreview();
+    redrawCanvas();
+    closeTextModal();
 }
 
 // ============================================================
