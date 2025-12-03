@@ -4594,7 +4594,7 @@ function ensureThreeView() {
     threeScene.background = new THREE.Color('#0f172a');
 
     threeCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
-    threeCamera.position.set(0, scale * 5, scale * 10);
+    threeCamera.position.set(0, 50, 90);
 
     threeRenderer = new THREE.WebGLRenderer({ antialias: true });
     threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -4658,6 +4658,10 @@ function clearThreeContent() {
     wallMeshes = [];
 }
 
+function toWorldUnits(pxValue) {
+    return pxValue / Math.max(scale || 1, 0.0001);
+}
+
 function createWallMesh(wall, wallHeight) {
     const n1 = getNodeById(wall.startNodeId);
     const n2 = getNodeById(wall.endNodeId);
@@ -4665,8 +4669,8 @@ function createWallMesh(wall, wallHeight) {
 
     const dx = n2.x - n1.x;
     const dy = n2.y - n1.y;
-    const length = Math.hypot(dx, dy) || 1;
-    const thickness = wall.thicknessPx || (0.5 * scale);
+    const length = toWorldUnits(Math.hypot(dx, dy)) || 1;
+    const thickness = toWorldUnits(wall.thicknessPx || (0.5 * scale));
 
     const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
     const material = new THREE.MeshStandardMaterial({
@@ -4676,8 +4680,8 @@ function createWallMesh(wall, wallHeight) {
     });
     const mesh = new THREE.Mesh(geometry, material);
 
-    const midX = (n1.x + n2.x) / 2;
-    const midY = (n1.y + n2.y) / 2;
+    const midX = toWorldUnits((n1.x + n2.x) / 2);
+    const midY = toWorldUnits((n1.y + n2.y) / 2);
     mesh.position.set(midX, wallHeight / 2, midY);
     mesh.rotation.y = -Math.atan2(dy, dx);
     return mesh;
@@ -4688,13 +4692,13 @@ function createFloorMesh(floor) {
     if (points.length < 3) return null;
 
     const shape = new THREE.Shape();
-    shape.moveTo(points[0].x, points[0].y);
+    shape.moveTo(toWorldUnits(points[0].x), toWorldUnits(points[0].y));
     for (let i = 1; i < points.length; i++) {
-        shape.lineTo(points[i].x, points[i].y);
+        shape.lineTo(toWorldUnits(points[i].x), toWorldUnits(points[i].y));
     }
     shape.closePath();
 
-    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 4, bevelEnabled: false });
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.5, bevelEnabled: false });
     geometry.rotateX(-Math.PI / 2);
 
     const color = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
@@ -4705,10 +4709,10 @@ function createFloorMesh(floor) {
 }
 
 function createDoorOrWindowMesh(obj, wallHeight) {
-    const drawWidth = obj.orientation === 'vertical' ? obj.height : obj.width;
-    const drawDepth = obj.orientation === 'vertical' ? obj.width : obj.height;
-    const length = Math.max(drawWidth, 1);
-    const depth = Math.max(drawDepth, 1);
+    const drawWidth = toWorldUnits(obj.orientation === 'vertical' ? obj.height : obj.width);
+    const drawDepth = toWorldUnits(obj.orientation === 'vertical' ? obj.width : obj.height);
+    const length = Math.max(drawWidth, 0.1);
+    const depth = Math.max(drawDepth, 0.1);
     const isWindow = obj.type === 'window';
     const height = isWindow ? wallHeight * 0.5 : wallHeight * 0.9;
     const centerY = isWindow ? wallHeight * 0.6 : height / 2;
@@ -4723,8 +4727,8 @@ function createDoorOrWindowMesh(obj, wallHeight) {
     });
     const mesh = new THREE.Mesh(geometry, material);
 
-    const centerX = obj.x + obj.width / 2;
-    const centerZ = obj.y + obj.height / 2;
+    const centerX = toWorldUnits(obj.x + obj.width / 2);
+    const centerZ = toWorldUnits(obj.y + obj.height / 2);
     mesh.position.set(centerX, centerY, centerZ);
     mesh.rotation.y = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
     return mesh;
@@ -4736,7 +4740,7 @@ function rebuild3DScene() {
 
     clearThreeContent();
 
-    const wallHeight = 4 * scale;
+    const wallHeight = 10; // feet
 
     floors.forEach(floor => {
         const mesh = createFloorMesh(floor);
