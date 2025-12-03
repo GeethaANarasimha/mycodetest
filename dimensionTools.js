@@ -918,15 +918,19 @@ window.createSpaceDimension = function(spaceData) {
     let startX, startY, endX, endY;
 
     if (isHorizontalSpace) {
-        const { leftBoundary, rightBoundary, wallY } = spaceData;
-        const dimensionY = wallY + 35;
+        const { leftBoundary, rightBoundary, wallY, hoverY } = spaceData;
+        const referenceY = hoverY ?? window.dimensionHoverY;
+        const offsetSign = referenceY != null && referenceY < wallY ? -1 : 1;
+        const dimensionY = wallY + 35 * offsetSign;
         startX = leftBoundary;
         startY = dimensionY;
         endX = rightBoundary;
         endY = dimensionY;
     } else {
-        const { topBoundary, bottomBoundary, wallX } = spaceData;
-        const dimensionX = wallX + 35;
+        const { topBoundary, bottomBoundary, wallX, hoverX } = spaceData;
+        const referenceX = hoverX ?? window.dimensionHoverX;
+        const offsetSign = referenceX != null && referenceX < wallX ? -1 : 1;
+        const dimensionX = wallX + 35 * offsetSign;
         startX = dimensionX;
         startY = topBoundary;
         endX = dimensionX;
