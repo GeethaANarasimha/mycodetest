@@ -30,12 +30,14 @@ body {
 .tool-btn {
     background: #555;
     color: #fff;
-    padding: 8px 12px;
+    padding: 8px;
     border: none;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
+    position: relative;
 }
 .tool-btn.active {
     background: #1abc9c;
@@ -46,8 +48,39 @@ body {
 }
 
 .tool-icon {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.text-icon {
+    font-size: 18px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.tool-label {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    font-size: 12px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    z-index: 10;
+}
+
+.tool-btn:hover .tool-label,
+.tool-btn:focus-visible .tool-label {
+    display: inline-block;
 }
 
 .transform-menu {
