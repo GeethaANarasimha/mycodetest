@@ -534,6 +534,14 @@ function updateBackgroundMeasurementUI() {
     redrawPreviewMeasurementOverlay();
 }
 
+function updateMeasurementPreview() {
+    if (backgroundDistanceInput) {
+        backgroundDistanceInput.value = hasValidMeasurementDistance() ? measurementDistanceFeet : '';
+    }
+
+    updateBackgroundMeasurementUI();
+}
+
 function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
     const parsed = parseFloat(feetValue);
     const isValid = Number.isFinite(parsed) && parsed > 0;
