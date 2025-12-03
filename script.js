@@ -148,7 +148,7 @@ let isWallDrawing = false;
 let wallChain = [];
 let wallPreviewX = null;
 let wallPreviewY = null;
-let alignmentHint = null;
+let alignmentHints = [];
 
 // node drag
 let selectedNode = null;
@@ -2086,7 +2086,7 @@ function restoreState(state) {
     wallChain = [];
     wallPreviewX = null;
     wallPreviewY = null;
-    alignmentHint = null;
+    alignmentHints = [];
     ignoreNextClick = false;
     selectedFloorIds.clear();
     selectedObjectIndices.clear();
@@ -2195,7 +2195,7 @@ function init() {
                 isWallDrawing = false;
                 wallChain = [];
                 wallPreviewX = wallPreviewY = null;
-                alignmentHint = null;
+                alignmentHints = [];
             }
 
             if (currentTool !== 'dimension' && typeof window.resetDimensionTool === 'function') {
@@ -3460,7 +3460,7 @@ function handleMouseMove(e) {
         if (dx === 0 && dy === 0) {
             wallPreviewX = sx;
             wallPreviewY = sy;
-            alignmentHint = null;
+            alignmentHints = [];
         } else {
             const angle = Math.atan2(dy, dx);
             const snapStep = Math.PI / 4;
@@ -3473,34 +3473,61 @@ function handleMouseMove(e) {
             ({ x: ex, y: ey } = snapPointToInch(ex, ey));
 
             const tol = 8;
-            alignmentHint = null;
+            alignmentHints = [];
+
+            let snappedNode = null;
+            let closestVertical = null;
+            let closestVerticalDelta = tol + 1;
+            let closestHorizontal = null;
+            let closestHorizontalDelta = tol + 1;
 
             for (const node of nodes) {
                 if (node.id === lastNode.id) continue;
 
-                const ax = node.x;
-                const ay = node.y;
-                const alignedX = Math.abs(ex - ax) <= tol;
-                const alignedY = Math.abs(ey - ay) <= tol;
-                const close = Math.hypot(ex - ax, ey - ay) <= tol;
+                const dist = Math.hypot(ex - node.x, ey - node.y);
+                if (!snappedNode && dist <= tol) {
+                    snappedNode = node;
+                    continue;
+                }
+
+                const dxToNode = Math.abs(ex - node.x);
+                const dyToNode = Math.abs(ey - node.y);
+
+                if (dxToNode <= tol && dxToNode < closestVerticalDelta) {
+                    closestVertical = node;
+                    closestVerticalDelta = dxToNode;
+                }
+
+                if (dyToNode <= tol && dyToNode < closestHorizontalDelta) {
+                    closestHorizontal = node;
+                    closestHorizontalDelta = dyToNode;
+                }
+            }
+
+            if (snappedNode) {
+                ex = snappedNode.x;
+                ey = snappedNode.y;
+            } else {
+                if (closestVertical) ex = closestVertical.x;
+                if (closestHorizontal) ey = closestHorizontal.y;
+            }
+
+            for (const node of nodes) {
+                if (node.id === lastNode.id) continue;
+
+                const close = Math.hypot(ex - node.x, ey - node.y) <= tol;
+                const alignedX = Math.abs(ex - node.x) <= tol;
+                const alignedY = Math.abs(ey - node.y) <= tol;
 
                 if (close) {
-                    ex = ax;
-                    ey = ay;
-                    alignmentHint = { type: 'close', ax, ay, ex, ey };
-                    break;
-                }
-
-                if (alignedX) {
-                    ex = ax;
-                    alignmentHint = { type: 'vertical', ax, ay, ex, ey };
-                    break;
-                }
-
-                if (alignedY) {
-                    ey = ay;
-                    alignmentHint = { type: 'horizontal', ax, ay, ex, ey };
-                    break;
+                    alignmentHints.push({ type: 'close', ax: node.x, ay: node.y, ex, ey });
+                } else {
+                    if (alignedX) {
+                        alignmentHints.push({ type: 'vertical', ax: node.x, ay: node.y, ex, ey });
+                    }
+                    if (alignedY) {
+                        alignmentHints.push({ type: 'horizontal', ax: node.x, ay: node.y, ex, ey });
+                    }
                 }
             }
 
@@ -3653,7 +3680,7 @@ function handleCanvasClick(e) {
         wallChain = [firstNode];
         isWallDrawing = true;
         wallPreviewX = wallPreviewY = null;
-        alignmentHint = null;
+        alignmentHints = [];
         selectedWalls.clear();
         selectedObjectIndices.clear();
         selectAllMode = false;
@@ -3687,7 +3714,7 @@ function handleCanvasClick(e) {
     wallChain.push(newNode);
     
     wallPreviewX = wallPreviewY = null;
-    alignmentHint = null;
+    alignmentHints = [];
     redrawCanvas();
 }
 
@@ -3751,7 +3778,6 @@ function handleCanvasDoubleClick(e) {
 
     if (currentTool === 'wall' && isWallDrawing) {
         e.preventDefault();
-        ignoreNextClick = true;
 
         // If there's a preview, create the final wall segment
         if (wallPreviewX !== null && wallPreviewY !== null && wallChain.length > 0) {
@@ -3781,7 +3807,7 @@ function handleCanvasDoubleClick(e) {
         wallPreviewY = null;
         isWallDrawing = false;
         wallChain = [];
-        alignmentHint = null;
+        alignmentHints = [];
         redrawCanvas();
     }
 }
@@ -3934,23 +3960,28 @@ function drawHandleNode(node, horizontal) {
 }
 
 function drawAlignmentHint() {
-    if (!alignmentHint) return;
-    const { ax, ay, ex, ey } = alignmentHint;
+    if (!alignmentHints || alignmentHints.length === 0) return;
 
     withViewTransform(() => {
         ctx.save();
         ctx.strokeStyle = ALIGN_HINT_COLOR;
         ctx.lineWidth = 1.5;
+
         ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(ex, ey);
-        ctx.stroke();
+        for (const { ax, ay, ex, ey } of alignmentHints) {
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+        }
 
         ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.arc(ax, ay, 6, 0, Math.PI * 2);
-        ctx.stroke();
+        for (const { ax, ay } of alignmentHints) {
+            ctx.beginPath();
+            ctx.arc(ax, ay, 6, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
         ctx.restore();
     });
 }
@@ -4381,7 +4412,7 @@ function handleKeyDown(e) {
             wallChain = [];
             wallPreviewX = null;
             wallPreviewY = null;
-            alignmentHint = null;
+            alignmentHints = [];
             ignoreNextClick = false;
             redrawCanvas();
         } else if (currentTool === 'dimension' && typeof window.isDimensionDrawing !== 'undefined' && window.isDimensionDrawing) {
