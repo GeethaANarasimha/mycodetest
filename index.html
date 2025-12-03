@@ -54,9 +54,12 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_30f8437bfae148a38aca059207dc1ce2.svg" alt="">
         <span class="tool-label">Dimension</span>
     </button>
+    <button class="tool-btn" data-tool="text" aria-label="Text">
+        <span class="tool-icon text-icon">T</span>
+        <span class="tool-label">Text</span>
+    </button>
 
     <div class="transform-menu">
-        <span class="transform-title">Transform</span>
         <button id="rotateLeft" class="tool-btn secondary-btn" type="button" aria-label="Rotate Left">
             <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_74c75a751d214630a1839c167822df96.svg" alt="">
             <span class="tool-label">Rotate Left</span>
@@ -76,7 +79,7 @@
     </div>
 
     <div class="view-menu">
-        <span class="transform-title">View</span>
+        <span class="transform-title">Zoom</span>
         <button id="zoomOut" class="tool-btn secondary-btn" type="button" aria-label="Zoom Out">
             <span class="tool-icon text-icon">−</span>
             <span class="tool-label">Zoom Out</span>
@@ -101,6 +104,9 @@
     <label>Line Color</label>
     <input id="lineColor" type="color" value="#2c3e50">
     <span id="lineColorPreview"></span>
+
+    <label>Text Color</label>
+    <input id="textColor" type="color" value="#000000">
 
     <label>Fill</label>
     <input id="fillColor" type="color" value="#d9d9d9">
