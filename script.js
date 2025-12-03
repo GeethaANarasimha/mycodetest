@@ -182,6 +182,12 @@ let lastContextMenuCanvasY = null;
 let lastPointerCanvasX = null;
 let lastPointerCanvasY = null;
 
+// Floor polygon lasso
+let isFloorLassoActive = false;
+let floorLassoPoints = [];
+let floorLassoPreview = null;
+let floorHoverCorner = null;
+
 // undo / redo
 let undoStack = [];
 let redoStack = [];
@@ -1798,6 +1804,85 @@ function polygonArea(points) {
     return area / 2;
 }
 
+function resetFloorLasso() {
+    isFloorLassoActive = false;
+    floorLassoPoints = [];
+    floorLassoPreview = null;
+    floorHoverCorner = null;
+}
+
+function startFloorLasso(point) {
+    isFloorLassoActive = true;
+    floorLassoPoints = [point];
+    floorLassoPreview = null;
+}
+
+function addFloorLassoPoint(point) {
+    if (!isFloorLassoActive) {
+        startFloorLasso(point);
+        return;
+    }
+
+    const lastPoint = floorLassoPoints[floorLassoPoints.length - 1];
+    if (lastPoint && Math.hypot(lastPoint.x - point.x, lastPoint.y - point.y) < 0.1) {
+        return;
+    }
+
+    floorLassoPoints.push(point);
+    floorLassoPreview = null;
+}
+
+function finalizeFloorLasso(finalPoint = null) {
+    const polygonPoints = floorLassoPoints.slice();
+    if (finalPoint) {
+        polygonPoints.push(finalPoint);
+    }
+
+    if (polygonPoints.length < 3) {
+        resetFloorLasso();
+        redrawCanvas();
+        return null;
+    }
+
+    const polygon = polygonPoints.map(p => ({ x: p.x, y: p.y }));
+    if (Math.abs(polygonArea(polygon)) < 1) {
+        resetFloorLasso();
+        redrawCanvas();
+        return null;
+    }
+
+    pushUndoState();
+
+    const nodeIds = polygonPoints.map(p => {
+        if (p.nodeId) {
+            const node = getNodeById(p.nodeId);
+            if (node) return node.id;
+        }
+        const node = findOrCreateNode(p.x, p.y);
+        return node.id;
+    });
+
+    const floor = {
+        id: nextFloorId++,
+        nodeIds,
+        texture: {
+            type: 'color',
+            color: fillColorInput.value || '#d9d9d9'
+        }
+    };
+
+    floors.push(floor);
+    selectedFloorIds = new Set([floor.id]);
+    selectedWalls.clear();
+    selectedObjectIndices.clear();
+    selectAllMode = false;
+
+    resetFloorLasso();
+    redrawCanvas();
+
+    return floor;
+}
+
 function buildWallAdjacency() {
     const adjacency = new Map();
     const add = (fromId, toId) => {
@@ -2009,7 +2094,8 @@ function restoreState(state) {
     selectedFloorIds.clear();
     selectedObjectIndices.clear();
     selectAllMode = false;
-    
+    resetFloorLasso();
+
     if (typeof window.resetDimensionTool === 'function') {
         window.resetDimensionTool();
     }
@@ -2092,6 +2178,7 @@ function init() {
                 updateToolInfo();
                 redrawCanvas();
             }
+            resetFloorLasso();
             closeFloorTextureModal();
             closeBackgroundImageModal();
             cancelBackgroundMeasurement();
@@ -2104,6 +2191,8 @@ function init() {
             toolButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
             currentTool = button.getAttribute('data-tool');
+
+            resetFloorLasso();
 
             if (currentTool !== 'wall') {
                 isWallDrawing = false;
@@ -2483,6 +2572,19 @@ function getNodeAt(x, y) {
         if (Math.hypot(n.x - x, n.y - y) <= NODE_HIT_RADIUS) return n;
     }
     return null;
+}
+
+function getClosestNodeWithinRadius(x, y, radius = NODE_HIT_RADIUS + 4) {
+    let closest = null;
+    let bestDist = radius;
+    for (const node of nodes) {
+        const dist = Math.hypot(node.x - x, node.y - y);
+        if (dist <= bestDist) {
+            bestDist = dist;
+            closest = node;
+        }
+    }
+    return closest;
 }
 
 function createWall(n1, n2) {
@@ -2955,15 +3057,31 @@ function handleMouseDown(e) {
 
     if (currentTool === 'floor') {
         ({ x, y } = snapPointToInch(x, y));
-        pushUndoState();
-        const floor = createFloorAtPoint(x, y);
-        if (floor) {
-            selectedFloorIds = new Set([floor.id]);
-            selectedWalls.clear();
-            selectedObjectIndices.clear();
-            selectAllMode = false;
+        const snapNode = getClosestNodeWithinRadius(x, y);
+
+        if (isFloorLassoActive || snapNode) {
+            const point = snapNode ? { x: snapNode.x, y: snapNode.y, nodeId: snapNode.id } : { x, y };
+            addFloorLassoPoint(point);
             redrawCanvas();
+            return;
         }
+
+        const polygon = findRoomPolygonAtPoint(x, y);
+        if (polygon && !isFloorLassoActive) {
+            pushUndoState();
+            const floor = createFloorAtPoint(x, y);
+            if (floor) {
+                selectedFloorIds = new Set([floor.id]);
+                selectedWalls.clear();
+                selectedObjectIndices.clear();
+                selectAllMode = false;
+                redrawCanvas();
+            }
+            return;
+        }
+
+        addFloorLassoPoint({ x, y });
+        redrawCanvas();
         return;
     }
 
@@ -3308,6 +3426,26 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (currentTool === 'floor') {
+        ({ x, y } = snapPointToInch(x, y));
+        floorHoverCorner = getClosestNodeWithinRadius(x, y);
+
+        if (isFloorLassoActive) {
+            floorLassoPreview = floorHoverCorner ? { x: floorHoverCorner.x, y: floorHoverCorner.y, nodeId: floorHoverCorner.id } : { x, y };
+            coordinatesDisplay.textContent = `Floor lasso: X: ${floorLassoPreview.x.toFixed(1)}, Y: ${floorLassoPreview.y.toFixed(1)} | Double-click to close`;
+        } else {
+            floorLassoPreview = null;
+            if (floorHoverCorner) {
+                coordinatesDisplay.textContent = 'Floor lasso: click the corner highlight to start';
+            } else {
+                coordinatesDisplay.textContent = `Floor fill: X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}`;
+            }
+        }
+
+        redrawCanvas();
+        return;
+    }
+
     if (isDraggingNode && selectedNode && dragDir && dragOriginMousePos && dragOriginNodePos) {
         const dx = x - dragOriginMousePos.x;
         const dy = y - dragOriginMousePos.y;
@@ -3568,6 +3706,15 @@ function handleCanvasClick(e) {
 
 function handleCanvasDoubleClick(e) {
     let { x, y } = screenToWorld(e.clientX, e.clientY);
+
+    if (currentTool === 'floor' && isFloorLassoActive) {
+        ({ x, y } = snapPointToInch(x, y));
+        const snapNode = getClosestNodeWithinRadius(x, y);
+        const finalPoint = snapNode ? { x: snapNode.x, y: snapNode.y, nodeId: snapNode.id } : { x, y };
+        ignoreNextClick = true;
+        finalizeFloorLasso(finalPoint);
+        return;
+    }
 
     if (currentTool === 'dimension') {
         if (isBackgroundMeasurementActive) return;
@@ -4083,6 +4230,47 @@ function drawCurrentDragObject() {
     });
 }
 
+function drawFloorLassoOverlay() {
+    if (currentTool !== 'floor') return;
+
+    ctx.save();
+
+    if (isFloorLassoActive && floorLassoPoints.length > 0) {
+        const previewPoints = floorLassoPreview ? floorLassoPoints.concat([floorLassoPreview]) : floorLassoPoints;
+        ctx.beginPath();
+        ctx.moveTo(previewPoints[0].x, previewPoints[0].y);
+        for (let i = 1; i < previewPoints.length; i++) {
+            ctx.lineTo(previewPoints[i].x, previewPoints[i].y);
+        }
+        ctx.strokeStyle = '#3498db';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.stroke();
+
+        previewPoints.forEach(pt => {
+            ctx.beginPath();
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.4)';
+            ctx.strokeStyle = '#3498db';
+            ctx.setLineDash([]);
+            ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+    }
+
+    if (floorHoverCorner) {
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(52, 152, 219, 0.25)';
+        ctx.strokeStyle = '#3498db';
+        ctx.lineWidth = 1;
+        ctx.arc(floorHoverCorner.x, floorHoverCorner.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
 function redrawCanvas() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -4099,6 +4287,7 @@ function redrawCanvas() {
     drawDimensions();
     drawBackgroundMeasurementLine();
     drawSelectionBoxOverlay();
+    drawFloorLassoOverlay();
     ctx.restore();
 
     updatePropertiesPanel();
