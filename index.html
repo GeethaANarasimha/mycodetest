@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <title>APZOK 2D House Plan Designer</title>
     <link rel="stylesheet" href="style.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
 
@@ -102,6 +104,12 @@
         <input id="projectFileInput" class="hidden" type="file" accept=".paz" aria-label="Upload .paz project file">
     </div>
 
+    <div class="toolbar-spacer"></div>
+    <button id="toggle3DView" class="tool-btn secondary-btn" type="button" aria-label="Toggle 3D View">
+        <span class="tool-icon text-icon">3D</span>
+        <span class="tool-label">Toggle 3D View</span>
+    </button>
+
 </div>
 
 <div class="properties">
@@ -176,6 +184,7 @@
 <div class="canvas-shell">
     <div class="canvas-container">
         <canvas id="drawingCanvas" width="1800" height="1200"></canvas>
+        <div id="threeContainer" class="three-container hidden"></div>
     </div>
 </div>
 

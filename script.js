@@ -55,6 +55,7 @@ const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgro
 const finishBackgroundMeasurementButton = document.getElementById('finishBackgroundMeasurement');
 const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
 const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
+const toggle3DViewButton = document.getElementById('toggle3DView');
 const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
 const textModalConfirm = document.getElementById('textModalConfirm');
@@ -62,6 +63,7 @@ const textModalCancel = document.getElementById('textModalCancel');
 const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
+const threeContainer = document.getElementById('threeContainer');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -189,6 +191,14 @@ let isFloorLassoActive = false;
 let floorLassoPoints = [];
 let floorLassoPreview = null;
 let floorHoverCorner = null;
+
+// View mode (2D/3D)
+let is3DView = false;
+let threeScene = null;
+let threeRenderer = null;
+let threeCamera = null;
+let threeControls = null;
+let threeContentGroup = null;
 
 // undo / redo
 let undoStack = [];
@@ -2647,6 +2657,10 @@ function init() {
         toggleBackgroundImageButton.addEventListener('click', toggleBackgroundImageVisibility);
     }
 
+    if (toggle3DViewButton) {
+        toggle3DViewButton.addEventListener('click', toggleViewMode);
+    }
+
     canvas.addEventListener('keydown', handleKeyDown);
 
     toolButtons.forEach(btn => {
@@ -2660,6 +2674,7 @@ function init() {
     updateMeasurementPreview();
     updateToolInfo();
     updatePropertiesPanel();
+    update3DButtonLabel('Show 3D');
 }
 
 // ============================================================
@@ -4536,6 +4551,10 @@ function drawFloorLassoOverlay() {
 }
 
 function redrawCanvas() {
+    if (is3DView) {
+        refresh3DView();
+        return;
+    }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -4555,6 +4574,234 @@ function redrawCanvas() {
     ctx.restore();
 
     updatePropertiesPanel();
+}
+
+// ============================================================
+// 3D VIEW (THREE.JS)
+// ============================================================
+function ensureThreeView() {
+    if (threeScene || !threeContainer || typeof THREE === 'undefined') return;
+
+    const { clientWidth, clientHeight } = threeContainer;
+
+    threeScene = new THREE.Scene();
+    threeScene.background = new THREE.Color('#0b1220');
+
+    threeCamera = new THREE.PerspectiveCamera(45, (clientWidth || 1) / (clientHeight || 1), 0.1, 100000);
+    threeCamera.position.set(0, scale * 5, scale * 10);
+
+    threeRenderer = new THREE.WebGLRenderer({ antialias: true });
+    threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
+    threeRenderer.setSize(clientWidth, clientHeight);
+    threeContainer.appendChild(threeRenderer.domElement);
+
+    if (typeof THREE.OrbitControls === 'function') {
+        threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
+        threeControls.enableDamping = true;
+    }
+
+    threeScene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight.position.set(1000, 2000, 1000);
+    threeScene.add(dirLight);
+
+    threeContentGroup = new THREE.Group();
+    threeScene.add(threeContentGroup);
+
+    window.addEventListener('resize', handleThreeResize);
+
+    const renderLoop = () => {
+        requestAnimationFrame(renderLoop);
+        if (!threeRenderer || !threeScene || !threeCamera) return;
+        if (threeControls) threeControls.update();
+        threeRenderer.render(threeScene, threeCamera);
+    };
+    renderLoop();
+}
+
+function handleThreeResize() {
+    if (!is3DView || !threeRenderer || !threeCamera || !threeContainer) return;
+    const { clientWidth, clientHeight } = threeContainer;
+    threeCamera.aspect = (clientWidth || 1) / (clientHeight || 1);
+    threeCamera.updateProjectionMatrix();
+    threeRenderer.setSize(clientWidth, clientHeight);
+}
+
+function disposeThreeObject(obj) {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+        if (Array.isArray(obj.material)) {
+            obj.material.forEach(m => m.dispose && m.dispose());
+        } else if (obj.material.dispose) {
+            obj.material.dispose();
+        }
+    }
+}
+
+function clearThreeContent() {
+    if (!threeContentGroup) return;
+    while (threeContentGroup.children.length) {
+        const child = threeContentGroup.children.pop();
+        disposeThreeObject(child);
+    }
+}
+
+function createWallMesh(wall, wallHeight) {
+    const n1 = getNodeById(wall.startNodeId);
+    const n2 = getNodeById(wall.endNodeId);
+    if (!n1 || !n2) return null;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const thickness = wall.thicknessPx || (0.5 * scale);
+
+    const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
+    const material = new THREE.MeshStandardMaterial({ color: wall.lineColor || DEFAULT_WALL_COLOR });
+    const mesh = new THREE.Mesh(geometry, material);
+
+    const midX = (n1.x + n2.x) / 2;
+    const midY = (n1.y + n2.y) / 2;
+    mesh.position.set(midX, wallHeight / 2, midY);
+    mesh.rotation.y = -Math.atan2(dy, dx);
+    return mesh;
+}
+
+function createFloorMesh(floor) {
+    const points = getFloorPoints(floor);
+    if (points.length < 3) return null;
+
+    const shape = new THREE.Shape();
+    shape.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        shape.lineTo(points[i].x, points[i].y);
+    }
+    shape.closePath();
+
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 4, bevelEnabled: false });
+    geometry.rotateX(-Math.PI / 2);
+
+    const color = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
+    const material = new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.8 });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.y = 0;
+    return mesh;
+}
+
+function createDoorOrWindowMesh(obj, wallHeight) {
+    const drawWidth = obj.orientation === 'vertical' ? obj.height : obj.width;
+    const drawDepth = obj.orientation === 'vertical' ? obj.width : obj.height;
+    const length = Math.max(drawWidth, 1);
+    const depth = Math.max(drawDepth, 1);
+    const isWindow = obj.type === 'window';
+    const height = isWindow ? wallHeight * 0.5 : wallHeight * 0.9;
+    const centerY = isWindow ? wallHeight * 0.6 : height / 2;
+
+    const geometry = new THREE.BoxGeometry(length, height, depth);
+    const material = new THREE.MeshStandardMaterial({
+        color: isWindow ? '#6fb2ff' : '#c19a6b',
+        transparent: isWindow,
+        opacity: isWindow ? 0.7 : 1,
+        metalness: 0.1,
+        roughness: 0.5
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+
+    const centerX = obj.x + obj.width / 2;
+    const centerZ = obj.y + obj.height / 2;
+    mesh.position.set(centerX, centerY, centerZ);
+    mesh.rotation.y = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
+    return mesh;
+}
+
+function rebuild3DScene() {
+    ensureThreeView();
+    if (!threeContentGroup) return;
+
+    clearThreeContent();
+
+    const wallHeight = 4 * scale;
+
+    floors.forEach(floor => {
+        const mesh = createFloorMesh(floor);
+        if (mesh) threeContentGroup.add(mesh);
+    });
+
+    walls.forEach(wall => {
+        const mesh = createWallMesh(wall, wallHeight);
+        if (mesh) threeContentGroup.add(mesh);
+    });
+
+    objects.forEach(obj => {
+        if (!['door', 'window'].includes(obj.type)) return;
+        const mesh = createDoorOrWindowMesh(obj, wallHeight);
+        if (mesh) threeContentGroup.add(mesh);
+    });
+
+    fitThreeCamera();
+}
+
+function fitThreeCamera() {
+    if (!threeContentGroup || !threeCamera) return;
+    const box = new THREE.Box3().setFromObject(threeContentGroup);
+    if (!box.isEmpty()) {
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || scale * 10;
+        const distance = maxDim / Math.tan((Math.PI / 180) * (threeCamera.fov / 2));
+        threeCamera.position.set(center.x + distance, center.y + distance, center.z + distance);
+        threeCamera.near = 0.1;
+        threeCamera.far = Math.max(50000, distance * 4);
+        threeCamera.updateProjectionMatrix();
+        if (threeControls) {
+            threeControls.target.copy(center);
+            threeControls.update();
+        } else {
+            threeCamera.lookAt(center);
+        }
+    }
+}
+
+function switchTo3DView() {
+    is3DView = true;
+    if (canvas) canvas.classList.add('hidden');
+    if (threeContainer) threeContainer.classList.remove('hidden');
+    update3DButtonLabel('Show 2D');
+    rebuild3DScene();
+    handleThreeResize();
+}
+
+function switchTo2DView() {
+    is3DView = false;
+    if (canvas) canvas.classList.remove('hidden');
+    if (threeContainer) threeContainer.classList.add('hidden');
+    update3DButtonLabel('Show 3D');
+    redrawCanvas();
+}
+
+function toggleViewMode() {
+    if (is3DView) {
+        switchTo2DView();
+    } else {
+        switchTo3DView();
+    }
+}
+
+function refresh3DView() {
+    if (!is3DView) return;
+    rebuild3DScene();
+}
+
+function update3DButtonLabel(text) {
+    if (!toggle3DViewButton) return;
+    toggle3DViewButton.setAttribute('aria-label', text);
+    const label = toggle3DViewButton.querySelector('.tool-label');
+    const icon = toggle3DViewButton.querySelector('.tool-icon');
+    if (label) label.textContent = text;
+    if (icon) icon.textContent = text === 'Show 3D' ? '3D' : '2D';
+    if (!label && !icon) {
+        toggle3DViewButton.textContent = text;
+    }
 }
 
 // ============================================================
