@@ -3685,7 +3685,7 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     withViewTransform(() => {
         ctx.save();
         ctx.fillStyle = '#e74c3c';
-        ctx.font = '8px Arial';
+        ctx.font = '12px Arial';
         ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
         ctx.restore();
     });
