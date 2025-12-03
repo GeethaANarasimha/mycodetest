@@ -5,6 +5,7 @@
 // ---------------- DOM ELEMENTS ----------------
 const canvas = document.getElementById('drawingCanvas');
 const ctx = canvas.getContext('2d');
+const canvasContainer = document.querySelector('.canvas-container');
 const toolButtons = document.querySelectorAll('.tool-btn[data-tool]');
 const doorTypeSelect = document.getElementById('doorType');
 const wallThicknessFeetInput = document.getElementById('wallThicknessFeet');
@@ -84,6 +85,9 @@ let floors = [];
 let nextFloorId = 1;
 
 let objects = [];
+
+const BASE_CANVAS_WIDTH = canvas.width;
+const BASE_CANVAS_HEIGHT = canvas.height;
 
 // View transform
 let viewScale = 1;
@@ -201,13 +205,24 @@ function applyViewZoom(factor, anchor = null) {
         viewOffsetY = screenAnchor.y - anchor.y * newScale;
     }
     viewScale = newScale;
+    syncCanvasScrollArea();
     redrawCanvas();
 }
 
 function panView(deltaX, deltaY) {
     viewOffsetX += deltaX;
     viewOffsetY += deltaY;
+    syncCanvasScrollArea();
     redrawCanvas();
+}
+
+function syncCanvasScrollArea() {
+    if (!canvasContainer) return;
+    // Keep the canvas at its base size so panning/scrolling uses view transforms
+    // instead of stretching the element itself. This avoids the grid appearing
+    // to scale when using the mouse wheel to pan vertically.
+    canvas.style.minWidth = `${BASE_CANVAS_WIDTH}px`;
+    canvas.style.minHeight = `${BASE_CANVAS_HEIGHT}px`;
 }
 
 function getCanvasCenterWorld() {
@@ -1533,6 +1548,17 @@ function init() {
         zoomOutButton.addEventListener('click', () => applyViewZoom(1 / VIEW_ZOOM_STEP, getCanvasCenterWorld()));
     }
 
+    if (canvasContainer) {
+        canvasContainer.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) return; // allow browser zoom shortcuts
+            e.preventDefault();
+            const wantsHorizontal = e.shiftKey && Math.abs(e.deltaX) < Math.abs(e.deltaY);
+            const moveX = wantsHorizontal ? -e.deltaY : -e.deltaX;
+            const moveY = wantsHorizontal ? 0 : -e.deltaY;
+            panView(moveX, moveY);
+        }, { passive: false });
+    }
+
     wallThicknessFeetInput.addEventListener('input', redrawCanvas);
     wallThicknessInchesInput.addEventListener('input', redrawCanvas);
     lineWidthInput.addEventListener('input', redrawCanvas);
@@ -1560,6 +1586,7 @@ function init() {
 
     canvas.addEventListener('keydown', handleKeyDown);
 
+    syncCanvasScrollArea();
     drawGrid();
     updateToolInfo();
 }
