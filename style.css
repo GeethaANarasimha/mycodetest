@@ -236,6 +236,7 @@ input[type="text"] {
     inset: 10px;
     border-radius: 8px;
     overflow: hidden;
+    background: #0b1220;
     box-shadow: 0 10px 30px rgba(0,0,0,0.35);
 }
 

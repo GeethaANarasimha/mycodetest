@@ -4585,7 +4585,7 @@ function ensureThreeView() {
     const { clientWidth, clientHeight } = threeContainer;
 
     threeScene = new THREE.Scene();
-    threeScene.background = new THREE.Color('#0b1220');
+    threeScene.background = new THREE.Color('#0f172a');
 
     threeCamera = new THREE.PerspectiveCamera(45, (clientWidth || 1) / (clientHeight || 1), 0.1, 100000);
     threeCamera.position.set(0, scale * 5, scale * 10);
@@ -4600,9 +4600,14 @@ function ensureThreeView() {
         threeControls.enableDamping = true;
     }
 
-    threeScene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    dirLight.position.set(1000, 2000, 1000);
+    threeScene.add(new THREE.AmbientLight(0xffffff, 0.85));
+
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 0.6);
+    hemiLight.position.set(0, scale * 6, 0);
+    threeScene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    dirLight.position.set(scale * 25, scale * 40, scale * 25);
     threeScene.add(dirLight);
 
     threeContentGroup = new THREE.Group();
