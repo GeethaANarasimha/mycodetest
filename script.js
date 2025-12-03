@@ -3593,7 +3593,7 @@ function handleCanvasDoubleClick(e) {
             dimensionCreated = true;
         } else if (wallData && typeof window.createWallDimension === 'function') {
             pushUndoState();
-            window.createWallDimension(wallData);
+            window.createWallDimension(wallData, { referenceX: x, referenceY: y });
             dimensionCreated = true;
         }
 
