@@ -51,7 +51,6 @@ document.body.appendChild(contextMenu);
 
 // ---------------- CONSTANTS ----------------
 const scale = 20; // 20px = 1ft
-const DEFAULT_DEVICE_SCALE = window.devicePixelRatio || 1;
 const NODE_RADIUS = 6;
 const NODE_HIT_RADIUS = 10;
 const ALIGN_HINT_COLOR = '#e74c3c';
@@ -85,9 +84,6 @@ let floors = [];
 let nextFloorId = 1;
 
 let objects = [];
-
-// Track current device pixel ratio for proper canvas scaling
-let deviceScale = DEFAULT_DEVICE_SCALE;
 
 // View transform
 let viewScale = 1;
@@ -157,30 +153,19 @@ let pasteTargetX = null;
 let pasteTargetY = null;
 
 // View helpers
-function updateCanvasSizeForDisplay() {
+function getCanvasPixelScale() {
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const displayWidth = Math.round(rect.width * dpr);
-    const displayHeight = Math.round(rect.height * dpr);
-
-    deviceScale = dpr;
-
-    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
-        canvas.width = displayWidth;
-        canvas.height = displayHeight;
-    }
-
-    return dpr;
+    return {
+        x: rect.width / canvas.width,
+        y: rect.height / canvas.height
+    };
 }
 
 function screenToWorld(clientX, clientY) {
-    // Keep canvas/device scaling in sync with the latest browser zoom level so
-    // pointer math stays accurate even after changing page zoom (e.g., 135%).
-    updateCanvasSizeForDisplay();
-
     const rect = canvas.getBoundingClientRect();
-    const canvasX = clientX - rect.left;
-    const canvasY = clientY - rect.top;
+    const scale = getCanvasPixelScale();
+    const canvasX = (clientX - rect.left) / scale.x;
+    const canvasY = (clientY - rect.top) / scale.y;
     return {
         x: (canvasX - viewOffsetX) / viewScale,
         y: (canvasY - viewOffsetY) / viewScale
@@ -220,8 +205,8 @@ function panView(deltaX, deltaY) {
 
 function getCanvasCenterWorld() {
     return {
-        x: (canvas.width / deviceScale / 2 - viewOffsetX) / viewScale,
-        y: (canvas.height / deviceScale / 2 - viewOffsetY) / viewScale
+        x: (canvas.width / 2 - viewOffsetX) / viewScale,
+        y: (canvas.height / 2 - viewOffsetY) / viewScale
     };
 }
 
@@ -1425,8 +1410,6 @@ function redo() {
 function init() {
     canvas.setAttribute('tabindex', '0');
 
-    updateCanvasSizeForDisplay();
-
     canvas.addEventListener('mousedown', () => {
         canvas.focus();
     });
@@ -1543,11 +1526,6 @@ function init() {
         zoomOutButton.addEventListener('click', () => applyViewZoom(1 / VIEW_ZOOM_STEP, getCanvasCenterWorld()));
     }
 
-    window.addEventListener('resize', () => {
-        updateCanvasSizeForDisplay();
-        redrawCanvas();
-    });
-
     wallThicknessFeetInput.addEventListener('input', redrawCanvas);
     wallThicknessInchesInput.addEventListener('input', redrawCanvas);
     lineWidthInput.addEventListener('input', redrawCanvas);
@@ -1575,7 +1553,7 @@ function init() {
 
     canvas.addEventListener('keydown', handleKeyDown);
 
-    redrawCanvas();
+    drawGrid();
     updateToolInfo();
 }
 
@@ -2816,13 +2794,13 @@ function drawGrid() {
     if (!showGrid) return;
     const visibleStartX = -viewOffsetX / viewScale;
     const visibleStartY = -viewOffsetY / viewScale;
-    const visibleEndX = visibleStartX + (canvas.width / deviceScale) / viewScale;
-    const visibleEndY = visibleStartY + (canvas.height / deviceScale) / viewScale;
+    const visibleEndX = visibleStartX + canvas.width / viewScale;
+    const visibleEndY = visibleStartY + canvas.height / viewScale;
     const startX = Math.floor(visibleStartX / gridSize) * gridSize;
     const startY = Math.floor(visibleStartY / gridSize) * gridSize;
 
     ctx.beginPath();
-    ctx.lineWidth = (0.5 / viewScale) / deviceScale;
+    ctx.lineWidth = 0.5 / viewScale;
     ctx.strokeStyle = '#e0e0e0';
 
     for (let x = startX; x <= visibleEndX; x += gridSize) {
@@ -3197,15 +3175,13 @@ function drawCurrentDragObject() {
 }
 
 function redrawCanvas() {
-    const dpr = updateCanvasSizeForDisplay();
-
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
 
     ctx.save();
-    ctx.setTransform(viewScale * dpr, 0, 0, viewScale * dpr, viewOffsetX * dpr, viewOffsetY * dpr);
+    ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
     drawGrid();
     drawFloors();
     drawWalls();
