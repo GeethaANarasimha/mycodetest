@@ -4662,6 +4662,31 @@ function toWorldUnits(pxValue) {
     return pxValue / Math.max(scale || 1, 0.0001);
 }
 
+function createGroundElements() {
+    const baseSize = Math.max(toWorldUnits(Math.max(canvas?.width || 0, canvas?.height || 0)), 40);
+    const size = baseSize * 2;
+
+    const planeGeometry = new THREE.PlaneGeometry(size, size, 1, 1);
+    planeGeometry.rotateX(-Math.PI / 2);
+    const planeMaterial = new THREE.MeshStandardMaterial({
+        color: '#0b1220',
+        roughness: 0.95,
+        metalness: 0.02,
+        side: THREE.DoubleSide
+    });
+    const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+    plane.position.y = -0.05;
+    plane.userData.isGround = true;
+
+    const divisions = Math.max(10, Math.round(size / 5));
+    const grid = new THREE.GridHelper(size, divisions, 0x4f6b8a, 0x2a3b55);
+    grid.material.depthWrite = false;
+    grid.position.y = 0.02;
+    grid.userData.isGround = true;
+
+    return { plane, grid };
+}
+
 function createWallMesh(wall, wallHeight) {
     const n1 = getNodeById(wall.startNodeId);
     const n2 = getNodeById(wall.endNodeId);
@@ -4740,6 +4765,12 @@ function rebuild3DScene() {
 
     clearThreeContent();
 
+    const ground = createGroundElements();
+    if (ground) {
+        threeContentGroup.add(ground.plane);
+        threeContentGroup.add(ground.grid);
+    }
+
     const wallHeight = 10; // feet
 
     floors.forEach(floor => {
@@ -4765,8 +4796,6 @@ function rebuild3DScene() {
 }
 
 function getCameraTargetBoundingBox() {
-    if (!wallMeshes.length) return new THREE.Box3().setFromObject(threeContentGroup);
-
     const box = new THREE.Box3();
     let hasSelection = false;
 
@@ -4792,7 +4821,18 @@ function getCameraTargetBoundingBox() {
     }
 
     if (box.isEmpty() && threeContentGroup) {
-        return new THREE.Box3().setFromObject(threeContentGroup);
+        threeContentGroup.children.forEach(child => {
+            if (!child.userData?.isGround) {
+                box.expandByObject(child);
+            }
+        });
+    }
+
+    if (box.isEmpty()) {
+        return new THREE.Box3().setFromCenterAndSize(
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(scale * 8, 0.1, scale * 8)
+        );
     }
 
     return box;
