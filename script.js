@@ -4886,8 +4886,13 @@ function toggleViewMode() {
     if (is3DView) {
         switchTo2DView();
     } else {
-        switchTo3DView();
+        viewHousePlanIn3D();
     }
+}
+
+function viewHousePlanIn3D() {
+    ensureThreeView();
+    switchTo3DView();
 }
 
 function refresh3DView() {
