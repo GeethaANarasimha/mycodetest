@@ -4580,20 +4580,25 @@ function redrawCanvas() {
 // ============================================================
 // 3D VIEW (THREE.JS)
 // ============================================================
+function getThreeViewportSize() {
+    const width = Math.max(threeContainer?.clientWidth || 0, canvas?.width || 1200, 1);
+    const height = Math.max(threeContainer?.clientHeight || 0, canvas?.height || 900, 1);
+    return { width, height };
+}
+
 function ensureThreeView() {
     if (threeScene || !threeContainer || typeof THREE === 'undefined') return;
-
-    const { clientWidth, clientHeight } = threeContainer;
+    const { width, height } = getThreeViewportSize();
 
     threeScene = new THREE.Scene();
     threeScene.background = new THREE.Color('#0f172a');
 
-    threeCamera = new THREE.PerspectiveCamera(45, (clientWidth || 1) / (clientHeight || 1), 0.1, 100000);
+    threeCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
     threeCamera.position.set(0, scale * 5, scale * 10);
 
     threeRenderer = new THREE.WebGLRenderer({ antialias: true });
     threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
-    threeRenderer.setSize(clientWidth, clientHeight);
+    threeRenderer.setSize(width, height);
     threeContainer.appendChild(threeRenderer.domElement);
 
     if (typeof THREE.OrbitControls === 'function') {
@@ -4627,10 +4632,10 @@ function ensureThreeView() {
 
 function handleThreeResize() {
     if (!is3DView || !threeRenderer || !threeCamera || !threeContainer) return;
-    const { clientWidth, clientHeight } = threeContainer;
-    threeCamera.aspect = (clientWidth || 1) / (clientHeight || 1);
+    const { width, height } = getThreeViewportSize();
+    threeCamera.aspect = width / height;
     threeCamera.updateProjectionMatrix();
-    threeRenderer.setSize(clientWidth, clientHeight);
+    threeRenderer.setSize(width, height);
 }
 
 function disposeThreeObject(obj) {
