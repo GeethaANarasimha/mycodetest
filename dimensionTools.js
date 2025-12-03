@@ -370,45 +370,85 @@ window.drawHoverWallDimension = function(wallData) {
 window.drawHoverSpaceDimension = function(spaceData) {
     if (!spaceData) return;
 
-    const { leftBoundary, rightBoundary, text, wallY } = spaceData;
-    const dimensionY = wallY + 35;
+    const isHorizontalSpace = spaceData.orientation === 'horizontal';
+    const text = spaceData.text;
 
     ctx.save();
     ctx.strokeStyle = 'rgba(155, 89, 182, 0.7)';
     ctx.lineWidth = 2;
     ctx.setLineDash([2, 2]);
 
-    // Dimension line
-    ctx.beginPath();
-    ctx.moveTo(leftBoundary, dimensionY);
-    ctx.lineTo(rightBoundary, dimensionY);
-    ctx.stroke();
+    if (isHorizontalSpace) {
+        const { leftBoundary, rightBoundary, wallY } = spaceData;
+        const dimensionY = wallY + 35;
 
-    // Extension lines
-    ctx.beginPath();
-    ctx.moveTo(leftBoundary, wallY);
-    ctx.lineTo(leftBoundary, dimensionY);
-    ctx.stroke();
+        // Dimension line
+        ctx.beginPath();
+        ctx.moveTo(leftBoundary, dimensionY);
+        ctx.lineTo(rightBoundary, dimensionY);
+        ctx.stroke();
 
-    ctx.beginPath();
-    ctx.moveTo(rightBoundary, wallY);
-    ctx.lineTo(rightBoundary, dimensionY);
-    ctx.stroke();
+        // Extension lines
+        ctx.beginPath();
+        ctx.moveTo(leftBoundary, wallY);
+        ctx.lineTo(leftBoundary, dimensionY);
+        ctx.stroke();
 
-    // Text
-    const midX = (leftBoundary + rightBoundary) / 2;
-    ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+        ctx.beginPath();
+        ctx.moveTo(rightBoundary, wallY);
+        ctx.lineTo(rightBoundary, dimensionY);
+        ctx.stroke();
 
-    const textWidth = ctx.measureText(text).width;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillRect(midX - textWidth/2 - 2, dimensionY - 8, textWidth + 4, 16);
+        // Text
+        const midX = (leftBoundary + rightBoundary) / 2;
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
 
-    ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
-    ctx.fillText(text, midX, dimensionY);
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(midX - textWidth/2 - 2, dimensionY - 8, textWidth + 4, 16);
+
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+        ctx.fillText(text, midX, dimensionY);
+    } else {
+        const { topBoundary, bottomBoundary, wallX } = spaceData;
+        const dimensionX = wallX + 35;
+
+        // Dimension line
+        ctx.beginPath();
+        ctx.moveTo(dimensionX, topBoundary);
+        ctx.lineTo(dimensionX, bottomBoundary);
+        ctx.stroke();
+
+        // Extension lines
+        ctx.beginPath();
+        ctx.moveTo(wallX, topBoundary);
+        ctx.lineTo(dimensionX, topBoundary);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(wallX, bottomBoundary);
+        ctx.lineTo(dimensionX, bottomBoundary);
+        ctx.stroke();
+
+        // Text
+        const midY = (topBoundary + bottomBoundary) / 2;
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(dimensionX - textWidth/2 - 2, midY - 8, textWidth + 4, 16);
+
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
+        ctx.fillText(text, dimensionX, midY);
+    }
 
     ctx.restore();
 };
@@ -730,7 +770,8 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
                 wallY: wallN1.y,
                 wallThickness,
-                hoverX, hoverY
+                hoverX, hoverY,
+                orientation: 'horizontal'
             });
         };
 
@@ -768,7 +809,8 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
                 wallX: wallN1.x,
                 wallThickness,
-                hoverX, hoverY
+                hoverX, hoverY,
+                orientation: 'vertical'
             });
         };
 
@@ -811,17 +853,34 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
  * Create space dimension
  */
 window.createSpaceDimension = function(spaceData) {
-    const { leftBoundary, rightBoundary, spaceLength, text, wallY } = spaceData;
-    
-    const dimensionY = wallY + 35;
-    
+    const isHorizontalSpace = spaceData.orientation === 'horizontal';
+    const spaceLength = spaceData.spaceLength;
+
+    let startX, startY, endX, endY;
+
+    if (isHorizontalSpace) {
+        const { leftBoundary, rightBoundary, wallY } = spaceData;
+        const dimensionY = wallY + 35;
+        startX = leftBoundary;
+        startY = dimensionY;
+        endX = rightBoundary;
+        endY = dimensionY;
+    } else {
+        const { topBoundary, bottomBoundary, wallX } = spaceData;
+        const dimensionX = wallX + 35;
+        startX = dimensionX;
+        startY = topBoundary;
+        endX = dimensionX;
+        endY = bottomBoundary;
+    }
+
     const dimension = {
         id: nextDimensionId++,
-        startX: leftBoundary,
-        startY: dimensionY,
-        endX: rightBoundary,
-        endY: dimensionY,
-        text: text,
+        startX,
+        startY,
+        endX,
+        endY,
+        text: spaceData.text,
         lineColor: '#9b59b6', // Purple for space dimensions
         lineWidth: 2,
         length: spaceLength,
@@ -829,7 +888,7 @@ window.createSpaceDimension = function(spaceData) {
         isSpace: true,
         spaceType: spaceData.type
     };
-    
+
     dimensions.push(dimension);
     return dimension;
 };
