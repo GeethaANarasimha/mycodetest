@@ -328,6 +328,30 @@ function updateBackgroundMeasurementUI() {
     }
 }
 
+function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
+    measurementDistanceFeet = Math.max(1, parseFloat(feetValue) || 10);
+    if (backgroundDistanceInput) {
+        backgroundDistanceInput.value = measurementDistanceFeet;
+    }
+
+    if (resetLine) {
+        measurementLine = null;
+        ensureMeasurementLine();
+    }
+
+    if (backgroundCalibrationText) {
+        backgroundCalibrationText.textContent = `Drag the measurement line to match ${measurementDistanceFeet} ft on your image.`;
+    }
+
+    if (backgroundMeasurementHint && isBackgroundMeasurementActive) {
+        backgroundMeasurementHint.textContent = `Drag the measurement line on the canvas to match ${measurementDistanceFeet} ft, then press Finish.`;
+    }
+
+    if (finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.disabled = !measurementLine;
+    }
+}
+
 function syncBackgroundControls() {
     if (!toggleBackgroundImageButton) return;
     if (backgroundImageData) {
@@ -395,15 +419,11 @@ function startBackgroundMeasurement() {
         return;
     }
 
-    const distance = parseFloat(backgroundDistanceInput?.value || '0');
-    measurementDistanceFeet = Math.max(1, distance || 10);
+    setMeasurementDistance(backgroundDistanceInput?.value || measurementDistanceFeet, { resetLine: true });
     ensureMeasurementLine();
     isBackgroundMeasurementActive = true;
     measurementDragHandle = null;
     measurementDragLast = null;
-    if (backgroundCalibrationText) {
-        backgroundCalibrationText.textContent = `Drag the measurement line to match ${measurementDistanceFeet} ft on your image.`;
-    }
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.remove('hidden');
     updateBackgroundMeasurementUI();
     updateToolInfo();
@@ -1931,6 +1951,13 @@ function init() {
         redrawCanvas();
     });
 
+    if (backgroundDistanceInput) {
+        backgroundDistanceInput.addEventListener('input', () => {
+            setMeasurementDistance(backgroundDistanceInput.value, { resetLine: true });
+            redrawCanvas();
+        });
+    }
+
     toggleGridButton.addEventListener('click', () => {
         showGrid = !showGrid;
         redrawCanvas();
@@ -3222,6 +3249,10 @@ function drawBackgroundImage() {
 }
 
 function drawBackgroundMeasurementLine() {
+    if (isBackgroundMeasurementActive && !measurementLine) {
+        ensureMeasurementLine();
+    }
+
     if (!measurementLine || (!isBackgroundMeasurementActive && !backgroundImageData)) return;
     const label = `${measurementDistanceFeet} ft`;
 
