@@ -11,6 +11,8 @@ window.dimensions = [];
 window.nextDimensionId = 1;
 window.hoveredWall = null;
 window.hoveredSpaceSegment = null;
+window.dimensionHoverX = null;
+window.dimensionHoverY = null;
 
 // Blue color for dimensions
 const DIMENSION_COLOR = '#3498db';
@@ -149,7 +151,7 @@ function endManualDimension(x, y) {
 /**
  * Create wall dimension with 1px offset
  */
-window.createWallDimension = function(wallData) {
+window.createWallDimension = function(wallData, options = {}) {
     const { n1, n2 } = wallData;
     const orientation = getWallOrientation(n1, n2);
     const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
@@ -157,33 +159,40 @@ window.createWallDimension = function(wallData) {
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
     const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-    
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const midX = (n1.x + n2.x) / 2;
+    const midY = (n1.y + n2.y) / 2;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    const referenceX = options.referenceX ?? null;
+    const referenceY = options.referenceY ?? null;
+    const offsetSign = referenceX != null && referenceY != null
+        ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
+        : 1;
+
     let startX, startY, endX, endY;
-    
+
     if (orientation === 'horizontal') {
-        // 1px below the wall
-        const yPos = n1.y + WALL_DIMENSION_OFFSET;
+        const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
         startX = n1.x;
         startY = yPos;
         endX = n2.x;
         endY = yPos;
     } else if (orientation === 'vertical') {
-        // 1px right of the wall
-        const xPos = n1.x + WALL_DIMENSION_OFFSET;
+        const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
         startX = xPos;
         startY = n1.y;
         endX = xPos;
         endY = n2.y;
     } else {
         // Diagonal wall - use center with small offset
-        const midX = (n1.x + n2.x) / 2;
-        const midY = (n1.y + n2.y) / 2;
-        const dx = n2.x - n1.x;
-        const dy = n2.y - n1.y;
-        const len = Math.hypot(dx, dy);
-        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET;
-        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET;
-        
+        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
+        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+
         startX = n1.x + offsetX;
         startY = n1.y + offsetY;
         endX = n2.x + offsetX;
@@ -248,6 +257,12 @@ window.handleDimensionMouseMove = function(e) {
     
     // Update hovered wall
     window.hoveredWall = findNearestWall(x, y, 20);
+    if (window.hoveredWall) {
+        window.hoveredWall.hoverX = x;
+        window.hoveredWall.hoverY = y;
+    }
+    window.dimensionHoverX = x;
+    window.dimensionHoverY = y;
     window.hoveredSpaceSegment = hoveredWall ? findAvailableSpacesOnWall(hoveredWall, x, y) : null;
     
     if (!isDimensionDrawing) {
@@ -272,95 +287,133 @@ window.handleDimensionMouseMove = function(e) {
  */
 window.drawHoverWallDimension = function(wallData) {
     if (!wallData) return;
-    
+
     const { n1, n2 } = wallData;
     const orientation = getWallOrientation(n1, n2);
     const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
     const totalInches = Math.round((length / scale) * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-    
+    const text = inches > 0 ? `${feet}'${inches}\"` : `${feet}'`;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const midX = (n1.x + n2.x) / 2;
+    const midY = (n1.y + n2.y) / 2;
+    const len = Math.hypot(dx, dy);
+    const nx = len === 0 ? 0 : -dy / len;
+    const ny = len === 0 ? 0 : dx / len;
+
+    const referenceX = wallData.hoverX ?? window.dimensionHoverX;
+    const referenceY = wallData.hoverY ?? window.dimensionHoverY;
+    let offsetSign = 1;
+
+    if (referenceX != null && referenceY != null) {
+        const dot = (referenceX - midX) * nx + (referenceY - midY) * ny;
+        offsetSign = dot >= 0 ? 1 : -1;
+    }
+
     ctx.save();
     ctx.strokeStyle = 'rgba(41, 128, 185, 0.7)'; // Semi-transparent blue
     ctx.lineWidth = 2;
     ctx.setLineDash([2, 2]);
-    
+
     if (orientation === 'horizontal') {
-        const yPos = n1.y + WALL_DIMENSION_OFFSET;
-        
-        // Draw dimension line
+        const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
+
         ctx.beginPath();
         ctx.moveTo(n1.x, yPos);
         ctx.lineTo(n2.x, yPos);
         ctx.stroke();
-        
-        // Draw extension lines
+
         ctx.beginPath();
         ctx.moveTo(n1.x, n1.y);
         ctx.lineTo(n1.x, yPos);
         ctx.stroke();
-        
+
         ctx.beginPath();
         ctx.moveTo(n2.x, n2.y);
         ctx.lineTo(n2.x, yPos);
         ctx.stroke();
-        
-        // Draw text
+
         const midX = (n1.x + n2.x) / 2;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
-        // Text background
+
         const textWidth = ctx.measureText(text).width;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.fillRect(midX - textWidth/2 - 2, yPos - 8, textWidth + 4, 16);
-        
-        // Text
+
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.fillText(text, midX, yPos);
-        
+
     } else if (orientation === 'vertical') {
-        const xPos = n1.x + WALL_DIMENSION_OFFSET;
-        
-        // Draw dimension line
+        const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
+
         ctx.beginPath();
         ctx.moveTo(xPos, n1.y);
         ctx.lineTo(xPos, n2.y);
         ctx.stroke();
-        
-        // Draw extension lines
+
         ctx.beginPath();
         ctx.moveTo(n1.x, n1.y);
         ctx.lineTo(xPos, n1.y);
         ctx.stroke();
-        
+
         ctx.beginPath();
         ctx.moveTo(n2.x, n2.y);
         ctx.lineTo(xPos, n2.y);
         ctx.stroke();
-        
-        // Draw text
+
         const midY = (n1.y + n2.y) / 2;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
-        // Text background
+
         const textWidth = ctx.measureText(text).width;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.fillRect(xPos - textWidth/2 - 2, midY - 8, textWidth + 4, 16);
-        
-        // Text
+
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.fillText(text, xPos, midY);
+    } else {
+        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
+        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+
+        ctx.beginPath();
+        ctx.moveTo(n1.x + offsetX, n1.y + offsetY);
+        ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(n1.x, n1.y);
+        ctx.lineTo(n1.x + offsetX, n1.y + offsetY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(n2.x, n2.y);
+        ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(midX + offsetX - textWidth/2 - 2, midY + offsetY - 8, textWidth + 4, 16);
+
+        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
+        ctx.fillText(text, midX + offsetX, midY + offsetY);
     }
-    
+
     ctx.restore();
 };
 
@@ -379,8 +432,10 @@ window.drawHoverSpaceDimension = function(spaceData) {
     ctx.setLineDash([2, 2]);
 
     if (isHorizontalSpace) {
-        const { leftBoundary, rightBoundary, wallY } = spaceData;
-        const dimensionY = wallY + 35;
+        const { leftBoundary, rightBoundary, wallY, hoverY } = spaceData;
+        const referenceY = hoverY ?? window.dimensionHoverY;
+        const offsetSign = referenceY != null && referenceY < wallY ? -1 : 1;
+        const dimensionY = wallY + 35 * offsetSign;
 
         // Dimension line
         ctx.beginPath();
@@ -414,8 +469,10 @@ window.drawHoverSpaceDimension = function(spaceData) {
         ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
         ctx.fillText(text, midX, dimensionY);
     } else {
-        const { topBoundary, bottomBoundary, wallX } = spaceData;
-        const dimensionX = wallX + 35;
+        const { topBoundary, bottomBoundary, wallX, hoverX } = spaceData;
+        const referenceX = hoverX ?? window.dimensionHoverX;
+        const offsetSign = referenceX != null && referenceX < wallX ? -1 : 1;
+        const dimensionX = wallX + 35 * offsetSign;
 
         // Dimension line
         ctx.beginPath();
@@ -654,6 +711,8 @@ window.resetDimensionTool = function() {
     dimensionPreviewY = null;
     hoveredWall = null;
     hoveredSpaceSegment = null;
+    dimensionHoverX = null;
+    dimensionHoverY = null;
 };
 
 /**
