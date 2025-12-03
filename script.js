@@ -1888,7 +1888,20 @@ function findRoomPolygonAtPoint(x, y) {
             }
         }
     });
-    return best ? best.polygon : null;
+    if (!best) return null;
+
+    const polygon = best.polygon;
+    const centroid = polygon.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+    centroid.x /= polygon.length;
+    centroid.y /= polygon.length;
+
+    const orderedPolygon = polygon.slice().sort((a, b) => {
+        const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
+        const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
+        return angleA - angleB;
+    });
+
+    return orderedPolygon;
 }
 
 function ensureFloorPattern(floor) {
