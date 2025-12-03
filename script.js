@@ -198,6 +198,7 @@ let threeScene = null;
 let threeRenderer = null;
 let threeCamera = null;
 let threeControls = null;
+let wallMeshes = [];
 let threeContentGroup = null;
 
 // undo / redo
@@ -4649,6 +4650,7 @@ function clearThreeContent() {
         const child = threeContentGroup.children.pop();
         disposeThreeObject(child);
     }
+    wallMeshes = [];
 }
 
 function createWallMesh(wall, wallHeight) {
@@ -4662,7 +4664,11 @@ function createWallMesh(wall, wallHeight) {
     const thickness = wall.thicknessPx || (0.5 * scale);
 
     const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
-    const material = new THREE.MeshStandardMaterial({ color: '#ffffff' });
+    const material = new THREE.MeshStandardMaterial({
+        color: wall.lineColor || DEFAULT_WALL_COLOR,
+        metalness: 0.05,
+        roughness: 0.6
+    });
     const mesh = new THREE.Mesh(geometry, material);
 
     const midX = (n1.x + n2.x) / 2;
@@ -4734,7 +4740,10 @@ function rebuild3DScene() {
 
     walls.forEach(wall => {
         const mesh = createWallMesh(wall, wallHeight);
-        if (mesh) threeContentGroup.add(mesh);
+        if (mesh) {
+            wallMeshes.push({ id: wall.id, mesh });
+            threeContentGroup.add(mesh);
+        }
     });
 
     objects.forEach(obj => {
@@ -4746,24 +4755,64 @@ function rebuild3DScene() {
     fitThreeCamera();
 }
 
+function getCameraTargetBoundingBox() {
+    if (!wallMeshes.length) return new THREE.Box3().setFromObject(threeContentGroup);
+
+    const box = new THREE.Box3();
+    let hasSelection = false;
+
+    const isWallIdSelected = (wallId) => {
+        if (!selectedWalls || selectedWalls.size === 0) return false;
+        for (const wall of selectedWalls) {
+            if ((wall && wall.id) === wallId || wall === wallId) return true;
+        }
+        return false;
+    };
+
+    if (selectedWalls && selectedWalls.size) {
+        wallMeshes.forEach(({ id, mesh }) => {
+            if (isWallIdSelected(id)) {
+                hasSelection = true;
+                box.expandByObject(mesh);
+            }
+        });
+    }
+
+    if (!hasSelection) {
+        const fallback = wallMeshes[wallMeshes.length - 1];
+        if (fallback) box.expandByObject(fallback.mesh);
+    }
+
+    if (box.isEmpty() && threeContentGroup) {
+        return new THREE.Box3().setFromObject(threeContentGroup);
+    }
+
+    return box;
+}
+
 function fitThreeCamera() {
     if (!threeContentGroup || !threeCamera) return;
-    const box = new THREE.Box3().setFromObject(threeContentGroup);
-    if (!box.isEmpty()) {
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z) || scale * 10;
-        const distance = maxDim / Math.tan((Math.PI / 180) * (threeCamera.fov / 2));
-        threeCamera.position.set(center.x + distance, center.y + distance, center.z + distance);
-        threeCamera.near = 0.1;
-        threeCamera.far = Math.max(50000, distance * 4);
-        threeCamera.updateProjectionMatrix();
-        if (threeControls) {
-            threeControls.target.copy(center);
-            threeControls.update();
-        } else {
-            threeCamera.lookAt(center);
-        }
+    const box = getCameraTargetBoundingBox();
+    if (!box || box.isEmpty()) return;
+
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || scale * 10;
+
+    const distance = Math.max(maxDim * 1.4, scale * 6);
+    const direction = new THREE.Vector3(1, 0.8, 1).normalize();
+    const position = center.clone().add(direction.multiplyScalar(distance));
+
+    threeCamera.position.copy(position);
+    threeCamera.near = 0.1;
+    threeCamera.far = Math.max(50000, distance * 8);
+    threeCamera.updateProjectionMatrix();
+
+    if (threeControls) {
+        threeControls.target.copy(center);
+        threeControls.update();
+    } else {
+        threeCamera.lookAt(center);
     }
 }
 
