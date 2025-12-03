@@ -42,7 +42,6 @@ const startBackgroundMeasurementButton = document.getElementById('startBackgroun
 const cancelBackgroundImageButton = document.getElementById('cancelBackgroundImage');
 const backgroundCalibrationBar = document.getElementById('backgroundCalibrationBar');
 const backgroundCalibrationText = document.getElementById('backgroundCalibrationText');
-const applyBackgroundMeasurementButton = document.getElementById('applyBackgroundMeasurement');
 const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgroundMeasurement');
 const finishBackgroundMeasurementButton = document.getElementById('finishBackgroundMeasurement');
 const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
@@ -277,13 +276,10 @@ function openBackgroundImageModal() {
     if (!backgroundImageModal) return;
     backgroundImageModal.classList.remove('hidden');
     const previewData = backgroundImageDraft || backgroundImageData;
-    if (previewData && backgroundPreview) {
-        backgroundPreview.src = previewData.image.src;
-        backgroundPreview.style.display = 'block';
-        if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'none';
-        if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
-        if (backgroundDistanceInput) backgroundDistanceInput.value = measurementDistanceFeet;
-    } else {
+    updateBackgroundPreview(previewData);
+    if (previewData && startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
+    if (previewData && backgroundDistanceInput) backgroundDistanceInput.value = measurementDistanceFeet;
+    if (!previewData) {
         resetBackgroundModal();
     }
 
@@ -306,10 +302,27 @@ function createBackgroundImageData(img) {
     return { image: img, x, y, width, height };
 }
 
+function updateBackgroundPreview(previewData) {
+    if (!backgroundPreview) return;
+
+    if (previewData) {
+        backgroundPreview.src = previewData.image.src;
+        backgroundPreview.style.display = 'block';
+        if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'none';
+    } else {
+        backgroundPreview.src = '';
+        backgroundPreview.style.display = 'none';
+        if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'block';
+    }
+}
+
 function updateBackgroundMeasurementUI() {
     if (backgroundImageModal) {
         backgroundImageModal.classList.toggle('measurement-mode', isBackgroundMeasurementActive);
     }
+
+    const previewData = backgroundImageDraft || backgroundImageData;
+    updateBackgroundPreview(previewData);
 
     if (backgroundMeasurementHint) {
         backgroundMeasurementHint.classList.toggle('hidden', !isBackgroundMeasurementActive);
@@ -381,11 +394,7 @@ function handleBackgroundFileChange(e) {
         img.onload = () => {
             backgroundImageDraft = createBackgroundImageData(img);
             measurementLine = null;
-            if (backgroundPreview) {
-                backgroundPreview.src = img.src;
-                backgroundPreview.style.display = 'block';
-            }
-            if (backgroundPreviewPlaceholder) backgroundPreviewPlaceholder.style.display = 'none';
+            updateBackgroundPreview(backgroundImageDraft);
             if (startBackgroundMeasurementButton) startBackgroundMeasurementButton.disabled = false;
             isBackgroundImageVisible = true;
             syncBackgroundControls();
@@ -1893,9 +1902,6 @@ function init() {
     }
     if (finishBackgroundMeasurementButton) {
         finishBackgroundMeasurementButton.addEventListener('click', finishBackgroundMeasurement);
-    }
-    if (applyBackgroundMeasurementButton) {
-        applyBackgroundMeasurementButton.addEventListener('click', applyBackgroundMeasurement);
     }
     if (cancelBackgroundMeasurementButton) {
         cancelBackgroundMeasurementButton.addEventListener('click', cancelBackgroundMeasurement);
