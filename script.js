@@ -181,6 +181,7 @@ let clipboard = {
 let isPasteMode = false;
 let pasteTargetX = null;
 let pasteTargetY = null;
+let lastPropertyContext = null;
 
 // View helpers
 function getCanvasPixelScale() {
@@ -2243,6 +2244,7 @@ function init() {
     drawGrid();
     syncBackgroundControls();
     updateToolInfo();
+    updatePropertiesPanel();
 }
 
 // ============================================================
@@ -2945,26 +2947,6 @@ function handleMouseDown(e) {
             return;
         }
 
-        const floorHit = getFloorAt(x, y);
-        if (floorHit) {
-            if (e.shiftKey) {
-                if (selectedFloorIds.has(floorHit.id)) {
-                    selectedFloorIds.delete(floorHit.id);
-                } else {
-                    selectedFloorIds.add(floorHit.id);
-                }
-            } else {
-                selectedFloorIds = new Set([floorHit.id]);
-                selectedWalls.clear();
-                selectedObjectIndices.clear();
-            }
-            selectAllMode = false;
-            redrawCanvas();
-            return;
-        }
-
-        // LEFT CLICK ONLY for selection operations
-
         // Check for node handles of selected walls
         for (const wall of selectedWalls) {
             const n1 = getNodeById(wall.startNodeId);
@@ -3035,6 +3017,26 @@ function handleMouseDown(e) {
             redrawCanvas();
             return;
         }
+
+        const floorHit = getFloorAt(x, y);
+        if (floorHit) {
+            if (e.shiftKey) {
+                if (selectedFloorIds.has(floorHit.id)) {
+                    selectedFloorIds.delete(floorHit.id);
+                } else {
+                    selectedFloorIds.add(floorHit.id);
+                }
+            } else {
+                selectedFloorIds = new Set([floorHit.id]);
+                selectedWalls.clear();
+                selectedObjectIndices.clear();
+            }
+            selectAllMode = false;
+            redrawCanvas();
+            return;
+        }
+
+        // LEFT CLICK ONLY for selection operations
 
         // Click on empty space - clear selection unless Shift is held
         isSelectionBoxActive = true;
@@ -4030,6 +4032,8 @@ function redrawCanvas() {
     drawBackgroundMeasurementLine();
     drawSelectionBoxOverlay();
     ctx.restore();
+
+    updatePropertiesPanel();
 }
 
 // ============================================================
@@ -4228,6 +4232,45 @@ function handleKeyDown(e) {
 // ============================================================
 // UI
 // ============================================================
+function getActivePropertyContext() {
+    if (selectedObjectIndices.size > 0) {
+        const types = new Set();
+        selectedObjectIndices.forEach(index => {
+            const obj = objects[index];
+            if (obj?.type) {
+                types.add(obj.type);
+            }
+        });
+
+        if (types.size === 1) {
+            return types.values().next().value;
+        }
+        return 'mixed';
+    }
+
+    if (selectedFloorIds.size > 0) return 'floor';
+    if (selectedWalls.size > 0) return 'wall';
+    return currentTool || 'select';
+}
+
+function updatePropertiesPanel() {
+    const context = getActivePropertyContext();
+    const normalizedContext = context === 'mixed' ? 'select' : context;
+    if (context === lastPropertyContext) return;
+    lastPropertyContext = context;
+
+    const groups = document.querySelectorAll('.property-group');
+    groups.forEach(group => {
+        const contexts = (group.dataset.contexts || '')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        const shouldShow = contexts.length === 0 || contexts.includes(normalizedContext);
+        group.classList.toggle('hidden', !shouldShow);
+    });
+}
+
 function updateToolInfo() {
     if (isBackgroundMeasurementActive) {
         toolInfoDisplay.textContent = hasValidMeasurementDistance()

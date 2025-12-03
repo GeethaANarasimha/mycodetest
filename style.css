@@ -137,6 +137,37 @@ input[type="text"] {
     flex-shrink: 0;
 }
 
+.property-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.property-group.inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+}
+
+.property-group.button-row {
+    flex-direction: row;
+    gap: 10px;
+}
+
+.property-input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.property-group.hidden {
+    display: none;
+}
+
+.property-group label.checkbox {
+    font-weight: normal;
+}
+
 #drawingCanvas {
     border: 1px solid #bbb;
     background: #fff;
