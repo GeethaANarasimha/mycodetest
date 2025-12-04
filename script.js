@@ -4690,9 +4690,10 @@ function ensureThreeView() {
     threeCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
     threeCamera.position.set(0, 50, 90);
 
-    threeRenderer = new THREE.WebGLRenderer({ antialias: true });
+    threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
     threeRenderer.setSize(width, height);
+    threeRenderer.setClearColor(threeScene.background, 1);
     if ('outputEncoding' in threeRenderer) {
         threeRenderer.outputEncoding = THREE.sRGBEncoding;
     } else if ('outputColorSpace' in threeRenderer) {
@@ -5248,7 +5249,9 @@ function createGroundElements() {
         color: '#f8fafc',
         roughness: 0.95,
         metalness: 0.02,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
+        transparent: false,
+        opacity: 1
     });
     const plane = new THREE.Mesh(planeGeometry, planeMaterial);
     plane.position.set(centerX, -0.05, centerZ);
@@ -5337,7 +5340,14 @@ function createFloorMesh(floor) {
     geometry.rotateX(-Math.PI / 2);
 
     const color = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
-    const material = new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.8, side: THREE.DoubleSide });
+    const material = new THREE.MeshStandardMaterial({
+        color,
+        metalness: 0.05,
+        roughness: 0.8,
+        side: THREE.DoubleSide,
+        transparent: false,
+        opacity: 1
+    });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.y = 0;
     mesh.castShadow = true;
