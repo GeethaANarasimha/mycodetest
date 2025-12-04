@@ -5272,13 +5272,30 @@ function drawObjects() {
             ctx.lineTo(localX + width, localY + height / 2);
             ctx.stroke();
         } else if (obj.type === 'text') {
+            // Keep text readable even when objects are flipped by mirroring
+            // the position instead of the glyphs themselves
+            const { angle, sx, sy } = getObjectTransformInfo(obj);
             const fontSize = obj.fontSize || 18;
             const fontWeight = obj.fontWeight || 'normal';
             const fontStyle = obj.fontStyle || 'normal';
+            const flippedLocalX = localX * sx;
+            const flippedLocalY = localY * sy;
+            const rotX = flippedLocalX * Math.cos(angle) - flippedLocalY * Math.sin(angle);
+            const rotY = flippedLocalX * Math.sin(angle) + flippedLocalY * Math.cos(angle);
+
+            ctx.restore();
+            ctx.save();
+            ctx.translate(cx + rotX, cy + rotY);
+            ctx.rotate(angle);
             ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`.trim();
             ctx.textBaseline = 'top';
             ctx.fillStyle = obj.textColor || obj.lineColor || '#000000';
-            ctx.fillText(obj.text, localX, localY);
+            ctx.fillText(obj.text, 0, 0);
+            ctx.restore();
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(rotRad + orientationRotation);
+            ctx.scale(sx, sy);
         } else if (obj.type === 'staircase') {
             drawStaircaseGraphic(obj, localX, localY, width, height);
         } else if (obj.type === 'furniture') {
@@ -6871,12 +6888,7 @@ function handleKeyDown(e) {
         }
         if (key === 'r') {
             const angle = e.shiftKey ? -15 : 15;
-            pushUndoState();
-            if (typeof rotateSelectedObjects === 'function') {
-                rotateSelectedObjects(objects, selectedObjectIndices, angle);
-            }
-            maintainDoorAttachmentForSelection();
-            redrawCanvas();
+            rotateSelection(angle);
             return;
         }
     }
