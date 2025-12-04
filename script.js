@@ -141,6 +141,8 @@ const BASE_CANVAS_HEIGHT = canvas.height;
 let viewScale = 1;
 let viewOffsetX = 0;
 let viewOffsetY = 0;
+let last2DScrollLeft = 0;
+let last2DScrollTop = 0;
 
 let selectedWalls = new Set(); // MULTIPLE wall selection
 let rightClickedWall = null;
@@ -211,7 +213,7 @@ let fallback3DCamera = {
     theta: Math.PI / 4,
     phi: Math.PI / 4,
     target: { x: 0, y: 5, z: 0 },
-    autoRotate: true,
+    autoRotate: false,
     isDragging: false,
     lastPointer: null
 };
@@ -4700,26 +4702,26 @@ function ensureThreeView() {
         threeControls.maxDistance = scale * 40;
         threeControls.minPolarAngle = 0.05;
         threeControls.maxPolarAngle = Math.PI - 0.05;
-        threeControls.autoRotate = true;
+        threeControls.autoRotate = false;
         threeControls.autoRotateSpeed = 0.4;
     }
 
     // Brighter lighting to keep floor meshes and orbit controls clearly visible
-    threeScene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    threeScene.add(new THREE.AmbientLight(0xffffff, 1.6));
 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 1);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 1.35);
     hemiLight.position.set(0, scale * 6, 0);
     threeScene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2);
     dirLight.position.set(scale * 25, scale * 40, scale * 25);
     threeScene.add(dirLight);
 
-    const pointLight = new THREE.PointLight(0xffffff, 0.8, scale * 120);
+    const pointLight = new THREE.PointLight(0xffffff, 1.2, scale * 140);
     pointLight.position.set(-scale * 15, scale * 20, -scale * 15);
     threeScene.add(pointLight);
 
-    const spotLight = new THREE.SpotLight(0xffffff, 0.9, scale * 200, Math.PI / 4, 0.2, 1);
+    const spotLight = new THREE.SpotLight(0xffffff, 1.1, scale * 200, Math.PI / 4, 0.2, 1);
     spotLight.position.set(0, scale * 30, 0);
     spotLight.target.position.set(0, 0, 0);
     threeScene.add(spotLight);
@@ -5065,7 +5067,6 @@ function handleFallbackPointerUp(e) {
     fallback3DCamera.isDragging = false;
     fallback3DCamera.lastPointer = null;
     fallback3DCanvas?.releasePointerCapture(e.pointerId);
-    setTimeout(() => { fallback3DCamera.autoRotate = true; }, 500);
 }
 
 function handleFallbackWheel(e) {
@@ -5181,7 +5182,9 @@ function createWallMesh(wall, wallHeight) {
         opacity: 1,
         metalness: 0.05,
         roughness: 0.6,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
+        depthWrite: true,
+        depthTest: true
     });
     const mesh = new THREE.Mesh(geometry, material);
 
@@ -5355,6 +5358,10 @@ function fitThreeCamera() {
 
 function switchTo3DView() {
     is3DView = true;
+    if (canvasContainer) {
+        last2DScrollLeft = canvasContainer.scrollLeft;
+        last2DScrollTop = canvasContainer.scrollTop;
+    }
     if (canvas) canvas.classList.add('hidden');
     if (threeContainer) threeContainer.classList.remove('hidden');
     setThreeStatus('');
@@ -5369,6 +5376,10 @@ function switchTo2DView() {
     is3DView = false;
     if (canvas) canvas.classList.remove('hidden');
     if (threeContainer) threeContainer.classList.add('hidden');
+    if (canvasContainer) {
+        canvasContainer.scrollLeft = last2DScrollLeft;
+        canvasContainer.scrollTop = last2DScrollTop;
+    }
     stopFallbackAnimation();
     setThreeStatus('');
     update3DButtonLabel('Show 3D');
