@@ -148,7 +148,7 @@ let objects = [];
 let staircaseSettings = {
     mode: 'steps',
     widthFeet: 3,
-    widthInches: 6,
+    widthInches: 0,
     runInches: DEFAULT_TREAD_DEPTH_INCHES,
     steps: 10,
     landingType: 'rectangular',
@@ -213,6 +213,7 @@ let objectDragOffset = null;
 let objectDragUndoApplied = false;
 let windowHandleDrag = null;
 let staircaseHandleDrag = null;
+let staircaseEditTargetIndex = null;
 let selectedFloorIds = new Set();
 let floorTextureTargetId = null;
 
@@ -2503,6 +2504,7 @@ function init() {
     if (staircaseToolButton) {
         staircaseToolButton.addEventListener('click', () => {
             // Make sure the settings dialog appears even if other listeners short-circuit
+            staircaseEditTargetIndex = null;
             openStaircaseModal();
         });
     }
@@ -2527,6 +2529,7 @@ function init() {
             }
 
             if (currentTool === 'staircase') {
+                staircaseEditTargetIndex = null;
                 openStaircaseModal();
             } else {
                 closeStaircaseModal();
@@ -3750,6 +3753,32 @@ function computeStaircaseBounds(startX, startY, currentX, currentY) {
     return { x, y, width, height, orientation };
 }
 
+function computeStaircaseSizeFromSettings(settings, orientation = 'horizontal') {
+    const mode = settings.mode || 'steps';
+    const minPx = 24;
+
+    if (mode === 'landing') {
+        const landingWidthFeet = Math.max(1, feetWithInches(settings.landingWidthFeet, settings.landingWidthInches) || 1);
+        const landingLengthFeet = Math.max(1, feetWithInches(settings.landingLengthFeet, settings.landingLengthInches) || 1);
+        return {
+            width: Math.max(landingLengthFeet * scale, minPx),
+            height: Math.max(landingWidthFeet * scale, minPx)
+        };
+    }
+
+    const widthFeet = Math.max(1, feetWithInches(settings.widthFeet, settings.widthInches) || 3.5);
+    const steps = Math.max(3, settings.steps || 10);
+    const treadDepthInches = settings.runInches || settings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES;
+    const widthPx = Math.max(widthFeet * scale, minPx);
+    const runPx = Math.max((treadDepthInches / 12) * scale * steps, minPx);
+    const isHorizontal = orientation === 'horizontal';
+
+    return {
+        width: isHorizontal ? runPx : widthPx,
+        height: isHorizontal ? widthPx : runPx
+    };
+}
+
 function measureTextDimensions(text, fontSize = 18, fontWeight = 'normal', fontStyle = 'normal') {
     ctx.save();
     ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`.trim();
@@ -4325,7 +4354,7 @@ function handleCanvasDoubleClick(e) {
     if (dblObjIndex !== -1) {
         const obj = objects[dblObjIndex];
         if (obj?.type === 'staircase') {
-            promptStaircaseSize(obj);
+            openStaircaseEditorForObject(dblObjIndex);
             return;
         }
     }
@@ -4799,6 +4828,61 @@ function drawStaircaseGraphic(obj, originX, originY, drawWidth, drawHeight) {
     ctx.restore();
 }
 
+function getObjectTransformInfo(obj) {
+    const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
+    const drawWidth = isVerticalDoor ? obj.height : obj.width;
+    const drawHeight = isVerticalDoor ? obj.width : obj.height;
+    const orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
+
+    return {
+        cx: obj.x + obj.width / 2,
+        cy: obj.y + obj.height / 2,
+        angle: ((obj.rotation || 0) * Math.PI) / 180 + orientationRotation,
+        sx: obj.flipH ? -1 : 1,
+        sy: obj.flipV ? -1 : 1,
+        drawWidth,
+        drawHeight
+    };
+}
+
+function getObjectTransformedCorners(obj) {
+    const { cx, cy, angle, sx, sy, drawWidth, drawHeight } = getObjectTransformInfo(obj);
+    const halfW = drawWidth / 2;
+    const halfH = drawHeight / 2;
+
+    const locals = [
+        { x: -halfW, y: -halfH },
+        { x: halfW, y: -halfH },
+        { x: halfW, y: halfH },
+        { x: -halfW, y: halfH }
+    ];
+
+    return locals.map(({ x, y }) => {
+        const lx = x * sx;
+        const ly = y * sy;
+        const rx = lx * Math.cos(angle) - ly * Math.sin(angle);
+        const ry = lx * Math.sin(angle) + ly * Math.cos(angle);
+        return { x: cx + rx, y: cy + ry };
+    });
+}
+
+function getObjectHandlePoints(corners) {
+    if (!corners || corners.length !== 4) return [];
+    const [c0, c1, c2, c3] = corners;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+    return [
+        c0,
+        mid(c0, c1),
+        c1,
+        mid(c1, c2),
+        c2,
+        mid(c2, c3),
+        c3,
+        mid(c3, c0)
+    ];
+}
+
 function drawObjects() {
     for (let i = 0; i < objects.length; i++) {
         const obj = objects[i];
@@ -4860,13 +4944,20 @@ function drawObjects() {
         ctx.restore();
 
         if (selectedObjectIndices.has(i)) {
+            const corners = getObjectTransformedCorners(obj);
             ctx.save();
             ctx.strokeStyle = '#2980b9';
             ctx.lineWidth = 2;
-            ctx.strokeRect(x, y, width, height);
+            ctx.beginPath();
+            ctx.moveTo(corners[0].x, corners[0].y);
+            for (let c = 1; c < corners.length; c++) {
+                ctx.lineTo(corners[c].x, corners[c].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
 
             if (obj.type === 'staircase') {
-                const { handleSize, handles } = getStaircaseHandles(obj);
+                const { handleSize, handles } = getStaircaseHandles(obj, corners);
                 const half = handleSize / 2;
 
                 handles.forEach(handle => {
@@ -4887,21 +4978,12 @@ function drawObjects() {
                 });
             } else {
                 const handleSize = 8;
-                const handles = [
-                    { hx: x, hy: y },
-                    { hx: x + width / 2 - handleSize / 2, hy: y },
-                    { hx: x + width - handleSize, hy: y },
-                    { hx: x, hy: y + height / 2 - handleSize / 2 },
-                    { hx: x + width - handleSize, hy: y + height / 2 - handleSize / 2 },
-                    { hx: x, hy: y + height - handleSize },
-                    { hx: x + width / 2 - handleSize / 2, hy: y + height - handleSize },
-                    { hx: x + width - handleSize, hy: y + height - handleSize }
-                ];
+                const handles = getObjectHandlePoints(corners);
 
                 ctx.fillStyle = '#ffffff';
                 ctx.strokeStyle = '#2980b9';
                 ctx.lineWidth = 1;
-                handles.forEach(({ hx, hy }) => {
+                handles.forEach(({ x: hx, y: hy }) => {
                     ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
                     ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
                 });
@@ -4972,27 +5054,25 @@ function getWindowHandleHit(x, y) {
     return null;
 }
 
-function getStaircaseHandles(obj) {
+function getStaircaseHandles(obj, cachedCorners = null) {
     const handleSize = 12;
-    const x1 = obj.x;
-    const y1 = obj.y;
-    const x2 = obj.x + obj.width;
-    const y2 = obj.y + obj.height;
-    const cx = (x1 + x2) / 2;
-    const cy = (y1 + y2) / 2;
+    const corners = cachedCorners || getObjectTransformedCorners(obj);
+    const [c0, c1, c2, c3] = corners;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    const center = mid(c0, c2);
 
     return {
         handleSize,
         handles: [
-            { type: 'rotate', hx: x1, hy: y1 },
-            { type: 'top', hx: cx, hy: y1 },
-            { type: 'top-right', hx: x2, hy: y1 },
-            { type: 'right', hx: x2, hy: cy },
-            { type: 'bottom-right', hx: x2, hy: y2 },
-            { type: 'bottom', hx: cx, hy: y2 },
-            { type: 'bottom-left', hx: x1, hy: y2 },
-            { type: 'left', hx: x1, hy: cy },
-            { type: 'center', hx: cx, hy: cy }
+            { type: 'rotate', hx: c0.x, hy: c0.y },
+            { type: 'top', hx: mid(c0, c1).x, hy: mid(c0, c1).y },
+            { type: 'top-right', hx: c1.x, hy: c1.y },
+            { type: 'right', hx: mid(c1, c2).x, hy: mid(c1, c2).y },
+            { type: 'bottom-right', hx: c2.x, hy: c2.y },
+            { type: 'bottom', hx: mid(c2, c3).x, hy: mid(c2, c3).y },
+            { type: 'bottom-left', hx: c3.x, hy: c3.y },
+            { type: 'left', hx: mid(c3, c0).x, hy: mid(c3, c0).y },
+            { type: 'center', hx: center.x, hy: center.y }
         ]
     };
 }
@@ -6649,6 +6729,14 @@ function updateStaircaseSummary() {
     staircaseSummary.textContent = parts.join(' • ');
 }
 
+function openStaircaseEditorForObject(index) {
+    const target = objects[index];
+    if (!target || target.type !== 'staircase') return;
+    staircaseEditTargetIndex = index;
+    staircaseSettings = { ...staircaseSettings, ...target.staircase };
+    openStaircaseModal();
+}
+
 function applyStaircaseSettings() {
     staircaseSettings = {
         ...staircaseSettings,
@@ -6662,6 +6750,20 @@ function applyStaircaseSettings() {
         treadDepthInches: parseFloat(staircaseRunInchesInput?.value) || staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES
     };
     updateStaircaseSummary();
+    if (staircaseEditTargetIndex !== null) {
+        const target = objects[staircaseEditTargetIndex];
+        if (target) {
+            const center = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+            const size = computeStaircaseSizeFromSettings(staircaseSettings, target.orientation);
+            target.width = size.width;
+            target.height = size.height;
+            target.x = center.x - target.width / 2;
+            target.y = center.y - target.height / 2;
+            target.staircase = { ...staircaseSettings };
+        }
+        staircaseEditTargetIndex = null;
+        redrawCanvas();
+    }
     closeStaircaseModal();
 }
 
@@ -6678,6 +6780,7 @@ function openStaircaseModal() {
 function closeStaircaseModal() {
     if (!staircaseModal) return;
     staircaseModal.classList.add('hidden');
+    staircaseEditTargetIndex = null;
 }
 
 function openTextModal({ defaultValue = 'New label', confirmLabel = 'Save', onSubmit } = {}) {

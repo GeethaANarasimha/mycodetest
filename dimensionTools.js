@@ -339,7 +339,8 @@ window.drawHoverWallDimension = function(wallData) {
         const midX = (n1.x + n2.x) / 2;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.font = '12px Arial';
+        const fontPx = measurementFontSize || 12;
+        ctx.font = `${fontPx}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
@@ -560,14 +561,16 @@ window.drawDimensionPreview = function() {
         
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
-        ctx.font = '12px Arial';
+        const fontPx = measurementFontSize || 12;
+        ctx.font = `${fontPx}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
         // Text background
         const textWidth = ctx.measureText(text).width;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(textX - textWidth/2 - 2, textY - 8, textWidth + 4, 16);
+        const textHeight = fontPx * 1.2;
+        ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
         
         // Text
         ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
@@ -636,7 +639,8 @@ window.drawDimensions = function() {
             // Dimension text
             ctx.setLineDash([]);
             ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
-            ctx.font = '12px Arial';
+            const fontPx = measurementFontSize || 12;
+            ctx.font = `${fontPx}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
@@ -647,9 +651,10 @@ window.drawDimensions = function() {
             
             // Text background
             const textWidth = ctx.measureText(dim.text).width;
+            const textHeight = fontPx * 1.2;
             ctx.fillStyle = DIMENSION_TEXT_BG;
-            ctx.fillRect(textX - textWidth/2 - 2, textY - 8, textWidth + 4, 16);
-            
+            ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
+
             // Text
             ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
             ctx.fillText(dim.text, textX, textY);
