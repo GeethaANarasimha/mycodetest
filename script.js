@@ -7,6 +7,7 @@ const canvas = document.getElementById('drawingCanvas');
 const ctx = canvas.getContext('2d');
 const canvasContainer = document.querySelector('.canvas-container');
 const toolButtons = document.querySelectorAll('.tool-btn[data-tool]');
+const staircaseToolButton = document.querySelector('.tool-btn[data-tool="staircase"]');
 const doorTypeSelect = document.getElementById('doorType');
 const wallThicknessFeetInput = document.getElementById('wallThicknessFeet');
 const wallThicknessInchesInput = document.getElementById('wallThicknessInches');
@@ -2484,6 +2485,13 @@ function init() {
             closeStaircaseModal();
         }
     });
+
+    if (staircaseToolButton) {
+        staircaseToolButton.addEventListener('click', () => {
+            // Make sure the settings dialog appears even if other listeners short-circuit
+            openStaircaseModal();
+        });
+    }
 
     toolButtons.forEach(button => {
         button.addEventListener('click', () => {
@@ -6334,6 +6342,7 @@ function applyStaircaseSettings() {
 function openStaircaseModal() {
     if (!staircaseModal) return;
     staircaseModal.classList.remove('hidden');
+    staircaseModal.style.display = 'flex';
     updateStaircaseSummary();
 }
 
