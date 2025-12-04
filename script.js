@@ -5226,7 +5226,6 @@ function createConcreteMaterial(color = DEFAULT_3D_WALL_COLOR) {
         metalness: 0.06,
         clearcoat: 0.08,
         clearcoatRoughness: 0.9,
-        side: THREE.DoubleSide,
         flatShading: false,
         transparent: false,
         depthWrite: true,
@@ -6165,3 +6164,4 @@ function updateGrid() {
 }
 
 window.onload = init;
+
