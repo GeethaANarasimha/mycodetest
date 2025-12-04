@@ -4637,6 +4637,15 @@ function loadScriptOnce(src) {
 }
 
 function ensureThreeLibraries() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        useFallback3DRenderer = true;
+        if (!threeLibsPromise) {
+            threeLibsPromise = Promise.resolve(false);
+        }
+        setThreeStatus('Offline mode: using built-in 3D preview.');
+        return threeLibsPromise;
+    }
+
     if (typeof THREE !== 'undefined' && THREE.Scene && THREE.PerspectiveCamera) {
         if (!threeLibsPromise) {
             threeLibsPromise = Promise.resolve(true);
