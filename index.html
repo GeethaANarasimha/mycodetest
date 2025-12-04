@@ -221,7 +221,8 @@
                 <div>
                     <label class="modal-label">Stair width</label>
                     <div class="modal-input-row">
-                        <input type="number" id="staircaseWidthFeet" min="1" value="3.5"> ft
+                        <input type="number" id="staircaseWidthFeet" min="1" value="3"> ft
+                        <input type="number" id="staircaseWidthInches" min="0" max="11" value="6"> in
                     </div>
                 </div>
                 <div>
@@ -256,7 +257,7 @@
                     <input type="radio" name="landingType" value="squared">
                     <div class="landing-card-body">
                         <div class="landing-card-title">Squared shape</div>
-                        <p class="landing-card-text">Landing with A–B–C–D points and a diagonal D→A line.</p>
+                        <p class="landing-card-text">Squared landing with a diagonal guide across the layout.</p>
                     </div>
                 </label>
             </div>
@@ -278,7 +279,7 @@
                 </div>
             </div>
 
-            <div id="squaredLandingHint" class="landing-hint hidden">Square layout: points A (top-left), B (top-right), C (bottom-left), D (bottom-right) with a connecting line between D and A.</div>
+            <div id="squaredLandingHint" class="landing-hint hidden">Square layout with a diagonal helper line for alignment.</div>
         </div>
 
         <div class="staircase-summary" id="staircaseSummary"></div>
