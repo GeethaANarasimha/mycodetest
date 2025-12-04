@@ -203,6 +203,7 @@ let threeCamera = null;
 let threeControls = null;
 let wallMeshes = [];
 let threeContentGroup = null;
+let orbitCenterHelper = null;
 let threeLibsPromise = null;
 let useFallback3DRenderer = false;
 let fallback3DCanvas = null;
@@ -4700,8 +4701,9 @@ function ensureThreeView() {
         threeControls.enableZoom = true;
         threeControls.enableRotate = true;
         threeControls.screenSpacePanning = true;
-        threeControls.zoomSpeed = 1.1;
-        threeControls.rotateSpeed = 0.9;
+        threeControls.zoomSpeed = 0.6;
+        threeControls.rotateSpeed = 0.65;
+        threeControls.panSpeed = 0.8;
         threeControls.minDistance = 2;
         threeControls.maxDistance = Infinity;
         threeControls.minPolarAngle = 0.05;
@@ -4711,21 +4713,21 @@ function ensureThreeView() {
     }
 
     // Brighter lighting to keep floor meshes and orbit controls clearly visible
-    threeScene.add(new THREE.AmbientLight(0xffffff, 1.6));
+    threeScene.add(new THREE.AmbientLight(0xffffff, 1.9));
 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 1.35);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 1.6);
     hemiLight.position.set(0, scale * 6, 0);
     threeScene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.4);
     dirLight.position.set(scale * 25, scale * 40, scale * 25);
     threeScene.add(dirLight);
 
-    const pointLight = new THREE.PointLight(0xffffff, 1.2, scale * 140);
+    const pointLight = new THREE.PointLight(0xffffff, 1.5, scale * 160);
     pointLight.position.set(-scale * 15, scale * 20, -scale * 15);
     threeScene.add(pointLight);
 
-    const spotLight = new THREE.SpotLight(0xffffff, 1.1, scale * 200, Math.PI / 4, 0.2, 1);
+    const spotLight = new THREE.SpotLight(0xffffff, 1.35, scale * 220, Math.PI / 4, 0.18, 1);
     spotLight.position.set(0, scale * 30, 0);
     spotLight.target.position.set(0, 0, 0);
     threeScene.add(spotLight);
@@ -4785,6 +4787,21 @@ function getPlanBounds() {
         width: maxX - minX,
         depth: maxZ - minZ
     };
+}
+
+function buildOrbitBoundingBox() {
+    const bounds = getPlanBounds();
+    const gridPadding = toWorldUnits(gridSize || 20) * 2;
+    const padding = Math.max(bounds.width, bounds.depth, gridPadding * 3) * 0.15 + gridPadding;
+
+    const min = new THREE.Vector3(bounds.minX - padding, 0, bounds.minZ - padding);
+    const max = new THREE.Vector3(
+        bounds.maxX + padding,
+        Math.max(THREE_WALL_HEIGHT_FEET * 1.4, padding * 0.35),
+        bounds.maxZ + padding
+    );
+
+    return new THREE.Box3(min, max);
 }
 
 function ensureFallback3DView() {
@@ -5020,14 +5037,30 @@ function renderFallback3DScene() {
 }
 
 function updateFallbackCameraTarget() {
-    const bounds = getPlanBounds();
+    let center;
+    let largest;
+
+    if (typeof THREE !== 'undefined' && typeof THREE.Box3 === 'function') {
+        const orbitBox = buildOrbitBoundingBox();
+        const sphere = orbitBox.getBoundingSphere(new THREE.Sphere());
+        center = sphere.center || new THREE.Vector3(0, THREE_WALL_HEIGHT_FEET * 0.4, 0);
+        largest = Math.max(sphere.radius * 2 || 0, 10);
+    } else {
+        const bounds = getPlanBounds();
+        center = {
+            x: (bounds.minX + bounds.maxX) / 2,
+            y: THREE_WALL_HEIGHT_FEET * 0.4,
+            z: (bounds.minZ + bounds.maxZ) / 2
+        };
+        largest = Math.max(bounds.width, bounds.depth, 10);
+    }
+
     fallback3DCamera.target = {
-        x: (bounds.minX + bounds.maxX) / 2,
-        y: THREE_WALL_HEIGHT_FEET * 0.4,
-        z: (bounds.minZ + bounds.maxZ) / 2
+        x: center.x,
+        y: center.y,
+        z: center.z
     };
-    const largest = Math.max(bounds.width, bounds.depth, 10);
-    fallback3DCamera.distance = Math.max(largest * 1.5, 25);
+    fallback3DCamera.distance = Math.max(largest * 1.3, 18);
 }
 
 function startFallbackAnimation() {
@@ -5120,6 +5153,7 @@ function clearThreeContent() {
         disposeThreeObject(child);
     }
     wallMeshes = [];
+    orbitCenterHelper = null;
 }
 
 function toWorldUnits(pxValue) {
@@ -5303,11 +5337,13 @@ function rebuild3DScene() {
         if (mesh) threeContentGroup.add(mesh);
     });
 
+    updateOrbitHelper();
     fitThreeCamera();
 }
 
 function getCameraTargetBoundingBox() {
-    const box = new THREE.Box3();
+    const orbitBox = buildOrbitBoundingBox();
+    const box = orbitBox.clone();
     let hasSelection = false;
 
     const isWallIdSelected = (wallId) => {
@@ -5339,14 +5375,7 @@ function getCameraTargetBoundingBox() {
         });
     }
 
-    if (box.isEmpty()) {
-        return new THREE.Box3().setFromCenterAndSize(
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(scale * 8, 0.1, scale * 8)
-        );
-    }
-
-    return box;
+    return box.isEmpty() ? orbitBox : box;
 }
 
 function fitThreeCamera() {
@@ -5373,6 +5402,36 @@ function fitThreeCamera() {
     } else {
         threeCamera.lookAt(center);
     }
+}
+
+function getOrbitCenter() {
+    const orbitBox = buildOrbitBoundingBox();
+    return orbitBox.getCenter(new THREE.Vector3());
+}
+
+function updateOrbitHelper() {
+    if (!threeContentGroup || typeof THREE === 'undefined') return;
+
+    if (orbitCenterHelper && orbitCenterHelper.parent) {
+        orbitCenterHelper.parent.remove(orbitCenterHelper);
+        disposeThreeObject(orbitCenterHelper);
+    }
+
+    const center = getOrbitCenter();
+    const helperSize = Math.max(toWorldUnits(gridSize || 20) * 0.45, 0.35);
+    const geometry = new THREE.SphereGeometry(helperSize, 18, 12);
+    const material = new THREE.MeshStandardMaterial({
+        color: '#f97316',
+        emissive: '#fb923c',
+        emissiveIntensity: 0.8,
+        metalness: 0.1,
+        roughness: 0.3
+    });
+
+    orbitCenterHelper = new THREE.Mesh(geometry, material);
+    orbitCenterHelper.position.copy(center);
+    orbitCenterHelper.userData.isHelper = true;
+    threeContentGroup.add(orbitCenterHelper);
 }
 
 function switchTo3DView() {
