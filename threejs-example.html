@@ -287,6 +287,21 @@
                         <input type="range" id="scale" min="0.1" max="3" value="1" step="0.1">
                     </div>
                 </div>
+
+                <div class="control-group">
+                    <h3>Material Presets</h3>
+                    <div class="button-group">
+                        <button id="sketchupMaterial">
+                            <span class="icon">🧱</span> SketchUp Style
+                        </button>
+                        <button id="phongMaterial">
+                            <span class="icon">✨</span> Glossy Phong
+                        </button>
+                    </div>
+                    <p class="subtitle" style="font-size: 0.95rem; margin-top: 8px; color: #666;">
+                        Toggle between a SketchUp-style flat color (double-sided) and a shiny front-face material.
+                    </p>
+                </div>
                 
                 <div class="instructions">
                     <h3>How to Use</h3>
@@ -324,9 +339,11 @@
                 this.renderer = null;
                 this.model = null;
                 this.controls = null;
+                this.currentMaterialPreset = 'phong';
                 
                 this.init();
                 this.createDemoModel();
+                this.setMaterialPreset(this.currentMaterialPreset);
                 this.setupControls();
                 this.animate();
             }
@@ -392,10 +409,10 @@
             createDemoModel() {
                 // Create a group to hold our model
                 this.model = new THREE.Group();
-                
+
                 // Create a central sphere
                 const sphereGeometry = new THREE.SphereGeometry(1, 32, 32);
-                const sphereMaterial = new THREE.MeshPhongMaterial({ 
+                const sphereMaterial = new THREE.MeshPhongMaterial({
                     color: 0x4a6ee0,
                     shininess: 100,
                     specular: 0x222222
@@ -403,45 +420,48 @@
                 const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
                 sphere.castShadow = true;
                 sphere.receiveShadow = true;
+                sphere.userData.baseColor = sphereMaterial.color.getHex();
                 this.model.add(sphere);
-                
+
                 // Create surrounding rings
                 const ringGeometry = new THREE.TorusGeometry(2, 0.2, 16, 100);
-                const ringMaterial = new THREE.MeshPhongMaterial({ 
+                const ringMaterial = new THREE.MeshPhongMaterial({
                     color: 0xff6b6b,
                     shininess: 50
                 });
-                
+
                 // Create rings in different orientations
                 for (let i = 0; i < 3; i++) {
                     const ring = new THREE.Mesh(ringGeometry, ringMaterial);
                     ring.rotation.x = i * Math.PI / 3;
                     ring.rotation.y = i * Math.PI / 4;
                     ring.castShadow = true;
+                    ring.userData.baseColor = ringMaterial.color.getHex();
                     this.model.add(ring);
                 }
-                
+
                 // Create floating cubes around the sphere
                 const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-                const cubeMaterial = new THREE.MeshPhongMaterial({ 
+                const cubeMaterial = new THREE.MeshPhongMaterial({
                     color: 0x6bff91,
                     shininess: 80
                 });
-                
+
                 for (let i = 0; i < 8; i++) {
                     const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
                     const angle = (i / 8) * Math.PI * 2;
                     const radius = 3;
-                    
+
                     cube.position.x = Math.cos(angle) * radius;
                     cube.position.z = Math.sin(angle) * radius;
                     cube.position.y = Math.sin(angle * 2) * 1.5;
-                    
+
                     cube.castShadow = true;
                     cube.receiveShadow = true;
+                    cube.userData.baseColor = cubeMaterial.color.getHex();
                     this.model.add(cube);
                 }
-                
+
                 // Add the model to the scene
                 this.scene.add(this.model);
                 
@@ -507,12 +527,61 @@
                 // Scale slider
                 const scale = document.getElementById('scale');
                 const scaleValue = document.getElementById('scaleValue');
-                
+
                 scale.addEventListener('input', (e) => {
                     const value = parseFloat(e.target.value);
                     scaleValue.textContent = value.toFixed(1);
                     this.model.scale.set(value, value, value);
                 });
+
+                // Material presets
+                document.getElementById('sketchupMaterial').addEventListener('click', () => {
+                    this.setMaterialPreset('sketchup');
+                });
+
+                document.getElementById('phongMaterial').addEventListener('click', () => {
+                    this.setMaterialPreset('phong');
+                });
+            }
+
+            setMaterialPreset(preset) {
+                const presets = {
+                    sketchup: (color) => new THREE.MeshStandardMaterial({
+                        color,
+                        transparent: false,
+                        opacity: 1,
+                        side: THREE.DoubleSide,
+                        depthWrite: true,
+                        depthTest: true,
+                        metalness: 0.1,
+                        roughness: 0.7
+                    }),
+                    phong: (color) => new THREE.MeshPhongMaterial({
+                        color,
+                        shininess: 50,
+                        side: THREE.FrontSide
+                    })
+                };
+
+                const materialFactory = presets[preset];
+                if (!materialFactory) return;
+
+                this.model.traverse((child) => {
+                    if (!child.isMesh) return;
+
+                    const baseColor = child.userData.baseColor
+                        ?? (child.material && child.material.color && child.material.color.getHex())
+                        ?? 0x00ff00;
+
+                    // Ensure smooth shading on any imported geometry
+                    if (child.geometry && child.geometry.attributes) {
+                        child.geometry.computeVertexNormals();
+                    }
+
+                    child.material = materialFactory(baseColor);
+                });
+
+                this.currentMaterialPreset = preset;
             }
             
             onWindowResize() {
