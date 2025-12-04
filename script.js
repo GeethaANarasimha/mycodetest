@@ -60,6 +60,15 @@ const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
 const textModalConfirm = document.getElementById('textModalConfirm');
 const textModalCancel = document.getElementById('textModalCancel');
+const staircaseModal = document.getElementById('staircaseModal');
+const staircaseLayoutSelect = document.getElementById('staircaseLayout');
+const staircaseWidthFeetInput = document.getElementById('staircaseWidthFeet');
+const staircaseRiseInchesInput = document.getElementById('staircaseRiseInches');
+const staircaseStepsInput = document.getElementById('staircaseSteps');
+const staircaseLandingDepthInput = document.getElementById('staircaseLandingDepth');
+const staircaseSummary = document.getElementById('staircaseSummary');
+const staircaseApplyButton = document.getElementById('staircaseApply');
+const staircaseCancelButton = document.getElementById('staircaseCancel');
 const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
@@ -95,11 +104,13 @@ const DEFAULT_DOOR_LINE = '#8b5a2b';
 const DEFAULT_DOOR_FILL = '#e6c9a8';
 const DEFAULT_WINDOW_LINE = '#3b83bd';
 const DEFAULT_WINDOW_FILL = '#ffffff';
+const DEFAULT_STAIR_FILL = '#e5e7eb';
 const MIN_VIEW_SCALE = 0.5;
 const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
 const SAVE_FILE_EXTENSION = '.paz';
 const SAVE_SECRET = 'apzok-project-key';
+const DEFAULT_TREAD_DEPTH_INCHES = 10;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -124,6 +135,15 @@ let floors = [];
 let nextFloorId = 1;
 
 let objects = [];
+
+let staircaseSettings = {
+    layout: 'straight',
+    widthFeet: 3.5,
+    riseInches: 7,
+    steps: 10,
+    landingDepthFeet: 3,
+    treadDepthInches: DEFAULT_TREAD_DEPTH_INCHES
+};
 
 // Background image + measurement
 let backgroundImageData = null; // committed image { image, x, y, width, height }
@@ -1316,6 +1336,14 @@ function drawPastePreview() {
             ctx.moveTo(x, y + h / 2);
             ctx.lineTo(x + w, y + h / 2);
             ctx.stroke();
+        } else if (oldObj.type === 'staircase') {
+            drawStaircaseGraphic({
+                ...oldObj,
+                x,
+                y,
+                width: w,
+                height: h
+            }, x, y, w, h);
         } else if (oldObj.type === 'furniture') {
             ctx.fillRect(x, y, w, h);
             ctx.strokeRect(x, y, w, h);
@@ -2453,6 +2481,7 @@ function init() {
             closeBackgroundImageModal();
             cancelBackgroundMeasurement();
             closeTextModal();
+            closeStaircaseModal();
         }
     });
 
@@ -2473,6 +2502,12 @@ function init() {
 
             if (currentTool !== 'dimension' && typeof window.resetDimensionTool === 'function') {
                 window.resetDimensionTool();
+            }
+
+            if (currentTool === 'staircase') {
+                openStaircaseModal();
+            } else {
+                closeStaircaseModal();
             }
 
             // Cancel paste mode when switching tools (unless triggered programmatically for paste)
@@ -2541,6 +2576,32 @@ function init() {
     if (textModalCancel) {
         textModalCancel.addEventListener('click', closeTextModal);
     }
+    if (staircaseApplyButton) {
+        staircaseApplyButton.addEventListener('click', applyStaircaseSettings);
+    }
+    if (staircaseCancelButton) {
+        staircaseCancelButton.addEventListener('click', () => {
+            closeStaircaseModal();
+            // Revert to select tool if user cancels before drawing
+            if (currentTool === 'staircase') {
+                currentTool = 'select';
+                toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'select'));
+                updateToolInfo();
+            }
+        });
+    }
+    [
+        staircaseLayoutSelect,
+        staircaseWidthFeetInput,
+        staircaseRiseInchesInput,
+        staircaseStepsInput,
+        staircaseLandingDepthInput
+    ].forEach(input => {
+        if (input) {
+            input.addEventListener('input', updateStaircaseSummary);
+            input.addEventListener('change', updateStaircaseSummary);
+        }
+    });
     if (textModalInput) {
         textModalInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
@@ -2696,6 +2757,7 @@ function init() {
     syncBackgroundControls();
     updateTextStyleButtons();
     updateMeasurementPreview();
+    updateStaircaseSummary();
     updateToolInfo();
     updatePropertiesPanel();
     update3DButtonLabel('Show 3D');
@@ -3568,12 +3630,49 @@ function getDefaultStyleForType(type) {
         return { lineColor: DEFAULT_WINDOW_LINE, fillColor: DEFAULT_WINDOW_FILL };
     }
 
+    if (type === 'staircase') {
+        return { lineColor: baseLine, fillColor: DEFAULT_STAIR_FILL };
+    }
+
     if (type === 'text') {
         const textColor = textColorInput?.value || '#000000';
         return { lineColor: textColor, fillColor: 'transparent' };
     }
 
     return { lineColor: baseLine, fillColor: baseFill };
+}
+
+function getStairSettings(obj = {}) {
+    if (obj.staircase) return obj.staircase;
+    return staircaseSettings;
+}
+
+function computeStaircaseBounds(startX, startY, currentX, currentY) {
+    const layout = staircaseSettings.layout || 'straight';
+    const widthFeet = Math.max(1, staircaseSettings.widthFeet || 3.5);
+    const steps = Math.max(3, staircaseSettings.steps || 10);
+    const treadDepthInches = staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES;
+    const landingDepthFeet = staircaseSettings.landingDepthFeet || 0;
+
+    const widthPx = Math.max(widthFeet * scale, 24);
+    const treadPx = (treadDepthInches / 12) * scale;
+    const landingPx = ['landing', 'l-shape', 'u-shape'].includes(layout) ? landingDepthFeet * scale : 0;
+    const runPx = treadPx * steps + landingPx;
+
+    const orientation = Math.abs(currentX - startX) >= Math.abs(currentY - startY)
+        ? 'horizontal'
+        : 'vertical';
+
+    const dirX = currentX >= startX ? 1 : -1;
+    const dirY = currentY >= startY ? 1 : -1;
+
+    const width = orientation === 'horizontal' ? runPx : widthPx;
+    const height = orientation === 'horizontal' ? widthPx : runPx;
+
+    const x = dirX === 1 ? startX : startX - width;
+    const y = dirY === 1 ? startY : startY - height;
+
+    return { x, y, width, height, orientation };
 }
 
 function measureTextDimensions(text, fontSize = 18, fontWeight = 'normal', fontStyle = 'normal') {
@@ -3885,17 +3984,27 @@ function handleMouseUp() {
     if (!isDrawing) return;
     isDrawing = false;
 
-    if (!['door', 'window', 'furniture'].includes(currentTool)) return;
+    if (!['door', 'window', 'furniture', 'staircase'].includes(currentTool)) return;
     if (startX === currentX && startY === currentY) return;
 
     pushUndoState();
 
     const styles = getDefaultStyleForType(currentTool);
 
-    const x = Math.min(startX, currentX);
-    const y = Math.min(startY, currentY);
-    const w = Math.abs(currentX - startX);
-    const h = Math.abs(currentY - startY);
+    let x = Math.min(startX, currentX);
+    let y = Math.min(startY, currentY);
+    let w = Math.abs(currentX - startX);
+    let h = Math.abs(currentY - startY);
+    let orientation = Math.abs(currentX - startX) >= Math.abs(currentY - startY) ? 'horizontal' : 'vertical';
+
+    if (currentTool === 'staircase') {
+        const bounds = computeStaircaseBounds(startX, startY, currentX, currentY);
+        x = bounds.x;
+        y = bounds.y;
+        w = bounds.width;
+        h = bounds.height;
+        orientation = bounds.orientation;
+    }
 
     const newObj = {
         type: currentTool,
@@ -3907,7 +4016,8 @@ function handleMouseUp() {
         fillColor: styles.fillColor,
         rotation: 0,
         flipH: false,
-        flipV: false
+        flipV: false,
+        orientation
     };
 
     if (currentTool === 'door') {
@@ -3919,6 +4029,8 @@ function handleMouseUp() {
         if (typeof window.initializeWindowObject === 'function') {
             window.initializeWindowObject(newObj, walls, scale);
         }
+    } else if (currentTool === 'staircase') {
+        newObj.staircase = { ...staircaseSettings };
     }
 
     objects.push(newObj);
@@ -4341,6 +4453,185 @@ function drawDimensions() {
 // ============================================================
 // OBJECTS
 // ============================================================
+function drawStraightStair(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const steps = Math.max(3, stair.steps || 10);
+    const hasLanding = stair.layout === 'landing';
+    const landingSize = hasLanding ? Math.min(drawWidth, drawHeight, (stair.landingDepthFeet || 3) * scale) : 0;
+    const orientation = obj.orientation || (drawWidth >= drawHeight ? 'horizontal' : 'vertical');
+    const runLength = orientation === 'horizontal' ? drawWidth : drawHeight;
+    const crossLength = orientation === 'horizontal' ? drawHeight : drawWidth;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(originX, originY, drawWidth, drawHeight);
+    ctx.clip();
+
+    const drawLine = (offset) => {
+        if (orientation === 'horizontal') {
+            ctx.moveTo(originX + offset, originY);
+            ctx.lineTo(originX + offset, originY + crossLength);
+        } else {
+            ctx.moveTo(originX, originY + offset);
+            ctx.lineTo(originX + crossLength, originY + offset);
+        }
+    };
+
+    ctx.beginPath();
+    if (landingSize > 0) {
+        const halfSteps = Math.ceil(steps / 2);
+        const runWithoutLanding = Math.max(runLength - landingSize, 10);
+        const segment = runWithoutLanding / 2;
+        const spacing = segment / halfSteps;
+        for (let i = 1; i < halfSteps; i++) {
+            drawLine(spacing * i);
+        }
+        const startSecond = segment + landingSize;
+        for (let i = 1; i < halfSteps; i++) {
+            drawLine(startSecond + spacing * i);
+        }
+        if (orientation === 'horizontal') {
+            ctx.rect(originX + segment, originY + crossLength / 2 - landingSize / 2, landingSize, landingSize);
+        } else {
+            ctx.rect(originX + crossLength / 2 - landingSize / 2, originY + segment, landingSize, landingSize);
+        }
+    } else {
+        const spacing = runLength / steps;
+        for (let i = 1; i < steps; i++) {
+            drawLine(spacing * i);
+        }
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawLShapedStair(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const steps = Math.max(4, stair.steps || 10);
+    const stepsFirst = Math.ceil(steps / 2);
+    const stepsSecond = steps - stepsFirst;
+    const landingSize = Math.min((stair.landingDepthFeet || 3) * scale, Math.min(drawWidth, drawHeight) * 0.45);
+    const orientation = obj.orientation || (drawWidth >= drawHeight ? 'horizontal' : 'vertical');
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(originX, originY, drawWidth, drawHeight);
+    ctx.clip();
+    ctx.beginPath();
+
+    if (orientation === 'horizontal') {
+        const run1 = Math.max(drawWidth - landingSize, landingSize * 1.2);
+        const spacing1 = run1 / stepsFirst;
+        for (let i = 1; i < stepsFirst; i++) {
+            ctx.moveTo(originX + spacing1 * i, originY);
+            ctx.lineTo(originX + spacing1 * i, originY + landingSize);
+        }
+
+        ctx.rect(originX + run1 - landingSize, originY, landingSize, landingSize);
+
+        const run2 = Math.max(drawHeight - landingSize, landingSize * 1.2);
+        const spacing2 = run2 / Math.max(1, stepsSecond);
+        for (let i = 1; i < stepsSecond; i++) {
+            ctx.moveTo(originX + run1 - landingSize, originY + landingSize + spacing2 * i);
+            ctx.lineTo(originX + run1, originY + landingSize + spacing2 * i);
+        }
+    } else {
+        const run1 = Math.max(drawHeight - landingSize, landingSize * 1.2);
+        const spacing1 = run1 / stepsFirst;
+        for (let i = 1; i < stepsFirst; i++) {
+            ctx.moveTo(originX, originY + spacing1 * i);
+            ctx.lineTo(originX + landingSize, originY + spacing1 * i);
+        }
+
+        ctx.rect(originX, originY + run1 - landingSize, landingSize, landingSize);
+
+        const run2 = Math.max(drawWidth - landingSize, landingSize * 1.2);
+        const spacing2 = run2 / Math.max(1, stepsSecond);
+        for (let i = 1; i < stepsSecond; i++) {
+            ctx.moveTo(originX + landingSize + spacing2 * i, originY + run1 - landingSize);
+            ctx.lineTo(originX + landingSize + spacing2 * i, originY + run1);
+        }
+    }
+
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawUShapedStair(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const steps = Math.max(4, stair.steps || 10);
+    const stepsFirst = Math.ceil(steps / 2);
+    const stepsSecond = steps - stepsFirst;
+    const landingSize = Math.min((stair.landingDepthFeet || 3) * scale, drawHeight * 0.35);
+    const runSegment = Math.max((drawHeight - landingSize) / 2, 10);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(originX, originY, drawWidth, drawHeight);
+    ctx.clip();
+    ctx.beginPath();
+
+    const spacing1 = runSegment / stepsFirst;
+    for (let i = 1; i < stepsFirst; i++) {
+        ctx.moveTo(originX, originY + spacing1 * i);
+        ctx.lineTo(originX + drawWidth, originY + spacing1 * i);
+    }
+
+    ctx.rect(originX, originY + runSegment, drawWidth, landingSize);
+
+    const spacing2 = runSegment / Math.max(1, stepsSecond);
+    for (let i = 1; i < stepsSecond; i++) {
+        const offset = runSegment + landingSize + spacing2 * i;
+        ctx.moveTo(originX, originY + offset);
+        ctx.lineTo(originX + drawWidth, originY + offset);
+    }
+
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawStaircaseGraphic(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const fill = obj.fillColor || DEFAULT_STAIR_FILL;
+    const stroke = obj.lineColor || '#111827';
+    const lw = obj.lineWidth || 2;
+    const layout = stair.layout || 'straight';
+
+    const widthLabel = stair.widthFeet ?? staircaseSettings.widthFeet ?? 0;
+    const riseLabel = stair.riseInches ?? staircaseSettings.riseInches ?? 0;
+    const stepsLabel = stair.steps ?? staircaseSettings.steps ?? 0;
+    const formatNumber = (value, digits = 1) => {
+        const num = Number(value);
+        if (Number.isFinite(num)) {
+            return num.toFixed(digits);
+        }
+        return value;
+    };
+
+    ctx.save();
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.rect(originX, originY, drawWidth, drawHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    if (layout === 'l-shape') {
+        drawLShapedStair(obj, originX, originY, drawWidth, drawHeight);
+    } else if (layout === 'u-shape') {
+        drawUShapedStair(obj, originX, originY, drawWidth, drawHeight);
+    } else {
+        drawStraightStair(obj, originX, originY, drawWidth, drawHeight);
+    }
+
+    ctx.fillStyle = '#374151';
+    ctx.font = '12px Arial';
+    const summary = `${describeLayout(layout)} • ${formatNumber(widthLabel)} ft wide • ${formatNumber(riseLabel, 1)} in rise • ${stepsLabel} steps`;
+    ctx.fillText(summary, originX + 8, originY + Math.min(18, drawHeight - 8));
+    ctx.restore();
+}
+
 function drawObjects() {
     for (let i = 0; i < objects.length; i++) {
         const obj = objects[i];
@@ -4392,6 +4683,8 @@ function drawObjects() {
             ctx.textBaseline = 'top';
             ctx.fillStyle = obj.textColor || obj.lineColor || '#000000';
             ctx.fillText(obj.text, localX, localY);
+        } else if (obj.type === 'staircase') {
+            drawStaircaseGraphic(obj, localX, localY, width, height);
         } else if (obj.type === 'furniture') {
             ctx.fillRect(localX, localY, width, height);
             ctx.strokeRect(localX, localY, width, height);
@@ -4492,7 +4785,7 @@ function getWindowHandleHit(x, y) {
 
 function drawCurrentDragObject() {
     if (!isDrawing) return;
-    if (!['door', 'window', 'furniture'].includes(currentTool)) return;
+    if (!['door', 'window', 'furniture', 'staircase'].includes(currentTool)) return;
 
     const x = Math.min(startX, currentX);
     const y = Math.min(startY, currentY);
@@ -4524,6 +4817,16 @@ function drawCurrentDragObject() {
             ctx.moveTo(x, y + h / 2);
             ctx.lineTo(x + w, y + h / 2);
             ctx.stroke();
+        } else if (currentTool === 'staircase') {
+            const bounds = computeStaircaseBounds(startX, startY, currentX, currentY);
+            drawStaircaseGraphic({
+                type: 'staircase',
+                lineColor: previewStyles.lineColor,
+                fillColor: previewStyles.fillColor,
+                lineWidth: parseInt(lineWidthInput.value, 10) || 2,
+                staircase: staircaseSettings,
+                orientation: bounds.orientation
+            }, bounds.x, bounds.y, bounds.width, bounds.height);
         } else if (currentTool === 'furniture') {
             ctx.fillRect(x, y, w, h);
             ctx.strokeRect(x, y, w, h);
@@ -5967,6 +6270,7 @@ function updateToolInfo() {
         case 'door': name = 'Door'; break;
         case 'window': name = 'Window'; break;
         case 'furniture': name = 'Furniture'; break;
+        case 'staircase': name = 'Staircase'; break;
         case 'floor': name = 'Floor'; break;
         case 'select': name = 'Select'; break;
         case 'erase': name = 'Eraser'; break;
@@ -5979,6 +6283,63 @@ function updateToolInfo() {
     }
 
     toolInfoDisplay.textContent = name;
+}
+
+function describeLayout(layout) {
+    if (!layout) return 'Straight run';
+    switch (layout) {
+        case 'landing': return 'Straight with landing';
+        case 'l-shape': return 'L shape';
+        case 'u-shape': return 'U shape';
+        default: return 'Straight run';
+    }
+}
+
+function updateStaircaseSummary() {
+    if (!staircaseSummary) return;
+    const layout = staircaseLayoutSelect?.value || staircaseSettings.layout;
+    const widthFeet = parseFloat(staircaseWidthFeetInput?.value) || staircaseSettings.widthFeet;
+    const riseInches = parseFloat(staircaseRiseInchesInput?.value) || staircaseSettings.riseInches;
+    const steps = parseInt(staircaseStepsInput?.value, 10) || staircaseSettings.steps;
+    const landingDepth = parseFloat(staircaseLandingDepthInput?.value) || staircaseSettings.landingDepthFeet;
+
+    const parts = [
+        `Layout: ${describeLayout(layout)}`,
+        `Width: ${widthFeet.toFixed(1)} ft`,
+        `Rise: ${riseInches.toFixed(1)} in`,
+        `Steps: ${steps}`
+    ];
+
+    if (['landing', 'l-shape', 'u-shape'].includes(layout)) {
+        parts.push(`Landing: ${landingDepth.toFixed(1)} ft`);
+    }
+
+    staircaseSummary.textContent = parts.join(' • ');
+}
+
+function applyStaircaseSettings() {
+    staircaseSettings = {
+        ...staircaseSettings,
+        layout: staircaseLayoutSelect?.value || staircaseSettings.layout,
+        widthFeet: parseFloat(staircaseWidthFeetInput?.value) || staircaseSettings.widthFeet,
+        riseInches: parseFloat(staircaseRiseInchesInput?.value) || staircaseSettings.riseInches,
+        steps: Math.max(3, parseInt(staircaseStepsInput?.value, 10) || staircaseSettings.steps),
+        landingDepthFeet: parseFloat(staircaseLandingDepthInput?.value) || staircaseSettings.landingDepthFeet,
+        treadDepthInches: staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES
+    };
+    updateStaircaseSummary();
+    closeStaircaseModal();
+}
+
+function openStaircaseModal() {
+    if (!staircaseModal) return;
+    staircaseModal.classList.remove('hidden');
+    updateStaircaseSummary();
+}
+
+function closeStaircaseModal() {
+    if (!staircaseModal) return;
+    staircaseModal.classList.add('hidden');
 }
 
 function openTextModal({ defaultValue = 'New label', confirmLabel = 'Save', onSubmit } = {}) {

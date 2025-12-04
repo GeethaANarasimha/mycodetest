@@ -38,6 +38,10 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_0a3b507cf3fc427eaab066301a920e5c.svg" alt="">
         <span class="tool-label">Window</span>
     </button>
+    <button class="tool-btn" data-tool="staircase" aria-label="Staircase">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_0f8bb41d89fe42488e1352df56340e45.svg" alt="">
+        <span class="tool-label">Staircase</span>
+    </button>
     <button class="tool-btn" data-tool="furniture" aria-label="Furniture">
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_7ad998836ddb4a5ead990a30f61fda01.svg" alt="">
         <span class="tool-label">Furniture</span>
@@ -119,12 +123,12 @@
         </div>
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,furniture,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,select,erase,pan">
         <label>Line Width</label>
         <input id="lineWidth" type="number" value="2">
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,furniture,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,select,erase,pan">
         <label>Line Color</label>
         <div class="property-input-row">
             <input id="lineColor" type="color" value="#000000">
@@ -163,17 +167,17 @@
         </div>
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
         <label>Grid Size</label>
         <input id="gridSize" type="number" value="20">
     </div>
 
-    <div class="property-group inline" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group inline" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
         <label class="checkbox"><input type="checkbox" id="snapToGrid" checked> Snap to Grid</label>
         <label class="checkbox"><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
     </div>
 
-    <div class="property-group button-row" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group button-row" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
         <button id="toggleGrid">Toggle Grid</button>
         <button id="toggleBackgroundImage" class="hidden">Hide Background Image</button>
     </div>
@@ -198,6 +202,58 @@
         <div class="modal-actions">
             <button id="textModalConfirm" class="tool-btn" type="button">Add Text</button>
             <button id="textModalCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="staircaseModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Staircase Settings</h3>
+        <p class="modal-subtitle">Choose a layout and size before placing the staircase on the plan.</p>
+
+        <label class="modal-label" for="staircaseLayout">Layout</label>
+        <select id="staircaseLayout">
+            <option value="straight">Straight run</option>
+            <option value="landing">Straight with landing</option>
+            <option value="l-shape">L shape</option>
+            <option value="u-shape">U shape</option>
+        </select>
+
+        <div class="modal-grid">
+            <div>
+                <label class="modal-label">Stair width</label>
+                <div class="modal-input-row">
+                    <input type="number" id="staircaseWidthFeet" min="1" value="3.5"> ft
+                </div>
+            </div>
+            <div>
+                <label class="modal-label">Riser height</label>
+                <div class="modal-input-row">
+                    <input type="number" id="staircaseRiseInches" min="4" max="9" value="7"> in
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-grid">
+            <div>
+                <label class="modal-label" for="staircaseSteps">Number of steps</label>
+                <div class="modal-input-row">
+                    <input type="number" id="staircaseSteps" min="3" value="10">
+                </div>
+            </div>
+            <div>
+                <label class="modal-label" for="staircaseLandingDepth">Landing depth</label>
+                <div class="modal-input-row">
+                    <input type="number" id="staircaseLandingDepth" min="2" value="3"> ft
+                </div>
+            </div>
+        </div>
+
+        <div class="staircase-summary" id="staircaseSummary"></div>
+
+        <div class="modal-actions">
+            <button id="staircaseApply" class="tool-btn" type="button">Apply</button>
+            <button id="staircaseCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
         </div>
     </div>
 </div>

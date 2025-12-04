@@ -360,6 +360,16 @@ input[type="text"] {
     margin-top: 14px;
 }
 
+.staircase-summary {
+    margin: 12px 0;
+    padding: 10px;
+    border-radius: 8px;
+    background: #f3f4f6;
+    color: #111827;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
 .preview-row {
     display: grid;
     grid-template-columns: 2fr 1fr;
