@@ -209,44 +209,76 @@
 <div id="staircaseModal" class="modal hidden">
     <div class="modal-content">
         <h3>Staircase Settings</h3>
-        <p class="modal-subtitle">Choose a layout and size before placing the staircase on the plan.</p>
+        <p class="modal-subtitle">Pick what you want to place, then enter the matching measurements.</p>
 
-        <label class="modal-label" for="staircaseLayout">Layout</label>
-        <select id="staircaseLayout">
-            <option value="straight">Straight run</option>
-            <option value="landing">Straight with landing</option>
-            <option value="l-shape">L shape</option>
-            <option value="u-shape">U shape</option>
-        </select>
+        <div class="staircase-mode-toggle" role="tablist" aria-label="Staircase options">
+            <button class="pill-btn staircase-mode-btn active" type="button" data-staircase-mode="steps" role="tab" aria-selected="true">Steps</button>
+            <button class="pill-btn staircase-mode-btn" type="button" data-staircase-mode="landing" role="tab" aria-selected="false">Landing</button>
+        </div>
 
-        <div class="modal-grid">
-            <div>
-                <label class="modal-label">Stair width</label>
-                <div class="modal-input-row">
-                    <input type="number" id="staircaseWidthFeet" min="1" value="3.5"> ft
+        <div id="staircaseStepsSection" class="staircase-section">
+            <div class="modal-grid">
+                <div>
+                    <label class="modal-label">Stair width</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="staircaseWidthFeet" min="1" value="3.5"> ft
+                    </div>
+                </div>
+                <div>
+                    <label class="modal-label">Run size</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="staircaseRunInches" min="1" max="16" value="10"> in
+                    </div>
                 </div>
             </div>
-            <div>
-                <label class="modal-label">Riser height</label>
-                <div class="modal-input-row">
-                    <input type="number" id="staircaseRiseInches" min="4" max="9" value="7"> in
+
+            <div class="modal-grid">
+                <div>
+                    <label class="modal-label" for="staircaseSteps">Number of steps</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="staircaseSteps" min="3" value="10">
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="modal-grid">
-            <div>
-                <label class="modal-label" for="staircaseSteps">Number of steps</label>
-                <div class="modal-input-row">
-                    <input type="number" id="staircaseSteps" min="3" value="10">
+        <div id="staircaseLandingSection" class="staircase-section hidden">
+            <label class="modal-label">Landing type</label>
+            <div class="landing-type-row">
+                <label class="landing-card">
+                    <input type="radio" name="landingType" value="rectangular" checked>
+                    <div class="landing-card-body">
+                        <div class="landing-card-title">Rectangular</div>
+                        <p class="landing-card-text">Simple landing with width and length.</p>
+                    </div>
+                </label>
+                <label class="landing-card">
+                    <input type="radio" name="landingType" value="squared">
+                    <div class="landing-card-body">
+                        <div class="landing-card-title">Squared shape</div>
+                        <p class="landing-card-text">Landing with A–B–C–D points and a diagonal D→A line.</p>
+                    </div>
+                </label>
+            </div>
+
+            <div class="modal-grid">
+                <div>
+                    <label class="modal-label">Landing width</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="landingWidthFeet" min="1" value="4"> ft
+                        <input type="number" id="landingWidthInches" min="0" max="11" value="0"> in
+                    </div>
+                </div>
+                <div>
+                    <label class="modal-label">Landing length</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="landingLengthFeet" min="1" value="4"> ft
+                        <input type="number" id="landingLengthInches" min="0" max="11" value="0"> in
+                    </div>
                 </div>
             </div>
-            <div>
-                <label class="modal-label" for="staircaseLandingDepth">Landing depth</label>
-                <div class="modal-input-row">
-                    <input type="number" id="staircaseLandingDepth" min="2" value="3"> ft
-                </div>
-            </div>
+
+            <div id="squaredLandingHint" class="landing-hint hidden">Square layout: points A (top-left), B (top-right), C (bottom-left), D (bottom-right) with a connecting line between D and A.</div>
         </div>
 
         <div class="staircase-summary" id="staircaseSummary"></div>
