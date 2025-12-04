@@ -139,6 +139,16 @@ input[type="text"] {
     width: 4ch;
 }
 
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield;
+}
+
 .properties {
     background: #eee;
     padding: 10px;
