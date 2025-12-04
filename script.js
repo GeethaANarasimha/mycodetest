@@ -215,6 +215,7 @@ let fallback3DCamera = {
     target: { x: 0, y: 5, z: 0 },
     autoRotate: false,
     isDragging: false,
+    dragMode: 'orbit',
     lastPointer: null
 };
 const THREE_WALL_HEIGHT_FEET = 10;
@@ -4698,10 +4699,13 @@ function ensureThreeView() {
         threeControls.enablePan = true;
         threeControls.enableZoom = true;
         threeControls.enableRotate = true;
-        threeControls.minDistance = 5;
-        threeControls.maxDistance = scale * 40;
+        threeControls.screenSpacePanning = true;
+        threeControls.zoomSpeed = 1.1;
+        threeControls.rotateSpeed = 0.9;
+        threeControls.minDistance = 2;
+        threeControls.maxDistance = Infinity;
         threeControls.minPolarAngle = 0.05;
-        threeControls.maxPolarAngle = Math.PI - 0.05;
+        threeControls.maxPolarAngle = Math.PI - 0.02;
         threeControls.autoRotate = false;
         threeControls.autoRotateSpeed = 0.4;
     }
@@ -4799,6 +4803,7 @@ function ensureFallback3DView() {
         fallback3DCanvas.addEventListener('pointerup', handleFallbackPointerUp);
         fallback3DCanvas.addEventListener('pointerleave', handleFallbackPointerUp);
         fallback3DCanvas.addEventListener('wheel', handleFallbackWheel, { passive: false });
+        fallback3DCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
         window.addEventListener('resize', resizeFallbackCanvas);
     }
 
@@ -5048,6 +5053,7 @@ function handleFallbackPointerDown(e) {
     if (!fallback3DCamera) return;
     fallback3DCamera.isDragging = true;
     fallback3DCamera.lastPointer = { x: e.clientX, y: e.clientY };
+    fallback3DCamera.dragMode = (e.button === 2 || e.button === 1 || e.shiftKey) ? 'pan' : 'orbit';
     fallback3DCamera.autoRotate = false;
     fallback3DCanvas?.setPointerCapture(e.pointerId);
 }
@@ -5056,8 +5062,19 @@ function handleFallbackPointerMove(e) {
     if (!fallback3DCamera.isDragging || !fallback3DCamera.lastPointer) return;
     const dx = e.clientX - fallback3DCamera.lastPointer.x;
     const dy = e.clientY - fallback3DCamera.lastPointer.y;
-    fallback3DCamera.theta -= dx * 0.005;
-    fallback3DCamera.phi = Math.min(Math.PI / 2.1, Math.max(0.2, fallback3DCamera.phi - dy * 0.005));
+    if (fallback3DCamera.dragMode === 'pan') {
+        const panScale = Math.max(0.0015, fallback3DCamera.distance * 0.002);
+        const theta = fallback3DCamera.theta;
+        const cosTheta = Math.cos(theta);
+        const sinTheta = Math.sin(theta);
+
+        fallback3DCamera.target.x -= (dx * panScale * cosTheta) + (dy * panScale * sinTheta * 0.6);
+        fallback3DCamera.target.z += (dx * panScale * sinTheta) - (dy * panScale * cosTheta * 0.6);
+        fallback3DCamera.target.y += dy * panScale * 0.4;
+    } else {
+        fallback3DCamera.theta -= dx * 0.005;
+        fallback3DCamera.phi = Math.min(Math.PI - 0.1, Math.max(0.12, fallback3DCamera.phi - dy * 0.005));
+    }
     fallback3DCamera.lastPointer = { x: e.clientX, y: e.clientY };
     renderFallback3DScene();
 }
@@ -5065,6 +5082,7 @@ function handleFallbackPointerMove(e) {
 function handleFallbackPointerUp(e) {
     if (!fallback3DCamera.isDragging) return;
     fallback3DCamera.isDragging = false;
+    fallback3DCamera.dragMode = 'orbit';
     fallback3DCamera.lastPointer = null;
     fallback3DCanvas?.releasePointerCapture(e.pointerId);
 }
@@ -5072,7 +5090,7 @@ function handleFallbackPointerUp(e) {
 function handleFallbackWheel(e) {
     e.preventDefault();
     const factor = Math.exp(e.deltaY * 0.001);
-    fallback3DCamera.distance = Math.max(15, Math.min(220, fallback3DCamera.distance * factor));
+    fallback3DCamera.distance = Math.max(5, Math.min(320, fallback3DCamera.distance * factor));
     renderFallback3DScene();
 }
 
@@ -5184,7 +5202,8 @@ function createWallMesh(wall, wallHeight) {
         roughness: 0.6,
         side: THREE.DoubleSide,
         depthWrite: true,
-        depthTest: true
+        depthTest: true,
+        flatShading: true
     });
     const mesh = new THREE.Mesh(geometry, material);
 
