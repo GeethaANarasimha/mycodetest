@@ -202,6 +202,9 @@ let threeControls = null;
 let wallMeshes = [];
 let threeContentGroup = null;
 let threeLibsPromise = null;
+const THREE_WALL_HEIGHT_FEET = 10;
+const THREE_FLOOR_THICKNESS_FEET = 5;
+const THREE_PLAN_OUTLINE_HEIGHT = 0.05;
 
 // undo / redo
 let undoStack = [];
@@ -4662,6 +4665,15 @@ function ensureThreeView() {
     if (typeof THREE.OrbitControls === 'function') {
         threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
         threeControls.enableDamping = true;
+        threeControls.enablePan = true;
+        threeControls.enableZoom = true;
+        threeControls.enableRotate = true;
+        threeControls.minDistance = 5;
+        threeControls.maxDistance = scale * 40;
+        threeControls.minPolarAngle = 0.05;
+        threeControls.maxPolarAngle = Math.PI - 0.05;
+        threeControls.autoRotate = true;
+        threeControls.autoRotateSpeed = 0.4;
     }
 
     // Brighter lighting to keep floor meshes and orbit controls clearly visible
@@ -4674,6 +4686,16 @@ function ensureThreeView() {
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
     dirLight.position.set(scale * 25, scale * 40, scale * 25);
     threeScene.add(dirLight);
+
+    const pointLight = new THREE.PointLight(0xffffff, 0.8, scale * 120);
+    pointLight.position.set(-scale * 15, scale * 20, -scale * 15);
+    threeScene.add(pointLight);
+
+    const spotLight = new THREE.SpotLight(0xffffff, 0.9, scale * 200, Math.PI / 4, 0.2, 1);
+    spotLight.position.set(0, scale * 30, 0);
+    spotLight.target.position.set(0, 0, 0);
+    threeScene.add(spotLight);
+    threeScene.add(spotLight.target);
 
     threeContentGroup = new THREE.Group();
     threeScene.add(threeContentGroup);
@@ -4746,6 +4768,38 @@ function createGroundElements() {
     return { plane, grid };
 }
 
+function createPlanOverlay() {
+    if ((!walls || walls.length === 0) && (!floors || floors.length === 0)) return null;
+
+    const group = new THREE.Group();
+    group.position.y = THREE_PLAN_OUTLINE_HEIGHT;
+
+    walls.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) return;
+
+        const geometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(toWorldUnits(n1.x), 0, toWorldUnits(n1.y)),
+            new THREE.Vector3(toWorldUnits(n2.x), 0, toWorldUnits(n2.y))
+        ]);
+
+        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: '#94a3b8' }));
+        group.add(line);
+    });
+
+    floors.forEach(floor => {
+        const points = getFloorPoints(floor);
+        if (!points || points.length < 3) return;
+        const loopPoints = points.map(p => new THREE.Vector3(toWorldUnits(p.x), 0, toWorldUnits(p.y)));
+        const geometry = new THREE.BufferGeometry().setFromPoints(loopPoints);
+        const line = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial({ color: '#eab308' }));
+        group.add(line);
+    });
+
+    return group;
+}
+
 function createWallMesh(wall, wallHeight) {
     const n1 = getNodeById(wall.startNodeId);
     const n2 = getNodeById(wall.endNodeId);
@@ -4782,7 +4836,7 @@ function createFloorMesh(floor) {
     }
     shape.closePath();
 
-    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.5, bevelEnabled: false });
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: THREE_FLOOR_THICKNESS_FEET, bevelEnabled: false });
     geometry.rotateX(-Math.PI / 2);
 
     const color = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
@@ -4830,7 +4884,10 @@ function rebuild3DScene() {
         threeContentGroup.add(ground.grid);
     }
 
-    const wallHeight = 10; // feet
+    const planOverlay = createPlanOverlay();
+    if (planOverlay) threeContentGroup.add(planOverlay);
+
+    const wallHeight = THREE_WALL_HEIGHT_FEET;
 
     floors.forEach(floor => {
         const mesh = createFloorMesh(floor);
