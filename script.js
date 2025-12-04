@@ -5226,7 +5226,7 @@ function createConcreteMaterial(color = DEFAULT_3D_WALL_COLOR) {
         metalness: 0.06,
         clearcoat: 0.08,
         clearcoatRoughness: 0.9,
-        side: THREE.DoubleSide,
+        side: THREE.FrontSide,
         flatShading: false,
         transparent: false,
         depthWrite: true,
@@ -5393,7 +5393,9 @@ function createHouseShowcaseModel() {
         roughness: 0.35,
         clearcoat: 0.2,
         clearcoatRoughness: 0.8,
-        side: THREE.DoubleSide
+        side: THREE.FrontSide,
+        transparent: false,
+        opacity: 1
     });
     const roof = new THREE.Mesh(new THREE.BoxGeometry(baseWidth + 0.8, 1.2, baseDepth + 0.8), roofMaterial);
     roof.position.y = wallHeight + 0.6;
@@ -5409,7 +5411,14 @@ function createHouseShowcaseModel() {
 
     const door = new THREE.Mesh(
         new THREE.BoxGeometry(3, 7, 0.6),
-        new THREE.MeshPhysicalMaterial({ color: '#8b5a2b', roughness: 0.7, metalness: 0.05, side: THREE.DoubleSide })
+        new THREE.MeshPhysicalMaterial({
+            color: '#8b5a2b',
+            roughness: 0.7,
+            metalness: 0.05,
+            side: THREE.FrontSide,
+            transparent: false,
+            opacity: 1
+        })
     );
     door.position.set(0, 3.5, (baseDepth / 2) - 0.3);
     door.castShadow = true;
@@ -5418,11 +5427,11 @@ function createHouseShowcaseModel() {
 
     const windowMaterial = new THREE.MeshPhysicalMaterial({
         color: '#dbeafe',
-        transparent: true,
-        opacity: 0.65,
+        transparent: false,
+        opacity: 1,
         roughness: 0.1,
         metalness: 0.25,
-        side: THREE.DoubleSide
+        side: THREE.FrontSide
     });
     const windowGeometry = new THREE.BoxGeometry(4, 3, 0.4);
     const leftWindow = new THREE.Mesh(windowGeometry, windowMaterial);
