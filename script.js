@@ -4620,18 +4620,32 @@ function loadScriptOnce(src) {
 
 function ensureThreeLibraries() {
     if (typeof THREE !== 'undefined' && THREE.Scene && THREE.PerspectiveCamera) {
-        return Promise.resolve(true);
+        if (!threeLibsPromise) {
+            threeLibsPromise = Promise.resolve(true);
+        }
+        setThreeStatus('');
+        return threeLibsPromise;
     }
 
     if (!threeLibsPromise) {
         setThreeStatus('Loading 3D engine…');
-        threeLibsPromise = Promise.all([
+
+        const loader = Promise.all([
             loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js'),
             loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/controls/OrbitControls.js')
         ]).then(() => {
+            if (typeof THREE === 'undefined') {
+                throw new Error('Three.js failed to initialize');
+            }
             setThreeStatus('');
             return true;
-        }).catch(err => {
+        });
+
+        const timeout = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Timed out loading Three.js')), 8000);
+        });
+
+        threeLibsPromise = Promise.race([loader, timeout]).catch(err => {
             console.error('Failed to load Three.js', err);
             setThreeStatus('Unable to load 3D view. Check your connection and try again.', true);
             throw err;
