@@ -188,6 +188,11 @@ let selectionBoxStart = null;
 let selectionBoxEnd = null;
 let selectionBoxAdditive = false;
 
+function snapRotation(angle, step = 5) {
+    const normalized = ((angle % 360) + 360) % 360;
+    return (Math.round(normalized / step) * step) % 360;
+}
+
 // WALL CHAINING
 let isWallDrawing = false;
 let wallChain = [];
@@ -292,6 +297,8 @@ function getCanvasPixelScale() {
 function screenToWorld(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     const scale = getCanvasPixelScale();
+    // Calibrate pointer location against any CSS scaling/zoom so hit-testing stays
+    // accurate regardless of the current view scale or device zoom level.
     const canvasX = (clientX - rect.left) / scale.x;
     const canvasY = (clientY - rect.top) / scale.y;
     return {
@@ -2690,8 +2697,8 @@ function init() {
     }
 
     const transformActions = [
-        { button: rotateLeftButton, handler: () => rotateSelection(-15) },
-        { button: rotateRightButton, handler: () => rotateSelection(15) },
+        { button: rotateLeftButton, handler: () => rotateSelection(-5) },
+        { button: rotateRightButton, handler: () => rotateSelection(5) },
         { button: flipHorizontalButton, handler: () => flipSelection('horizontal') },
         { button: flipVerticalButton, handler: () => flipSelection('vertical') },
     ];
@@ -3873,9 +3880,7 @@ function handleMouseMove(e) {
                 case 'rotate': {
                     const angle = Math.atan2(y - dragCenter.y, x - dragCenter.x);
                     let newRotation = initial.rotation + ((angle - staircaseHandleDrag.startAngle) * 180) / Math.PI;
-                    newRotation %= 360;
-                    if (newRotation < 0) newRotation += 360;
-                    obj.rotation = newRotation;
+                    obj.rotation = snapRotation(newRotation);
                     break;
                 }
             }
