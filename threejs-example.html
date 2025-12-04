@@ -415,7 +415,12 @@
                 const sphereMaterial = new THREE.MeshPhongMaterial({
                     color: 0x4a6ee0,
                     shininess: 100,
-                    specular: 0x222222
+                    specular: 0x222222,
+                    transparent: false,
+                    opacity: 1,
+                    side: THREE.DoubleSide,
+                    depthWrite: true,
+                    depthTest: true
                 });
                 const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
                 sphere.castShadow = true;
@@ -425,9 +430,15 @@
 
                 // Create surrounding rings
                 const ringGeometry = new THREE.TorusGeometry(2, 0.2, 16, 100);
+                ringGeometry.computeVertexNormals();
                 const ringMaterial = new THREE.MeshPhongMaterial({
                     color: 0xff6b6b,
-                    shininess: 50
+                    shininess: 50,
+                    transparent: false,
+                    opacity: 1,
+                    side: THREE.DoubleSide,
+                    depthWrite: true,
+                    depthTest: true
                 });
 
                 // Create rings in different orientations
@@ -442,9 +453,15 @@
 
                 // Create floating cubes around the sphere
                 const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                cubeGeometry.computeVertexNormals();
                 const cubeMaterial = new THREE.MeshPhongMaterial({
                     color: 0x6bff91,
-                    shininess: 80
+                    shininess: 80,
+                    transparent: false,
+                    opacity: 1,
+                    side: THREE.DoubleSide,
+                    depthWrite: true,
+                    depthTest: true
                 });
 
                 for (let i = 0; i < 8; i++) {
@@ -559,7 +576,11 @@
                     phong: (color) => new THREE.MeshPhongMaterial({
                         color,
                         shininess: 50,
-                        side: THREE.FrontSide
+                        transparent: false,
+                        opacity: 1,
+                        side: THREE.DoubleSide,
+                        depthWrite: true,
+                        depthTest: true
                     })
                 };
 
