@@ -62,11 +62,18 @@ const textModalInput = document.getElementById('textModalInput');
 const textModalConfirm = document.getElementById('textModalConfirm');
 const textModalCancel = document.getElementById('textModalCancel');
 const staircaseModal = document.getElementById('staircaseModal');
-const staircaseLayoutSelect = document.getElementById('staircaseLayout');
+const staircaseModeButtons = document.querySelectorAll('.staircase-mode-btn');
+const staircaseStepsSection = document.getElementById('staircaseStepsSection');
+const staircaseLandingSection = document.getElementById('staircaseLandingSection');
 const staircaseWidthFeetInput = document.getElementById('staircaseWidthFeet');
-const staircaseRiseInchesInput = document.getElementById('staircaseRiseInches');
+const staircaseRunInchesInput = document.getElementById('staircaseRunInches');
 const staircaseStepsInput = document.getElementById('staircaseSteps');
-const staircaseLandingDepthInput = document.getElementById('staircaseLandingDepth');
+const landingWidthFeetInput = document.getElementById('landingWidthFeet');
+const landingWidthInchesInput = document.getElementById('landingWidthInches');
+const landingLengthFeetInput = document.getElementById('landingLengthFeet');
+const landingLengthInchesInput = document.getElementById('landingLengthInches');
+const landingTypeRadios = document.querySelectorAll('input[name="landingType"]');
+const squaredLandingHint = document.getElementById('squaredLandingHint');
 const staircaseSummary = document.getElementById('staircaseSummary');
 const staircaseApplyButton = document.getElementById('staircaseApply');
 const staircaseCancelButton = document.getElementById('staircaseCancel');
@@ -138,11 +145,15 @@ let nextFloorId = 1;
 let objects = [];
 
 let staircaseSettings = {
-    layout: 'straight',
+    mode: 'steps',
     widthFeet: 3.5,
-    riseInches: 7,
+    runInches: DEFAULT_TREAD_DEPTH_INCHES,
     steps: 10,
-    landingDepthFeet: 3,
+    landingType: 'rectangular',
+    landingWidthFeet: 4,
+    landingWidthInches: 0,
+    landingLengthFeet: 4,
+    landingLengthInches: 0,
     treadDepthInches: DEFAULT_TREAD_DEPTH_INCHES
 };
 
@@ -2599,16 +2610,34 @@ function init() {
         });
     }
     [
-        staircaseLayoutSelect,
         staircaseWidthFeetInput,
-        staircaseRiseInchesInput,
+        staircaseRunInchesInput,
         staircaseStepsInput,
-        staircaseLandingDepthInput
+        landingWidthFeetInput,
+        landingWidthInchesInput,
+        landingLengthFeetInput,
+        landingLengthInchesInput
     ].forEach(input => {
         if (input) {
             input.addEventListener('input', updateStaircaseSummary);
             input.addEventListener('change', updateStaircaseSummary);
         }
+    });
+
+    staircaseModeButtons?.forEach(button => {
+        button.addEventListener('click', () => {
+            const mode = button.dataset.staircaseMode;
+            syncStaircaseModeUI(mode);
+            syncLandingTypeUI(getSelectedLandingType());
+            updateStaircaseSummary();
+        });
+    });
+
+    landingTypeRadios?.forEach(radio => {
+        radio.addEventListener('change', () => {
+            syncLandingTypeUI(radio.value);
+            updateStaircaseSummary();
+        });
     });
     if (textModalInput) {
         textModalInput.addEventListener('keydown', (event) => {
@@ -3656,16 +3685,29 @@ function getStairSettings(obj = {}) {
 }
 
 function computeStaircaseBounds(startX, startY, currentX, currentY) {
-    const layout = staircaseSettings.layout || 'straight';
+    const mode = staircaseSettings.mode || 'steps';
+    if (mode === 'landing') {
+        const landingWidthFeet = Math.max(1, feetWithInches(staircaseSettings.landingWidthFeet, staircaseSettings.landingWidthInches) || 1);
+        const landingLengthFeet = Math.max(1, feetWithInches(staircaseSettings.landingLengthFeet, staircaseSettings.landingLengthInches) || 1);
+        const widthPx = Math.max(landingLengthFeet * scale, 24);
+        const heightPx = Math.max(landingWidthFeet * scale, 24);
+
+        const dirX = currentX >= startX ? 1 : -1;
+        const dirY = currentY >= startY ? 1 : -1;
+
+        const x = dirX === 1 ? startX : startX - widthPx;
+        const y = dirY === 1 ? startY : startY - heightPx;
+
+        return { x, y, width: widthPx, height: heightPx, orientation: 'landing' };
+    }
+
     const widthFeet = Math.max(1, staircaseSettings.widthFeet || 3.5);
     const steps = Math.max(3, staircaseSettings.steps || 10);
-    const treadDepthInches = staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES;
-    const landingDepthFeet = staircaseSettings.landingDepthFeet || 0;
+    const treadDepthInches = staircaseSettings.runInches || staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES;
 
     const widthPx = Math.max(widthFeet * scale, 24);
     const treadPx = (treadDepthInches / 12) * scale;
-    const landingPx = ['landing', 'l-shape', 'u-shape'].includes(layout) ? landingDepthFeet * scale : 0;
-    const runPx = treadPx * steps + landingPx;
+    const runPx = treadPx * steps;
 
     const orientation = Math.abs(currentX - startX) >= Math.abs(currentY - startY)
         ? 'horizontal'
@@ -4598,15 +4640,45 @@ function drawUShapedStair(obj, originX, originY, drawWidth, drawHeight) {
     ctx.restore();
 }
 
+function drawLandingGraphic(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const stroke = obj.lineColor || '#111827';
+    const lw = obj.lineWidth || 2;
+
+    ctx.save();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lw;
+
+    if (stair.landingType === 'squared') {
+        ctx.beginPath();
+        ctx.moveTo(originX + drawWidth, originY + drawHeight);
+        ctx.lineTo(originX, originY);
+        ctx.stroke();
+
+        const labels = [
+            { label: 'A', x: originX - 6, y: originY - 6 },
+            { label: 'B', x: originX + drawWidth + 2, y: originY - 6 },
+            { label: 'C', x: originX - 6, y: originY + drawHeight + 14 },
+            { label: 'D', x: originX + drawWidth + 2, y: originY + drawHeight + 14 }
+        ];
+
+        ctx.fillStyle = stroke;
+        ctx.font = '12px Arial';
+        labels.forEach(point => ctx.fillText(point.label, point.x, point.y));
+    }
+
+    ctx.restore();
+}
+
 function drawStaircaseGraphic(obj, originX, originY, drawWidth, drawHeight) {
     const stair = getStairSettings(obj);
     const fill = obj.fillColor || DEFAULT_STAIR_FILL;
     const stroke = obj.lineColor || '#111827';
     const lw = obj.lineWidth || 2;
+    const mode = stair.mode || 'steps';
     const layout = stair.layout || 'straight';
-
     const widthLabel = stair.widthFeet ?? staircaseSettings.widthFeet ?? 0;
-    const riseLabel = stair.riseInches ?? staircaseSettings.riseInches ?? 0;
+    const runLabel = stair.runInches ?? staircaseSettings.runInches ?? DEFAULT_TREAD_DEPTH_INCHES;
     const stepsLabel = stair.steps ?? staircaseSettings.steps ?? 0;
     const formatNumber = (value, digits = 1) => {
         const num = Number(value);
@@ -4625,7 +4697,9 @@ function drawStaircaseGraphic(obj, originX, originY, drawWidth, drawHeight) {
     ctx.fill();
     ctx.stroke();
 
-    if (layout === 'l-shape') {
+    if (mode === 'landing') {
+        drawLandingGraphic(obj, originX, originY, drawWidth, drawHeight);
+    } else if (layout === 'l-shape') {
         drawLShapedStair(obj, originX, originY, drawWidth, drawHeight);
     } else if (layout === 'u-shape') {
         drawUShapedStair(obj, originX, originY, drawWidth, drawHeight);
@@ -4635,7 +4709,14 @@ function drawStaircaseGraphic(obj, originX, originY, drawWidth, drawHeight) {
 
     ctx.fillStyle = '#374151';
     ctx.font = '12px Arial';
-    const summary = `${describeLayout(layout)} • ${formatNumber(widthLabel)} ft wide • ${formatNumber(riseLabel, 1)} in rise • ${stepsLabel} steps`;
+    let summary = '';
+    if (mode === 'landing') {
+        const landingWidthFeet = feetWithInches(stair.landingWidthFeet ?? staircaseSettings.landingWidthFeet, stair.landingWidthInches ?? staircaseSettings.landingWidthInches);
+        const landingLengthFeet = feetWithInches(stair.landingLengthFeet ?? staircaseSettings.landingLengthFeet, stair.landingLengthInches ?? staircaseSettings.landingLengthInches);
+        summary = `Landing (${stair.landingType === 'squared' ? 'squared' : 'rectangular'}) • ${formatNumber(landingWidthFeet)} ft width • ${formatNumber(landingLengthFeet)} ft length`;
+    } else {
+        summary = `${describeLayout(layout)} • ${formatNumber(widthLabel)} ft wide • ${formatNumber(runLabel, 1)} in run • ${stepsLabel} steps`;
+    }
     ctx.fillText(summary, originX + 8, originY + Math.min(18, drawHeight - 8));
     ctx.restore();
 }
@@ -6303,23 +6384,87 @@ function describeLayout(layout) {
     }
 }
 
+function getSelectedStaircaseMode() {
+    const activeBtn = Array.from(staircaseModeButtons || []).find(btn => btn.classList.contains('active'));
+    return activeBtn?.dataset?.staircaseMode || staircaseSettings.mode || 'steps';
+}
+
+function getSelectedLandingType() {
+    const checked = Array.from(landingTypeRadios || []).find(radio => radio.checked);
+    return checked?.value || staircaseSettings.landingType || 'rectangular';
+}
+
+function getLandingDimensionsFromInputs() {
+    const landingWidthFeet = parseFloat(landingWidthFeetInput?.value) || staircaseSettings.landingWidthFeet || 0;
+    const landingWidthInches = parseFloat(landingWidthInchesInput?.value) || staircaseSettings.landingWidthInches || 0;
+    const landingLengthFeet = parseFloat(landingLengthFeetInput?.value) || staircaseSettings.landingLengthFeet || 0;
+    const landingLengthInches = parseFloat(landingLengthInchesInput?.value) || staircaseSettings.landingLengthInches || 0;
+
+    return { landingWidthFeet, landingWidthInches, landingLengthFeet, landingLengthInches };
+}
+
+function feetWithInches(feet = 0, inches = 0) {
+    return (parseFloat(feet) || 0) + ((parseFloat(inches) || 0) / 12);
+}
+
+function syncStaircaseModeUI(mode) {
+    if (!mode) return;
+    staircaseModeButtons?.forEach(btn => {
+        const isActive = btn.dataset.staircaseMode === mode;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    if (staircaseStepsSection) {
+        staircaseStepsSection.classList.toggle('hidden', mode !== 'steps');
+    }
+    if (staircaseLandingSection) {
+        staircaseLandingSection.classList.toggle('hidden', mode !== 'landing');
+    }
+}
+
+function syncLandingTypeUI(type) {
+    landingTypeRadios?.forEach(radio => {
+        radio.checked = radio.value === type;
+    });
+    if (squaredLandingHint) {
+        squaredLandingHint.classList.toggle('hidden', type !== 'squared');
+    }
+}
+
+function syncStaircaseInputsFromSettings() {
+    if (staircaseWidthFeetInput) staircaseWidthFeetInput.value = staircaseSettings.widthFeet ?? staircaseWidthFeetInput.value;
+    if (staircaseRunInchesInput) staircaseRunInchesInput.value = staircaseSettings.runInches ?? staircaseSettings.treadDepthInches ?? DEFAULT_TREAD_DEPTH_INCHES;
+    if (staircaseStepsInput) staircaseStepsInput.value = staircaseSettings.steps ?? staircaseStepsInput.value;
+    if (landingWidthFeetInput) landingWidthFeetInput.value = staircaseSettings.landingWidthFeet ?? landingWidthFeetInput.value;
+    if (landingWidthInchesInput) landingWidthInchesInput.value = staircaseSettings.landingWidthInches ?? landingWidthInchesInput.value;
+    if (landingLengthFeetInput) landingLengthFeetInput.value = staircaseSettings.landingLengthFeet ?? landingLengthFeetInput.value;
+    if (landingLengthInchesInput) landingLengthInchesInput.value = staircaseSettings.landingLengthInches ?? landingLengthInchesInput.value;
+}
+
 function updateStaircaseSummary() {
     if (!staircaseSummary) return;
-    const layout = staircaseLayoutSelect?.value || staircaseSettings.layout;
-    const widthFeet = parseFloat(staircaseWidthFeetInput?.value) || staircaseSettings.widthFeet;
-    const riseInches = parseFloat(staircaseRiseInchesInput?.value) || staircaseSettings.riseInches;
-    const steps = parseInt(staircaseStepsInput?.value, 10) || staircaseSettings.steps;
-    const landingDepth = parseFloat(staircaseLandingDepthInput?.value) || staircaseSettings.landingDepthFeet;
+    const mode = getSelectedStaircaseMode();
+    const parts = [];
 
-    const parts = [
-        `Layout: ${describeLayout(layout)}`,
-        `Width: ${widthFeet.toFixed(1)} ft`,
-        `Rise: ${riseInches.toFixed(1)} in`,
-        `Steps: ${steps}`
-    ];
+    if (mode === 'landing') {
+        const landingType = getSelectedLandingType();
+        const { landingWidthFeet, landingWidthInches, landingLengthFeet, landingLengthInches } = getLandingDimensionsFromInputs();
+        const widthFeet = feetWithInches(landingWidthFeet, landingWidthInches);
+        const lengthFeet = feetWithInches(landingLengthFeet, landingLengthInches);
 
-    if (['landing', 'l-shape', 'u-shape'].includes(layout)) {
-        parts.push(`Landing: ${landingDepth.toFixed(1)} ft`);
+        parts.push(`Landing: ${landingType === 'squared' ? 'Squared with D→A diagonal' : 'Rectangular'}`);
+        parts.push(`Width: ${widthFeet.toFixed(1)} ft`);
+        parts.push(`Length: ${lengthFeet.toFixed(1)} ft`);
+    } else {
+        const widthFeet = parseFloat(staircaseWidthFeetInput?.value) || staircaseSettings.widthFeet;
+        const runInches = parseFloat(staircaseRunInchesInput?.value) || staircaseSettings.runInches || DEFAULT_TREAD_DEPTH_INCHES;
+        const steps = parseInt(staircaseStepsInput?.value, 10) || staircaseSettings.steps;
+
+        parts.push('Steps');
+        parts.push(`Width: ${widthFeet.toFixed(1)} ft`);
+        parts.push(`Run: ${runInches.toFixed(1)} in`);
+        parts.push(`Steps: ${steps}`);
     }
 
     staircaseSummary.textContent = parts.join(' • ');
@@ -6328,12 +6473,13 @@ function updateStaircaseSummary() {
 function applyStaircaseSettings() {
     staircaseSettings = {
         ...staircaseSettings,
-        layout: staircaseLayoutSelect?.value || staircaseSettings.layout,
+        mode: getSelectedStaircaseMode(),
         widthFeet: parseFloat(staircaseWidthFeetInput?.value) || staircaseSettings.widthFeet,
-        riseInches: parseFloat(staircaseRiseInchesInput?.value) || staircaseSettings.riseInches,
+        runInches: parseFloat(staircaseRunInchesInput?.value) || staircaseSettings.runInches || DEFAULT_TREAD_DEPTH_INCHES,
         steps: Math.max(3, parseInt(staircaseStepsInput?.value, 10) || staircaseSettings.steps),
-        landingDepthFeet: parseFloat(staircaseLandingDepthInput?.value) || staircaseSettings.landingDepthFeet,
-        treadDepthInches: staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES
+        landingType: getSelectedLandingType(),
+        ...getLandingDimensionsFromInputs(),
+        treadDepthInches: parseFloat(staircaseRunInchesInput?.value) || staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES
     };
     updateStaircaseSummary();
     closeStaircaseModal();
@@ -6343,6 +6489,9 @@ function openStaircaseModal() {
     if (!staircaseModal) return;
     staircaseModal.classList.remove('hidden');
     staircaseModal.style.display = 'flex';
+    syncStaircaseModeUI(staircaseSettings.mode || 'steps');
+    syncLandingTypeUI(staircaseSettings.landingType || 'rectangular');
+    syncStaircaseInputsFromSettings();
     updateStaircaseSummary();
 }
 
