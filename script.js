@@ -120,6 +120,7 @@ const VIEW_ZOOM_STEP = 1.2;
 const SAVE_FILE_EXTENSION = '.paz';
 const SAVE_SECRET = 'apzok-project-key';
 const DEFAULT_TREAD_DEPTH_INCHES = 10;
+const STAIRCASE_MAGNET_THRESHOLD = 12;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -142,6 +143,7 @@ let nextNodeId = 1;
 let nextWallId = 1;
 let floors = [];
 let nextFloorId = 1;
+let nextStairGroupId = 1;
 
 let objects = [];
 
@@ -219,6 +221,7 @@ let objectDragUndoApplied = false;
 let windowHandleDrag = null;
 let staircaseHandleDrag = null;
 let staircaseEditTargetIndex = null;
+let groupDragOffsets = null;
 let selectedFloorIds = new Set();
 let floorTextureTargetId = null;
 
@@ -897,6 +900,100 @@ function deleteBackgroundImage() {
     redrawCanvas();
 }
 
+function isStairObject(obj) {
+    return obj?.type === 'staircase';
+}
+
+function getStairGroupOffsets(index) {
+    const source = objects[index];
+    if (!isStairObject(source) || !source.stairGroupId) return null;
+
+    const offsets = [];
+    objects.forEach((candidate, candidateIndex) => {
+        if (
+            candidateIndex !== index &&
+            isStairObject(candidate) &&
+            candidate.stairGroupId === source.stairGroupId
+        ) {
+            offsets.push({
+                index: candidateIndex,
+                offsetX: candidate.x - source.x,
+                offsetY: candidate.y - source.y
+            });
+        }
+    });
+    return offsets.length > 0 ? offsets : null;
+}
+
+function expandSelectionWithGroups() {
+    const additions = [];
+    selectedObjectIndices.forEach(index => {
+        const obj = objects[index];
+        if (!isStairObject(obj) || !obj.stairGroupId) return;
+
+        objects.forEach((candidate, candidateIndex) => {
+            if (
+                isStairObject(candidate) &&
+                candidate.stairGroupId === obj.stairGroupId
+            ) {
+                additions.push(candidateIndex);
+            }
+        });
+    });
+
+    additions.forEach(idx => selectedObjectIndices.add(idx));
+}
+
+function getSelectedStairIndices() {
+    return Array.from(selectedObjectIndices).filter(index => isStairObject(objects[index]));
+}
+
+function getSharedStairGroupId(indices) {
+    if (!indices || indices.length === 0) return null;
+    const ids = new Set();
+    indices.forEach(index => {
+        const id = objects[index]?.stairGroupId;
+        if (id) ids.add(id);
+    });
+    return ids.size === 1 ? ids.values().next().value : null;
+}
+
+function groupSelectedStaircases() {
+    const stairIndices = getSelectedStairIndices();
+    if (stairIndices.length < 2) {
+        alert('Select two or more stair elements to group.');
+        return;
+    }
+
+    const sharedGroup = getSharedStairGroupId(stairIndices);
+    if (sharedGroup) return;
+
+    const groupId = nextStairGroupId++;
+    stairIndices.forEach(index => {
+        const obj = objects[index];
+        if (!isStairObject(obj)) return;
+        obj.stairGroupId = groupId;
+    });
+
+    expandSelectionWithGroups();
+    redrawCanvas();
+}
+
+function ungroupSelectedStaircases() {
+    const stairIndices = getSelectedStairIndices();
+    const sharedGroup = getSharedStairGroupId(stairIndices);
+    if (!sharedGroup) return;
+
+    stairIndices.forEach(index => {
+        const obj = objects[index];
+        if (isStairObject(obj) && obj.stairGroupId === sharedGroup) {
+            delete obj.stairGroupId;
+        }
+    });
+
+    redrawCanvas();
+}
+
 // ============================================================
 // CONTEXT MENU FUNCTIONS
 // ============================================================
@@ -906,6 +1003,10 @@ function showContextMenu(x, y, wall = null) {
 
     const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
     const hasBackgroundImage = !!backgroundImageData;
+    const stairIndices = getSelectedStairIndices();
+    const sharedStairGroup = getSharedStairGroupId(stairIndices);
+    const canGroupStairs = stairIndices.length >= 2 && !sharedStairGroup;
+    const canUngroupStairs = stairIndices.length > 0 && !!sharedStairGroup;
     const backgroundVisibilityLabel = isBackgroundImageVisible ? 'Hide Background Image' : 'Show Background Image';
     const backgroundMenu = hasBackgroundImage ? `
         <div class="context-item" data-action="toggleBackgroundVisibility" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
@@ -930,6 +1031,16 @@ function showContextMenu(x, y, wall = null) {
         </div>
         ${backgroundAddItem}
         ${backgroundMenu}
+        ${canGroupStairs ? `
+            <div class="context-item" data-action="groupStairs" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+                Group Stair Elements
+            </div>
+        ` : ''}
+        ${canUngroupStairs ? `
+            <div class="context-item" data-action="ungroupStairs" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+                Ungroup Stair Elements
+            </div>
+        ` : ''}
         ${wall ? `
             <div class="context-item" data-action="split" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
                 Split Wall
@@ -997,6 +1108,12 @@ function handleContextMenuAction(action) {
             break;
         case 'paste':
             startPasteMode(lastContextMenuCanvasX, lastContextMenuCanvasY);
+            break;
+        case 'groupStairs':
+            groupSelectedStaircases();
+            break;
+        case 'ungroupStairs':
+            ungroupSelectedStaircases();
             break;
         case 'background':
             openBackgroundImageModal();
@@ -1235,6 +1352,7 @@ function performPaste() {
     // Generate new IDs for pasted items
     const nodeIdMap = new Map();
     const wallIdMap = new Map();
+    const stairGroupMap = new Map();
     
     // Paste nodes with new IDs and offset
     clipboard.nodes.forEach(oldNode => {
@@ -1269,6 +1387,14 @@ function performPaste() {
             x: oldObj.x + offsetX,
             y: oldObj.y + offsetY
         };
+
+        if (isStairObject(newObj) && newObj.stairGroupId) {
+            if (!stairGroupMap.has(newObj.stairGroupId)) {
+                stairGroupMap.set(newObj.stairGroupId, nextStairGroupId++);
+            }
+            newObj.stairGroupId = stairGroupMap.get(newObj.stairGroupId);
+        }
+
         const newIndex = objects.push(newObj) - 1;
         selectedObjectIndices.add(newIndex);
     });
@@ -2301,7 +2427,7 @@ function buildProjectState() {
             fillColor: fillColorInput?.value || '#d9d9d9'
         },
         view: { scale: viewScale, offsetX: viewOffsetX, offsetY: viewOffsetY },
-        ids: { nextNodeId, nextWallId, nextFloorId },
+        ids: { nextNodeId, nextWallId, nextFloorId, nextStairGroupId },
         background,
         measurementDistanceFeet,
         backgroundImageVisible: isBackgroundImageVisible
@@ -2367,6 +2493,8 @@ function applyProjectState(state) {
     nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
     nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
     nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
+    const existingGroupMax = objects.length ? Math.max(...objects.map(o => o?.stairGroupId || 0)) : 0;
+    nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
 
     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
     if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
@@ -2873,6 +3001,123 @@ function snapToInchAlongDirection(t) {
     return Math.round(t / inchPx) * inchPx;
 }
 
+function getStairSnapCandidates(excludeIndex = null) {
+    const candidates = { x: [], y: [] };
+
+    walls.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        [n1, n2].forEach(node => {
+            if (!node) return;
+            candidates.x.push(node.x);
+            candidates.y.push(node.y);
+        });
+        if (n1 && n2) {
+            candidates.x.push((n1.x + n2.x) / 2);
+            candidates.y.push((n1.y + n2.y) / 2);
+        }
+    });
+
+    objects.forEach((obj, index) => {
+        if (index === excludeIndex || !isStairObject(obj)) return;
+        candidates.x.push(obj.x, obj.x + obj.width, obj.x + obj.width / 2);
+        candidates.y.push(obj.y, obj.y + obj.height, obj.y + obj.height / 2);
+    });
+
+    return candidates;
+}
+
+function applyStaircaseMagnet(obj, handle = 'center', objIndex = null) {
+    if (!isStairObject(obj)) return;
+
+    const threshold = Math.max(STAIRCASE_MAGNET_THRESHOLD, scale * 0.3);
+    const candidates = getStairSnapCandidates(objIndex);
+    const edges = {
+        left: obj.x,
+        right: obj.x + obj.width,
+        top: obj.y,
+        bottom: obj.y + obj.height
+    };
+
+    const findDelta = (value, pool) => {
+        let best = null;
+        pool.forEach(candidate => {
+            const delta = candidate - value;
+            if (Math.abs(delta) <= threshold && (best === null || Math.abs(delta) < Math.abs(best))) {
+                best = delta;
+            }
+        });
+        return best;
+    };
+
+    if (handle === 'left') {
+        const snap = findDelta(edges.left, candidates.x);
+        if (snap !== null) {
+            const newLeft = edges.left + snap;
+            const newWidth = edges.right - newLeft;
+            if (newWidth >= scale * 0.5) {
+                obj.x = newLeft;
+                obj.width = newWidth;
+            }
+        }
+        return;
+    }
+
+    if (handle === 'right') {
+        const snap = findDelta(edges.right, candidates.x);
+        if (snap !== null) {
+            const newRight = edges.right + snap;
+            const newWidth = newRight - edges.left;
+            if (newWidth >= scale * 0.5) {
+                obj.width = newWidth;
+            }
+        }
+        return;
+    }
+
+    if (handle === 'top') {
+        const snap = findDelta(edges.top, candidates.y);
+        if (snap !== null) {
+            const newTop = edges.top + snap;
+            const newHeight = edges.bottom - newTop;
+            if (newHeight >= scale * 0.5) {
+                obj.y = newTop;
+                obj.height = newHeight;
+            }
+        }
+        return;
+    }
+
+    if (handle === 'bottom') {
+        const snap = findDelta(edges.bottom, candidates.y);
+        if (snap !== null) {
+            const newBottom = edges.bottom + snap;
+            const newHeight = newBottom - edges.top;
+            if (newHeight >= scale * 0.5) {
+                obj.height = newHeight;
+            }
+        }
+        return;
+    }
+
+    const leftDelta = findDelta(edges.left, candidates.x);
+    const rightDelta = findDelta(edges.right, candidates.x);
+    const topDelta = findDelta(edges.top, candidates.y);
+    const bottomDelta = findDelta(edges.bottom, candidates.y);
+
+    const chooseDelta = (a, b) => {
+        if (a === null) return b;
+        if (b === null) return a;
+        return Math.abs(a) <= Math.abs(b) ? a : b;
+    };
+
+    const dx = chooseDelta(leftDelta, rightDelta);
+    const dy = chooseDelta(topDelta, bottomDelta);
+
+    if (dx !== null) obj.x += dx;
+    if (dy !== null) obj.y += dy;
+}
+
 function moveSelectedWalls(dx, dy, { skipUndo = false } = {}) {
     if (selectedWalls.size === 0) return;
 
@@ -3123,12 +3368,14 @@ function startObjectDrag(index, mouseX, mouseY) {
     draggingObjectIndex = index;
     objectDragOffset = { x: mouseX - obj.x, y: mouseY - obj.y };
     objectDragUndoApplied = false;
+    groupDragOffsets = getStairGroupOffsets(index);
 }
 
 function stopObjectDrag() {
     draggingObjectIndex = null;
     objectDragOffset = null;
     objectDragUndoApplied = false;
+    groupDragOffsets = null;
 }
 
 // ============================================================
@@ -3231,6 +3478,8 @@ function finalizeSelectionBox() {
             selectedObjectIndices.add(index);
         }
     });
+
+    expandSelectionWithGroups();
 
     redrawCanvas();
 }
@@ -3498,10 +3747,12 @@ function handleMouseDown(e) {
                     initial: { x: obj.x, y: obj.y, width: obj.width, height: obj.height, rotation: obj.rotation || 0 },
                     center,
                     startAngle: Math.atan2(y - center.y, x - center.x),
-                    undoApplied: true
+                    undoApplied: true,
+                    groupOffsets: getStairGroupOffsets(staircaseHandle.index)
                 };
                 selectAllMode = false;
                 selectedObjectIndices = new Set([staircaseHandle.index]);
+                expandSelectionWithGroups();
                 redrawCanvas();
             }
             return;
@@ -3576,6 +3827,7 @@ function handleMouseDown(e) {
                 selectedWalls.clear();
                 selectedFloorIds.clear();
             }
+            expandSelectionWithGroups();
             if (!e.shiftKey) {
                 startObjectDrag(objIndex, x, y);
             }
@@ -3885,6 +4137,19 @@ function handleMouseMove(e) {
                 }
             }
 
+            if (staircaseHandleDrag.handle !== 'rotate') {
+                applyStaircaseMagnet(obj, staircaseHandleDrag.handle, staircaseHandleDrag.index);
+
+                if (staircaseHandleDrag.handle === 'center' && staircaseHandleDrag.groupOffsets) {
+                    staircaseHandleDrag.groupOffsets.forEach(({ index, offsetX, offsetY }) => {
+                        const member = objects[index];
+                        if (!member) return;
+                        member.x = obj.x + offsetX;
+                        member.y = obj.y + offsetY;
+                    });
+                }
+            }
+
             coordinatesDisplay.textContent = `X: ${obj.x.toFixed(1)}, Y: ${obj.y.toFixed(1)}`;
             redrawCanvas();
         }
@@ -3950,9 +4215,23 @@ function handleMouseMove(e) {
                 objectDragUndoApplied = true;
             }
 
-            ({ x, y } = snapToGridPoint(x - objectDragOffset.x, y - objectDragOffset.y));
-            obj.x = x;
-            obj.y = y;
+            const snapped = snapToGridPoint(x - objectDragOffset.x, y - objectDragOffset.y);
+            obj.x = snapped.x;
+            obj.y = snapped.y;
+
+            if (isStairObject(obj)) {
+                applyStaircaseMagnet(obj, 'center', draggingObjectIndex);
+            }
+
+            if (groupDragOffsets) {
+                groupDragOffsets.forEach(({ index, offsetX, offsetY }) => {
+                    const member = objects[index];
+                    if (!member) return;
+                    member.x = obj.x + offsetX;
+                    member.y = obj.y + offsetY;
+                });
+                expandSelectionWithGroups();
+            }
 
             if (obj.type === 'door' && typeof window.snapDoorToNearestWall === 'function') {
                 window.snapDoorToNearestWall(obj, walls, scale);
@@ -6346,6 +6625,7 @@ function selectAllEntities() {
     selectedFloorIds = new Set(floors.map(f => f.id));
     isDraggingNode = false;
     selectAllMode = true;
+    expandSelectionWithGroups();
     redrawCanvas();
 }
 
