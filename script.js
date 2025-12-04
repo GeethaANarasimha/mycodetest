@@ -212,6 +212,7 @@ let draggingObjectIndex = null;
 let objectDragOffset = null;
 let objectDragUndoApplied = false;
 let windowHandleDrag = null;
+let staircaseHandleDrag = null;
 let selectedFloorIds = new Set();
 let floorTextureTargetId = null;
 
@@ -3475,6 +3476,27 @@ function handleMouseDown(e) {
     }
 
     if (currentTool === 'select') {
+        const staircaseHandle = getStaircaseHandleHit(x, y);
+        if (staircaseHandle) {
+            const obj = objects[staircaseHandle.index];
+            if (obj) {
+                pushUndoState();
+                const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
+                staircaseHandleDrag = {
+                    index: staircaseHandle.index,
+                    handle: staircaseHandle.handle,
+                    initial: { x: obj.x, y: obj.y, width: obj.width, height: obj.height, rotation: obj.rotation || 0 },
+                    center,
+                    startAngle: Math.atan2(y - center.y, x - center.x),
+                    undoApplied: true
+                };
+                selectAllMode = false;
+                selectedObjectIndices = new Set([staircaseHandle.index]);
+                redrawCanvas();
+            }
+            return;
+        }
+
         const windowHandle = getWindowHandleHit(x, y);
         if (windowHandle) {
             if (windowHandle.type === 'move') {
@@ -3764,6 +3786,77 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (staircaseHandleDrag) {
+        const obj = objects[staircaseHandleDrag.index];
+        if (obj) {
+            ({ x, y } = snapToGridPoint(x, y));
+            const minSize = scale * 0.5;
+            const initial = staircaseHandleDrag.initial;
+            const dragCenter = staircaseHandleDrag.center;
+
+            switch (staircaseHandleDrag.handle) {
+                case 'center': {
+                    const dx = x - dragCenter.x;
+                    const dy = y - dragCenter.y;
+                    obj.x = initial.x + dx;
+                    obj.y = initial.y + dy;
+                    break;
+                }
+                case 'left': {
+                    const newX = Math.min(x, initial.x + initial.width - minSize);
+                    obj.x = newX;
+                    obj.width = Math.max(minSize, initial.width + (initial.x - newX));
+                    break;
+                }
+                case 'right': {
+                    obj.width = Math.max(minSize, x - initial.x);
+                    break;
+                }
+                case 'top': {
+                    const newY = Math.min(y, initial.y + initial.height - minSize);
+                    obj.y = newY;
+                    obj.height = Math.max(minSize, initial.height + (initial.y - newY));
+                    break;
+                }
+                case 'bottom': {
+                    obj.height = Math.max(minSize, y - initial.y);
+                    break;
+                }
+                case 'top-right': {
+                    obj.width = Math.max(minSize, x - initial.x);
+                    const newY = Math.min(y, initial.y + initial.height - minSize);
+                    obj.y = newY;
+                    obj.height = Math.max(minSize, initial.height + (initial.y - newY));
+                    break;
+                }
+                case 'bottom-right': {
+                    obj.width = Math.max(minSize, x - initial.x);
+                    obj.height = Math.max(minSize, y - initial.y);
+                    break;
+                }
+                case 'bottom-left': {
+                    const newX = Math.min(x, initial.x + initial.width - minSize);
+                    obj.x = newX;
+                    obj.width = Math.max(minSize, initial.width + (initial.x - newX));
+                    obj.height = Math.max(minSize, y - initial.y);
+                    break;
+                }
+                case 'rotate': {
+                    const angle = Math.atan2(y - dragCenter.y, x - dragCenter.x);
+                    let newRotation = initial.rotation + ((angle - staircaseHandleDrag.startAngle) * 180) / Math.PI;
+                    newRotation %= 360;
+                    if (newRotation < 0) newRotation += 360;
+                    obj.rotation = newRotation;
+                    break;
+                }
+            }
+
+            coordinatesDisplay.textContent = `X: ${obj.x.toFixed(1)}, Y: ${obj.y.toFixed(1)}`;
+            redrawCanvas();
+        }
+        return;
+    }
+
     if (windowHandleDrag) {
         const obj = objects[windowHandleDrag.index];
         if (obj) {
@@ -4013,6 +4106,12 @@ function handleMouseUp() {
         return;
     }
 
+    if (staircaseHandleDrag) {
+        staircaseHandleDrag = null;
+        redrawCanvas();
+        return;
+    }
+
     if (windowHandleDrag) {
         windowHandleDrag = null;
         redrawCanvas();
@@ -4220,6 +4319,15 @@ function handleCanvasDoubleClick(e) {
         }
 
         return;
+    }
+
+    const dblObjIndex = getObjectAt(x, y, true);
+    if (dblObjIndex !== -1) {
+        const obj = objects[dblObjIndex];
+        if (obj?.type === 'staircase') {
+            promptStaircaseSize(obj);
+            return;
+        }
     }
 
     if (!isWallDrawing) {
@@ -4757,25 +4865,47 @@ function drawObjects() {
             ctx.lineWidth = 2;
             ctx.strokeRect(x, y, width, height);
 
-            const handleSize = 8;
-            const handles = [
-                { hx: x, hy: y },
-                { hx: x + width / 2 - handleSize / 2, hy: y },
-                { hx: x + width - handleSize, hy: y },
-                { hx: x, hy: y + height / 2 - handleSize / 2 },
-                { hx: x + width - handleSize, hy: y + height / 2 - handleSize / 2 },
-                { hx: x, hy: y + height - handleSize },
-                { hx: x + width / 2 - handleSize / 2, hy: y + height - handleSize },
-                { hx: x + width - handleSize, hy: y + height - handleSize }
-            ];
+            if (obj.type === 'staircase') {
+                const { handleSize, handles } = getStaircaseHandles(obj);
+                const half = handleSize / 2;
 
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#2980b9';
-            ctx.lineWidth = 1;
-            handles.forEach(({ hx, hy }) => {
-                ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
-                ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
-            });
+                handles.forEach(handle => {
+                    const stroke = handle.type === 'rotate' ? '#f39c12' : '#2980b9';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.strokeStyle = stroke;
+                    ctx.lineWidth = 1.5;
+
+                    if (handle.type === 'rotate') {
+                        ctx.beginPath();
+                        ctx.arc(handle.hx, handle.hy, half + 2, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+                    } else {
+                        ctx.fillRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
+                        ctx.strokeRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
+                    }
+                });
+            } else {
+                const handleSize = 8;
+                const handles = [
+                    { hx: x, hy: y },
+                    { hx: x + width / 2 - handleSize / 2, hy: y },
+                    { hx: x + width - handleSize, hy: y },
+                    { hx: x, hy: y + height / 2 - handleSize / 2 },
+                    { hx: x + width - handleSize, hy: y + height / 2 - handleSize / 2 },
+                    { hx: x, hy: y + height - handleSize },
+                    { hx: x + width / 2 - handleSize / 2, hy: y + height - handleSize },
+                    { hx: x + width - handleSize, hy: y + height - handleSize }
+                ];
+
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = '#2980b9';
+                ctx.lineWidth = 1;
+                handles.forEach(({ hx, hy }) => {
+                    ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
+                    ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
+                });
+            }
             ctx.restore();
         }
     }
@@ -4840,6 +4970,81 @@ function getWindowHandleHit(x, y) {
         if (inRect(end.x, end.y)) return { index, type: 'end', isHorizontal };
     }
     return null;
+}
+
+function getStaircaseHandles(obj) {
+    const handleSize = 12;
+    const x1 = obj.x;
+    const y1 = obj.y;
+    const x2 = obj.x + obj.width;
+    const y2 = obj.y + obj.height;
+    const cx = (x1 + x2) / 2;
+    const cy = (y1 + y2) / 2;
+
+    return {
+        handleSize,
+        handles: [
+            { type: 'rotate', hx: x1, hy: y1 },
+            { type: 'top', hx: cx, hy: y1 },
+            { type: 'top-right', hx: x2, hy: y1 },
+            { type: 'right', hx: x2, hy: cy },
+            { type: 'bottom-right', hx: x2, hy: y2 },
+            { type: 'bottom', hx: cx, hy: y2 },
+            { type: 'bottom-left', hx: x1, hy: y2 },
+            { type: 'left', hx: x1, hy: cy },
+            { type: 'center', hx: cx, hy: cy }
+        ]
+    };
+}
+
+function getStaircaseHandleHit(x, y) {
+    for (const index of selectedObjectIndices) {
+        const obj = objects[index];
+        if (!obj || obj.type !== 'staircase') continue;
+
+        const { handleSize, handles } = getStaircaseHandles(obj);
+        const half = handleSize / 2;
+
+        for (const handle of handles) {
+            if (
+                x >= handle.hx - half &&
+                x <= handle.hx + half &&
+                y >= handle.hy - half &&
+                y <= handle.hy + half
+            ) {
+                return { index, handle: handle.type };
+            }
+        }
+    }
+    return null;
+}
+
+function promptStaircaseSize(obj) {
+    if (!obj || obj.type !== 'staircase') return;
+
+    const currentWidthFeet = obj.width / scale;
+    const currentLengthFeet = obj.height / scale;
+
+    const widthInput = prompt('Update staircase/landing width (feet):', currentWidthFeet.toFixed(2));
+    if (widthInput === null) return;
+
+    const lengthInput = prompt('Update staircase/landing length (feet):', currentLengthFeet.toFixed(2));
+    if (lengthInput === null) return;
+
+    const newWidth = parseFloat(widthInput);
+    const newLength = parseFloat(lengthInput);
+
+    if (Number.isNaN(newWidth) || Number.isNaN(newLength)) {
+        alert('Please enter valid numbers for width and length.');
+        return;
+    }
+
+    pushUndoState();
+
+    const minSizePx = scale * 0.5;
+    obj.width = Math.max(minSizePx, newWidth * scale);
+    obj.height = Math.max(minSizePx, newLength * scale);
+    redrawCanvas();
 }
 
 function drawCurrentDragObject() {
