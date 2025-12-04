@@ -202,6 +202,19 @@ let threeControls = null;
 let wallMeshes = [];
 let threeContentGroup = null;
 let threeLibsPromise = null;
+let useFallback3DRenderer = false;
+let fallback3DCanvas = null;
+let fallback3DCtx = null;
+let fallback3DAnimationId = null;
+let fallback3DCamera = {
+    distance: 80,
+    theta: Math.PI / 4,
+    phi: Math.PI / 4,
+    target: { x: 0, y: 5, z: 0 },
+    autoRotate: true,
+    isDragging: false,
+    lastPointer: null
+};
 const THREE_WALL_HEIGHT_FEET = 10;
 const THREE_FLOOR_THICKNESS_FEET = 5;
 const THREE_PLAN_OUTLINE_HEIGHT = 0.05;
@@ -4647,8 +4660,9 @@ function ensureThreeLibraries() {
 
         threeLibsPromise = Promise.race([loader, timeout]).catch(err => {
             console.error('Failed to load Three.js', err);
-            setThreeStatus('Unable to load 3D view. Check your connection and try again.', true);
-            throw err;
+            setThreeStatus('Unable to load online 3D engine. Switching to offline view.', true);
+            useFallback3DRenderer = true;
+            return false;
         });
     }
 
@@ -4723,6 +4737,333 @@ function ensureThreeView() {
         threeRenderer.render(threeScene, threeCamera);
     };
     renderLoop();
+}
+
+function getPlanBounds() {
+    let minX = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxZ = -Infinity;
+
+    const considerPoint = (px, pz) => {
+        minX = Math.min(minX, px);
+        minZ = Math.min(minZ, pz);
+        maxX = Math.max(maxX, px);
+        maxZ = Math.max(maxZ, pz);
+    };
+
+    if (Array.isArray(nodes)) {
+        nodes.forEach(n => considerPoint(toWorldUnits(n.x), toWorldUnits(n.y)));
+    }
+
+    if (Array.isArray(floors)) {
+        floors.forEach(floor => {
+            const points = getFloorPoints(floor);
+            points.forEach(p => considerPoint(toWorldUnits(p.x), toWorldUnits(p.y)));
+        });
+    }
+
+    if (!isFinite(minX) || !isFinite(minZ)) {
+        const defaultSize = 10;
+        minX = -defaultSize;
+        maxX = defaultSize;
+        minZ = -defaultSize;
+        maxZ = defaultSize;
+    }
+
+    return {
+        minX,
+        maxX,
+        minZ,
+        maxZ,
+        width: maxX - minX,
+        depth: maxZ - minZ
+    };
+}
+
+function ensureFallback3DView() {
+    if (!threeContainer) return;
+
+    if (!fallback3DCanvas) {
+        fallback3DCanvas = document.createElement('canvas');
+        fallback3DCanvas.id = 'fallback3dCanvas';
+        fallback3DCanvas.className = 'fallback-3d-canvas';
+        fallback3DCtx = fallback3DCanvas.getContext('2d');
+        threeContainer.innerHTML = '';
+        threeContainer.appendChild(fallback3DCanvas);
+
+        fallback3DCanvas.addEventListener('pointerdown', handleFallbackPointerDown);
+        fallback3DCanvas.addEventListener('pointermove', handleFallbackPointerMove);
+        fallback3DCanvas.addEventListener('pointerup', handleFallbackPointerUp);
+        fallback3DCanvas.addEventListener('pointerleave', handleFallbackPointerUp);
+        fallback3DCanvas.addEventListener('wheel', handleFallbackWheel, { passive: false });
+        window.addEventListener('resize', resizeFallbackCanvas);
+    }
+
+    resizeFallbackCanvas();
+    updateFallbackCameraTarget();
+    startFallbackAnimation();
+}
+
+function resizeFallbackCanvas() {
+    if (!fallback3DCanvas || !threeContainer) return;
+    const { clientWidth, clientHeight } = threeContainer;
+    fallback3DCanvas.width = Math.max(clientWidth, 1);
+    fallback3DCanvas.height = Math.max(clientHeight, 1);
+}
+
+function getFallbackCameraPosition() {
+    const { distance, theta, phi, target } = fallback3DCamera;
+    return {
+        x: target.x + distance * Math.cos(phi) * Math.cos(theta),
+        y: target.y + distance * Math.sin(phi),
+        z: target.z + distance * Math.cos(phi) * Math.sin(theta)
+    };
+}
+
+function projectFallbackPoint(point) {
+    if (!fallback3DCtx || !fallback3DCanvas) return null;
+    const cameraPos = getFallbackCameraPosition();
+    const up = { x: 0, y: 1, z: 0 };
+    const target = fallback3DCamera.target;
+
+    const forwardVec = normalizeVector({
+        x: target.x - cameraPos.x,
+        y: target.y - cameraPos.y,
+        z: target.z - cameraPos.z
+    });
+    const rightVec = normalizeVector(crossVector(forwardVec, up));
+    const trueUp = crossVector(rightVec, forwardVec);
+
+    const rel = {
+        x: point.x - cameraPos.x,
+        y: point.y - cameraPos.y,
+        z: point.z - cameraPos.z
+    };
+
+    const viewX = dotVector(rel, rightVec);
+    const viewY = dotVector(rel, trueUp);
+    const viewZ = dotVector(rel, forwardVec);
+
+    const fov = Math.PI / 3;
+    const focal = fallback3DCanvas.height / (2 * Math.tan(fov / 2));
+    const safeZ = Math.max(viewZ, 0.1);
+
+    return {
+        x: fallback3DCanvas.width / 2 + (viewX * focal) / safeZ,
+        y: fallback3DCanvas.height / 2 - (viewY * focal) / safeZ,
+        depth: viewZ
+    };
+}
+
+function normalizeVector(v) {
+    const len = Math.hypot(v.x, v.y, v.z) || 1;
+    return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
+
+function dotVector(a, b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function crossVector(a, b) {
+    return {
+        x: a.y * b.z - a.z * b.y,
+        y: a.z * b.x - a.x * b.z,
+        z: a.x * b.y - a.y * b.x
+    };
+}
+
+function drawFallbackPolygon(points, { fillStyle = null, strokeStyle = null, lineWidth = 1 } = {}) {
+    if (!fallback3DCtx || points.length === 0) return;
+    fallback3DCtx.beginPath();
+    fallback3DCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        fallback3DCtx.lineTo(points[i].x, points[i].y);
+    }
+    fallback3DCtx.closePath();
+    if (fillStyle) {
+        fallback3DCtx.fillStyle = fillStyle;
+        fallback3DCtx.fill();
+    }
+    if (strokeStyle) {
+        fallback3DCtx.strokeStyle = strokeStyle;
+        fallback3DCtx.lineWidth = lineWidth;
+        fallback3DCtx.stroke();
+    }
+}
+
+function drawFallbackGrid() {
+    if (!fallback3DCtx) return;
+    const spacing = toWorldUnits(gridSize || 20);
+    const bounds = getPlanBounds();
+    const extent = Math.max(bounds.width, bounds.depth, spacing * 10);
+    const half = extent * 1.2;
+    const lines = [];
+
+    for (let i = -half; i <= half; i += spacing) {
+        lines.push([
+            { x: i, y: 0, z: -half },
+            { x: i, y: 0, z: half }
+        ]);
+        lines.push([
+            { x: -half, y: 0, z: i },
+            { x: half, y: 0, z: i }
+        ]);
+    }
+
+    fallback3DCtx.lineWidth = 1;
+    lines.forEach(([start, end]) => {
+        const p1 = projectFallbackPoint(start);
+        const p2 = projectFallbackPoint(end);
+        if (!p1 || !p2) return;
+        const alpha = 0.3 + Math.max(0, Math.min(0.4, (p1.depth + p2.depth) * 0.0006));
+        fallback3DCtx.strokeStyle = `rgba(148, 163, 184, ${alpha.toFixed(3)})`;
+        fallback3DCtx.beginPath();
+        fallback3DCtx.moveTo(p1.x, p1.y);
+        fallback3DCtx.lineTo(p2.x, p2.y);
+        fallback3DCtx.stroke();
+    });
+}
+
+function drawFallbackFloors() {
+    if (!Array.isArray(floors)) return;
+    floors.forEach(floor => {
+        const points = getFloorPoints(floor);
+        if (points.length < 3) return;
+        const projected = points.map(p => projectFallbackPoint({ x: toWorldUnits(p.x), y: 0.02, z: toWorldUnits(p.y) }));
+        if (projected.some(p => !p)) return;
+        const fill = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
+        drawFallbackPolygon(projected, { fillStyle: `${fill}cc`, strokeStyle: '#1f2937', lineWidth: 1 });
+    });
+}
+
+function drawFallbackWalls() {
+    if (!Array.isArray(walls)) return;
+    const height = THREE_WALL_HEIGHT_FEET;
+    walls.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) return;
+
+        const p1 = { x: toWorldUnits(n1.x), z: toWorldUnits(n1.y) };
+        const p2 = { x: toWorldUnits(n2.x), z: toWorldUnits(n2.y) };
+        const thickness = toWorldUnits(wall.thicknessPx || scale * 0.5);
+        const dir = normalizeVector({ x: p2.x - p1.x, y: 0, z: p2.z - p1.z });
+        const normal = { x: -dir.z * (thickness / 2), y: 0, z: dir.x * (thickness / 2) };
+
+        const corners = [
+            { x: p1.x + normal.x, y: 0, z: p1.z + normal.z },
+            { x: p2.x + normal.x, y: 0, z: p2.z + normal.z },
+            { x: p2.x - normal.x, y: 0, z: p2.z - normal.z },
+            { x: p1.x - normal.x, y: 0, z: p1.z - normal.z }
+        ];
+
+        const topCorners = corners.map(c => ({ ...c, y: height }));
+        const faces = [
+            [corners[0], corners[1], corners[2], corners[3]],
+            [topCorners[0], topCorners[1], topCorners[2], topCorners[3]],
+            [corners[0], corners[1], topCorners[1], topCorners[0]],
+            [corners[1], corners[2], topCorners[2], topCorners[1]],
+            [corners[2], corners[3], topCorners[3], topCorners[2]],
+            [corners[3], corners[0], topCorners[0], topCorners[3]]
+        ];
+
+        const color = wall.lineColor || DEFAULT_WALL_COLOR;
+        faces.forEach((face, index) => {
+            const projected = face.map(pt => projectFallbackPoint(pt));
+            if (projected.some(p => !p)) return;
+            const shade = 0.12 * index;
+            drawFallbackPolygon(projected, {
+                fillStyle: shadeColor(color, 0.18 + shade),
+                strokeStyle: '#0f172a',
+                lineWidth: 0.8
+            });
+        });
+    });
+}
+
+function shadeColor(hex, amount = 0.1) {
+    const col = hex.replace('#', '');
+    const num = parseInt(col, 16);
+    const clamp = (v) => Math.max(0, Math.min(255, v));
+    const r = clamp((num >> 16) + 255 * amount);
+    const g = clamp(((num >> 8) & 0xff) + 255 * amount);
+    const b = clamp((num & 0xff) + 255 * amount);
+    return `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
+}
+
+function renderFallback3DScene() {
+    if (!fallback3DCtx || !fallback3DCanvas) return;
+    fallback3DCtx.clearRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
+    fallback3DCtx.fillStyle = '#0b1220';
+    fallback3DCtx.fillRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
+
+    drawFallbackGrid();
+    drawFallbackFloors();
+    drawFallbackWalls();
+}
+
+function updateFallbackCameraTarget() {
+    const bounds = getPlanBounds();
+    fallback3DCamera.target = {
+        x: (bounds.minX + bounds.maxX) / 2,
+        y: THREE_WALL_HEIGHT_FEET * 0.4,
+        z: (bounds.minZ + bounds.maxZ) / 2
+    };
+    const largest = Math.max(bounds.width, bounds.depth, 10);
+    fallback3DCamera.distance = Math.max(largest * 1.5, 25);
+}
+
+function startFallbackAnimation() {
+    if (fallback3DAnimationId) cancelAnimationFrame(fallback3DAnimationId);
+
+    const animate = () => {
+        if (fallback3DCamera.autoRotate && !fallback3DCamera.isDragging) {
+            fallback3DCamera.theta += 0.003;
+        }
+        renderFallback3DScene();
+        fallback3DAnimationId = requestAnimationFrame(animate);
+    };
+
+    animate();
+}
+
+function stopFallbackAnimation() {
+    if (fallback3DAnimationId) cancelAnimationFrame(fallback3DAnimationId);
+    fallback3DAnimationId = null;
+}
+
+function handleFallbackPointerDown(e) {
+    if (!fallback3DCamera) return;
+    fallback3DCamera.isDragging = true;
+    fallback3DCamera.lastPointer = { x: e.clientX, y: e.clientY };
+    fallback3DCamera.autoRotate = false;
+    fallback3DCanvas?.setPointerCapture(e.pointerId);
+}
+
+function handleFallbackPointerMove(e) {
+    if (!fallback3DCamera.isDragging || !fallback3DCamera.lastPointer) return;
+    const dx = e.clientX - fallback3DCamera.lastPointer.x;
+    const dy = e.clientY - fallback3DCamera.lastPointer.y;
+    fallback3DCamera.theta -= dx * 0.005;
+    fallback3DCamera.phi = Math.min(Math.PI / 2.1, Math.max(0.2, fallback3DCamera.phi - dy * 0.005));
+    fallback3DCamera.lastPointer = { x: e.clientX, y: e.clientY };
+    renderFallback3DScene();
+}
+
+function handleFallbackPointerUp(e) {
+    if (!fallback3DCamera.isDragging) return;
+    fallback3DCamera.isDragging = false;
+    fallback3DCamera.lastPointer = null;
+    fallback3DCanvas?.releasePointerCapture(e.pointerId);
+    setTimeout(() => { fallback3DCamera.autoRotate = true; }, 500);
+}
+
+function handleFallbackWheel(e) {
+    e.preventDefault();
+    const factor = Math.exp(e.deltaY * 0.001);
+    fallback3DCamera.distance = Math.max(15, Math.min(220, fallback3DCamera.distance * factor));
+    renderFallback3DScene();
 }
 
 function handleThreeResize() {
@@ -4887,6 +5228,12 @@ function createDoorOrWindowMesh(obj, wallHeight) {
 }
 
 function rebuild3DScene() {
+    if (useFallback3DRenderer) {
+        ensureFallback3DView();
+        renderFallback3DScene();
+        return;
+    }
+
     ensureThreeView();
     if (!threeContentGroup) return;
 
@@ -5001,13 +5348,16 @@ function switchTo3DView() {
     setThreeStatus('');
     update3DButtonLabel('Show 2D');
     rebuild3DScene();
-    handleThreeResize();
+    if (!useFallback3DRenderer) {
+        handleThreeResize();
+    }
 }
 
 function switchTo2DView() {
     is3DView = false;
     if (canvas) canvas.classList.remove('hidden');
     if (threeContainer) threeContainer.classList.add('hidden');
+    stopFallbackAnimation();
     setThreeStatus('');
     update3DButtonLabel('Show 3D');
     redrawCanvas();
@@ -5023,13 +5373,20 @@ function toggleViewMode() {
 
 async function viewHousePlanIn3D() {
     try {
-        await ensureThreeLibraries();
+        const libsReady = await ensureThreeLibraries();
+        if (libsReady === false && !useFallback3DRenderer) {
+            return;
+        }
     } catch (err) {
         console.error('3D view unavailable', err);
         return;
     }
 
-    ensureThreeView();
+    if (useFallback3DRenderer) {
+        ensureFallback3DView();
+    } else {
+        ensureThreeView();
+    }
     switchTo3DView();
 }
 
