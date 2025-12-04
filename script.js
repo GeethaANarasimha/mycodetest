@@ -3556,7 +3556,18 @@ function projectPointToWallSegment(px, py, x1, y1, x2, y2) {
 }
 
 function maintainDoorAttachmentForSelection() {
-    selectedObjectIndices.forEach(index => {
+    const affectedIndices = new Set(selectedObjectIndices);
+
+    // Include doors that are attached to any selected wall so they move/rotate with the wall
+    selectedWalls.forEach(wall => {
+        objects.forEach((obj, index) => {
+            if (obj?.type === 'door' && obj.attachedWallId === wall.id) {
+                affectedIndices.add(index);
+            }
+        });
+    });
+
+    affectedIndices.forEach(index => {
         const obj = objects[index];
         if (!obj || obj.type !== 'door' || !obj.attachedWallId) return;
 
@@ -3581,6 +3592,24 @@ function maintainDoorAttachmentForSelection() {
         if (typeof sizeDoorToWall === 'function') {
             sizeDoorToWall(obj, { wall, n1, n2, projection, orientation }, scale);
         }
+    });
+}
+
+function transformDimensionsForSelectedWalls(transformFn) {
+    if (!window.dimensions || window.dimensions.length === 0 || selectedWalls.size === 0) return;
+
+    const selectedWallIds = new Set(Array.from(selectedWalls).map(w => w.id));
+
+    window.dimensions.forEach(dim => {
+        if (!dim.wallId || !selectedWallIds.has(dim.wallId)) return;
+
+        const start = transformFn(dim.startX, dim.startY);
+        const end = transformFn(dim.endX, dim.endY);
+
+        dim.startX = start.x;
+        dim.startY = start.y;
+        dim.endX = end.x;
+        dim.endY = end.y;
     });
 }
 
@@ -3630,6 +3659,15 @@ function rotateSelection(angle) {
     pushUndoState();
 
     const angleRad = (angle * Math.PI) / 180;
+
+    transformDimensionsForSelectedWalls((x, y) => {
+        const dx = x - center.x;
+        const dy = y - center.y;
+        return {
+            x: center.x + dx * Math.cos(angleRad) - dy * Math.sin(angleRad),
+            y: center.y + dx * Math.sin(angleRad) + dy * Math.cos(angleRad)
+        };
+    });
 
     // Rotate nodes belonging to selected walls/floors
     getSelectionNodeIds().forEach(id => {
@@ -3681,6 +3719,13 @@ function flipSelection(direction) {
         } else {
             node.y = center.y - (node.y - center.y);
         }
+    });
+
+    transformDimensionsForSelectedWalls((x, y) => {
+        if (direction === 'horizontal') {
+            return { x: center.x - (x - center.x), y };
+        }
+        return { x, y: center.y - (y - center.y) };
     });
 
     // Flip objects (position + orientation flags)
