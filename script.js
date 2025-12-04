@@ -4692,6 +4692,16 @@ function ensureThreeView() {
     threeRenderer = new THREE.WebGLRenderer({ antialias: true });
     threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
     threeRenderer.setSize(width, height);
+    if ('outputEncoding' in threeRenderer) {
+        threeRenderer.outputEncoding = THREE.sRGBEncoding;
+    } else if ('outputColorSpace' in threeRenderer) {
+        threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    }
+    threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+    threeRenderer.toneMappingExposure = 1.1;
+    threeRenderer.shadowMap.enabled = true;
+    threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    threeRenderer.physicallyCorrectLights = true;
     threeContainer.appendChild(threeRenderer.domElement);
 
     if (typeof THREE.OrbitControls === 'function') {
@@ -4721,15 +4731,23 @@ function ensureThreeView() {
 
     const dirLight = new THREE.DirectionalLight(0xffffff, 2.4);
     dirLight.position.set(scale * 25, scale * 40, scale * 25);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.camera.near = 10;
+    dirLight.shadow.camera.far = scale * 120;
     threeScene.add(dirLight);
 
     const pointLight = new THREE.PointLight(0xffffff, 1.5, scale * 160);
     pointLight.position.set(-scale * 15, scale * 20, -scale * 15);
+    pointLight.castShadow = true;
     threeScene.add(pointLight);
 
     const spotLight = new THREE.SpotLight(0xffffff, 1.35, scale * 220, Math.PI / 4, 0.18, 1);
     spotLight.position.set(0, scale * 30, 0);
     spotLight.target.position.set(0, 0, 0);
+    spotLight.castShadow = true;
+    spotLight.shadow.mapSize.set(1024, 1024);
+    spotLight.shadow.bias = -0.00012;
     threeScene.add(spotLight);
     threeScene.add(spotLight.target);
 
@@ -5160,6 +5178,52 @@ function toWorldUnits(pxValue) {
     return pxValue / Math.max(scale || 1, 0.0001);
 }
 
+function generateConcreteTexture(size = 256, accent = '#e2e8f0') {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const textureCtx = canvas.getContext('2d');
+
+    textureCtx.fillStyle = accent;
+    textureCtx.fillRect(0, 0, size, size);
+
+    const noiseDensity = 4200;
+    for (let i = 0; i < noiseDensity; i++) {
+        const x = Math.random() * size;
+        const y = Math.random() * size;
+        const alpha = Math.random() * 0.18 + 0.06;
+        const shade = Math.floor(210 + Math.random() * 25);
+        textureCtx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, ${alpha})`;
+        textureCtx.fillRect(x, y, 1.2, 1.2);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(3, 3);
+    texture.anisotropy = Math.min(8, texture.anisotropy || 4);
+    return texture;
+}
+
+function createConcreteMaterial(color = '#d7d9d9') {
+    const diffuseTexture = generateConcreteTexture(256, color);
+    const bumpTexture = generateConcreteTexture(256, '#cbd5e1');
+
+    return new THREE.MeshPhysicalMaterial({
+        color,
+        map: diffuseTexture,
+        bumpMap: bumpTexture,
+        bumpScale: 0.08,
+        roughness: 0.9,
+        metalness: 0.06,
+        clearcoat: 0.08,
+        clearcoatRoughness: 0.9,
+        side: THREE.DoubleSide,
+        flatShading: false,
+        transparent: false,
+        depthWrite: true,
+        depthTest: true
+    });
+}
+
 function createGroundElements() {
     const baseSize = Math.max(toWorldUnits(Math.max(canvas?.width || 0, canvas?.height || 0)), 40);
     const size = baseSize * 2;
@@ -5175,6 +5239,7 @@ function createGroundElements() {
     const plane = new THREE.Mesh(planeGeometry, planeMaterial);
     plane.position.y = -0.05;
     plane.userData.isGround = true;
+    plane.receiveShadow = true;
 
     const divisions = Math.max(10, Math.round(size / 5));
     const grid = new THREE.GridHelper(size, divisions, 0x94a3b8, 0xcbd5e1);
@@ -5228,18 +5293,10 @@ function createWallMesh(wall, wallHeight) {
     const thickness = toWorldUnits(wall.thicknessPx || (0.5 * scale));
 
     const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
-    const material = new THREE.MeshStandardMaterial({
-        color: wall.lineColor || DEFAULT_WALL_COLOR,
-        transparent: false,
-        opacity: 1,
-        metalness: 0.05,
-        roughness: 0.6,
-        side: THREE.DoubleSide,
-        depthWrite: true,
-        depthTest: true,
-        flatShading: true
-    });
+    const material = createConcreteMaterial(wall.lineColor || DEFAULT_WALL_COLOR);
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
 
     const midX = toWorldUnits((n1.x + n2.x) / 2);
     const midY = toWorldUnits((n1.y + n2.y) / 2);
@@ -5263,9 +5320,11 @@ function createFloorMesh(floor) {
     geometry.rotateX(-Math.PI / 2);
 
     const color = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
-    const material = new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.8 });
+    const material = new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.8, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.y = 0;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     return mesh;
 }
 
@@ -5284,15 +5343,87 @@ function createDoorOrWindowMesh(obj, wallHeight) {
         transparent: false,
         opacity: 1,
         metalness: 0.1,
-        roughness: 0.5
+        roughness: 0.5,
+        side: THREE.DoubleSide
     });
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
 
     const centerX = toWorldUnits(obj.x + obj.width / 2);
     const centerZ = toWorldUnits(obj.y + obj.height / 2);
     mesh.position.set(centerX, centerY, centerZ);
     mesh.rotation.y = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
     return mesh;
+}
+
+function createHouseShowcaseModel() {
+    if (typeof THREE === 'undefined') return null;
+
+    const group = new THREE.Group();
+    group.userData.isShowcase = true;
+
+    const baseWidth = 32;
+    const baseDepth = 26;
+    const wallHeight = 12;
+
+    const wallMaterial = createConcreteMaterial('#d1d5db');
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(baseWidth, wallHeight, baseDepth), wallMaterial);
+    shell.castShadow = true;
+    shell.receiveShadow = true;
+    shell.position.y = wallHeight / 2;
+    group.add(shell);
+
+    const roofMaterial = new THREE.MeshPhysicalMaterial({
+        color: '#9ca3af',
+        metalness: 0.1,
+        roughness: 0.35,
+        clearcoat: 0.2,
+        clearcoatRoughness: 0.8,
+        side: THREE.DoubleSide
+    });
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(baseWidth + 0.8, 1.2, baseDepth + 0.8), roofMaterial);
+    roof.position.y = wallHeight + 0.6;
+    roof.castShadow = true;
+    roof.receiveShadow = true;
+    group.add(roof);
+
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(baseWidth + 2, 1, baseDepth + 2), createConcreteMaterial('#cbd5e1'));
+    plinth.position.y = 0.5;
+    plinth.castShadow = true;
+    plinth.receiveShadow = true;
+    group.add(plinth);
+
+    const door = new THREE.Mesh(
+        new THREE.BoxGeometry(3, 7, 0.6),
+        new THREE.MeshPhysicalMaterial({ color: '#8b5a2b', roughness: 0.7, metalness: 0.05, side: THREE.DoubleSide })
+    );
+    door.position.set(0, 3.5, (baseDepth / 2) - 0.3);
+    door.castShadow = true;
+    door.receiveShadow = true;
+    group.add(door);
+
+    const windowMaterial = new THREE.MeshPhysicalMaterial({
+        color: '#dbeafe',
+        transparent: true,
+        opacity: 0.65,
+        roughness: 0.1,
+        metalness: 0.25,
+        side: THREE.DoubleSide
+    });
+    const windowGeometry = new THREE.BoxGeometry(4, 3, 0.4);
+    const leftWindow = new THREE.Mesh(windowGeometry, windowMaterial);
+    leftWindow.position.set(-(baseWidth / 3), 7, (baseDepth / 2) - 0.5);
+    leftWindow.castShadow = true;
+    leftWindow.receiveShadow = true;
+    group.add(leftWindow);
+
+    const rightWindow = leftWindow.clone();
+    rightWindow.position.x = baseWidth / 3;
+    group.add(rightWindow);
+
+    group.position.set(0, 0, 0);
+    return group;
 }
 
 function rebuild3DScene() {
@@ -5311,6 +5442,12 @@ function rebuild3DScene() {
     if (ground) {
         threeContentGroup.add(ground.plane);
         threeContentGroup.add(ground.grid);
+    }
+
+    const houseShowcase = createHouseShowcaseModel();
+    if (houseShowcase) {
+        houseShowcase.position.set(0, 0, toWorldUnits(-gridSize * 2));
+        threeContentGroup.add(houseShowcase);
     }
 
     const planOverlay = createPlanOverlay();
