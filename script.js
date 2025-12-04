@@ -4655,12 +4655,12 @@ function ensureThreeLibraries() {
         });
 
         const timeout = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Timed out loading Three.js')), 8000);
+            setTimeout(() => reject(new Error('Timed out loading Three.js')), 3500);
         });
 
         threeLibsPromise = Promise.race([loader, timeout]).catch(err => {
-            console.error('Failed to load Three.js', err);
-            setThreeStatus('Unable to load online 3D engine. Switching to offline view.', true);
+            console.warn('Falling back to offline 3D renderer', err);
+            setThreeStatus('Using offline 3D preview (Three.js unreachable).');
             useFallback3DRenderer = true;
             return false;
         });
@@ -4969,14 +4969,15 @@ function drawFallbackWalls() {
         ];
 
         const color = wall.lineColor || DEFAULT_WALL_COLOR;
+        const faceShades = [0.08, 0.14, -0.05, 0.06, -0.08, 0.02];
         faces.forEach((face, index) => {
             const projected = face.map(pt => projectFallbackPoint(pt));
             if (projected.some(p => !p)) return;
-            const shade = 0.12 * index;
+            const shade = faceShades[index] ?? 0;
             drawFallbackPolygon(projected, {
-                fillStyle: shadeColor(color, 0.18 + shade),
-                strokeStyle: '#0f172a',
-                lineWidth: 0.8
+                fillStyle: shadeColor(color, 0.22 + shade),
+                strokeStyle: '#0c1220',
+                lineWidth: 1.2
             });
         });
     });
@@ -4992,11 +4993,19 @@ function shadeColor(hex, amount = 0.1) {
     return `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
 }
 
+function drawFallbackSky() {
+    if (!fallback3DCtx || !fallback3DCanvas) return;
+    const gradient = fallback3DCtx.createLinearGradient(0, 0, 0, fallback3DCanvas.height);
+    gradient.addColorStop(0, '#0b172c');
+    gradient.addColorStop(1, '#0a1020');
+    fallback3DCtx.fillStyle = gradient;
+    fallback3DCtx.fillRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
+}
+
 function renderFallback3DScene() {
     if (!fallback3DCtx || !fallback3DCanvas) return;
     fallback3DCtx.clearRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
-    fallback3DCtx.fillStyle = '#0b1220';
-    fallback3DCtx.fillRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
+    drawFallbackSky();
 
     drawFallbackGrid();
     drawFallbackFloors();
@@ -5168,8 +5177,11 @@ function createWallMesh(wall, wallHeight) {
     const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
     const material = new THREE.MeshStandardMaterial({
         color: wall.lineColor || DEFAULT_WALL_COLOR,
+        transparent: false,
+        opacity: 1,
         metalness: 0.05,
-        roughness: 0.6
+        roughness: 0.6,
+        side: THREE.DoubleSide
     });
     const mesh = new THREE.Mesh(geometry, material);
 
