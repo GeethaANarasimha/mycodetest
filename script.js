@@ -5235,8 +5235,13 @@ function createConcreteMaterial(color = DEFAULT_3D_WALL_COLOR) {
 }
 
 function createGroundElements() {
-    const baseSize = Math.max(toWorldUnits(Math.max(canvas?.width || 0, canvas?.height || 0)), 40);
-    const size = baseSize * 2;
+    const bounds = getPlanBounds();
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+
+    const gridSpacing = Math.max(toWorldUnits(gridSize || 20), 1);
+    const largestPlanSize = Math.max(bounds.width, bounds.depth, 1);
+    const size = Math.max(largestPlanSize + gridSpacing * 4, 40);
 
     const planeGeometry = new THREE.PlaneGeometry(size, size, 1, 1);
     planeGeometry.rotateX(-Math.PI / 2);
@@ -5247,14 +5252,14 @@ function createGroundElements() {
         side: THREE.DoubleSide
     });
     const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-    plane.position.y = -0.05;
+    plane.position.set(centerX, -0.05, centerZ);
     plane.userData.isGround = true;
     plane.receiveShadow = true;
 
-    const divisions = Math.max(10, Math.round(size / 5));
+    const divisions = Math.max(10, Math.round(size / gridSpacing));
     const grid = new THREE.GridHelper(size, divisions, 0x94a3b8, 0xcbd5e1);
     grid.material.depthWrite = false;
-    grid.position.y = 0.02;
+    grid.position.set(centerX, 0.02, centerZ);
     grid.userData.isGround = true;
 
     return { plane, grid };
@@ -5464,12 +5469,6 @@ function rebuild3DScene() {
     if (ground) {
         threeContentGroup.add(ground.plane);
         threeContentGroup.add(ground.grid);
-    }
-
-    const houseShowcase = createHouseShowcaseModel();
-    if (houseShowcase) {
-        houseShowcase.position.set(0, 0, toWorldUnits(-gridSize * 2));
-        threeContentGroup.add(houseShowcase);
     }
 
     const planOverlay = createPlanOverlay();
