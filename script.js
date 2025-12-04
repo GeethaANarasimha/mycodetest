@@ -224,6 +224,7 @@ let staircaseEditTargetIndex = null;
 let groupDragOffsets = null;
 let selectedFloorIds = new Set();
 let floorTextureTargetId = null;
+let isSelectionGrouped = false;
 
 // Prevent paste mode from being cancelled when switching tools programmatically
 let suppressPasteCancel = false;
@@ -942,6 +943,59 @@ function expandSelectionWithGroups() {
     });
 
     additions.forEach(idx => selectedObjectIndices.add(idx));
+}
+
+function hasAnySelection() {
+    return selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0;
+}
+
+function getSceneCenter() {
+    const points = [];
+
+    nodes.forEach(node => {
+        points.push({ x: node.x, y: node.y });
+    });
+
+    objects.forEach(obj => {
+        if (!obj) return;
+        points.push({ x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 });
+    });
+
+    if (points.length === 0) return null;
+
+    const minX = Math.min(...points.map(p => p.x));
+    const maxX = Math.max(...points.map(p => p.x));
+    const minY = Math.min(...points.map(p => p.y));
+    const maxY = Math.max(...points.map(p => p.y));
+
+    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}
+
+function getGroupedSelectionCenter() {
+    const center = getSelectionCenter();
+    if (center) return center;
+    if (isSelectionGrouped || selectAllMode) return getSceneCenter();
+    return null;
+}
+
+function groupSelectionElements({ silent = false } = {}) {
+    if (!hasAnySelection()) {
+        if (!silent) alert('Select one or more elements to group.');
+        return false;
+    }
+
+    isSelectionGrouped = true;
+    return true;
+}
+
+function ungroupSelectionElements() {
+    isSelectionGrouped = false;
+}
+
+function clearSelectionGroupingIfEmpty() {
+    if (!hasAnySelection()) {
+        ungroupSelectionElements();
+    }
 }
 
 function getSelectedStairIndices() {
@@ -3566,7 +3620,8 @@ function getSelectionCenter() {
 }
 
 function rotateSelection(angle) {
-    const center = getSelectionCenter();
+    clearSelectionGroupingIfEmpty();
+    const center = getGroupedSelectionCenter();
     if (!center) {
         alert('Please select something to rotate');
         return;
@@ -3608,7 +3663,8 @@ function rotateSelection(angle) {
 }
 
 function flipSelection(direction) {
-    const center = getSelectionCenter();
+    clearSelectionGroupingIfEmpty();
+    const center = getGroupedSelectionCenter();
     if (!center) {
         alert('Please select something to flip');
         return;
@@ -3713,6 +3769,7 @@ function handleMouseDown(e) {
                 selectedWalls.clear();
                 selectedObjectIndices.clear();
                 selectAllMode = false;
+                ungroupSelectionElements();
                 redrawCanvas();
             }
             return;
@@ -3826,6 +3883,7 @@ function handleMouseDown(e) {
                 selectedObjectIndices.add(objIndex);
                 selectedWalls.clear();
                 selectedFloorIds.clear();
+                ungroupSelectionElements();
             }
             expandSelectionWithGroups();
             if (!e.shiftKey) {
@@ -3851,6 +3909,7 @@ function handleMouseDown(e) {
                 selectedWalls.clear();
                 selectedWalls.add(wall);
                 selectedNode = null;
+                ungroupSelectionElements();
             }
             selectedFloorIds.clear();
             selectedObjectIndices.clear();
@@ -3871,6 +3930,7 @@ function handleMouseDown(e) {
                 selectedFloorIds = new Set([floorHit.id]);
                 selectedWalls.clear();
                 selectedObjectIndices.clear();
+                ungroupSelectionElements();
             }
             selectAllMode = false;
             redrawCanvas();
@@ -3891,6 +3951,7 @@ function handleMouseDown(e) {
             selectedObjectIndices.clear();
             selectedFloorIds.clear();
             selectAllMode = false;
+            ungroupSelectionElements();
         }
 
         redrawCanvas();
@@ -6626,6 +6687,7 @@ function selectAllEntities() {
     isDraggingNode = false;
     selectAllMode = true;
     expandSelectionWithGroups();
+    groupSelectionElements({ silent: true });
     redrawCanvas();
 }
 
@@ -6648,6 +6710,16 @@ function handleKeyDown(e) {
             case 'v': // Paste
                 e.preventDefault();
                 startPasteMode();
+                return;
+
+            case 'g': // Group / Ungroup selection
+                e.preventDefault();
+                if (e.shiftKey) {
+                    ungroupSelectionElements();
+                } else {
+                    groupSelectionElements();
+                }
+                redrawCanvas();
                 return;
                 
             case 'z': // Undo
@@ -6739,6 +6811,7 @@ function handleKeyDown(e) {
             isSelectionBoxActive = false;
             selectionBoxStart = null;
             selectionBoxEnd = null;
+            ungroupSelectionElements();
             hideContextMenu();
             redrawCanvas();
         }
