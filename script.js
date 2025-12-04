@@ -89,7 +89,7 @@ const NODE_HIT_RADIUS = 10;
 const ALIGN_HINT_COLOR = '#e74c3c';
 const MAX_HISTORY = 50;
 const INTERSECTION_TOLERANCE = 5;
-const DEFAULT_WALL_COLOR = '#2c3e50';
+const DEFAULT_WALL_COLOR = '#ffffff';
 const DEFAULT_DOOR_LINE = '#8b5a2b';
 const DEFAULT_DOOR_FILL = '#e6c9a8';
 const DEFAULT_WINDOW_LINE = '#3b83bd';
@@ -4684,7 +4684,7 @@ function ensureThreeView() {
     const { width, height } = getThreeViewportSize();
 
     threeScene = new THREE.Scene();
-    threeScene.background = new THREE.Color('#0f172a');
+    threeScene.background = new THREE.Color('#f5f5f5');
 
     threeCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
     threeCamera.position.set(0, 50, 90);
@@ -4957,7 +4957,7 @@ function drawFallbackFloors() {
         const projected = points.map(p => projectFallbackPoint({ x: toWorldUnits(p.x), y: 0.02, z: toWorldUnits(p.y) }));
         if (projected.some(p => !p)) return;
         const fill = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
-        drawFallbackPolygon(projected, { fillStyle: `${fill}cc`, strokeStyle: '#1f2937', lineWidth: 1 });
+        drawFallbackPolygon(projected, { fillStyle: fill, strokeStyle: '#1f2937', lineWidth: 1 });
     });
 }
 
@@ -5020,8 +5020,8 @@ function shadeColor(hex, amount = 0.1) {
 function drawFallbackSky() {
     if (!fallback3DCtx || !fallback3DCanvas) return;
     const gradient = fallback3DCtx.createLinearGradient(0, 0, 0, fallback3DCanvas.height);
-    gradient.addColorStop(0, '#0b172c');
-    gradient.addColorStop(1, '#0a1020');
+    gradient.addColorStop(0, '#f8fafc');
+    gradient.addColorStop(1, '#e2e8f0');
     fallback3DCtx.fillStyle = gradient;
     fallback3DCtx.fillRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
 }
@@ -5167,7 +5167,7 @@ function createGroundElements() {
     const planeGeometry = new THREE.PlaneGeometry(size, size, 1, 1);
     planeGeometry.rotateX(-Math.PI / 2);
     const planeMaterial = new THREE.MeshStandardMaterial({
-        color: '#0b1220',
+        color: '#f8fafc',
         roughness: 0.95,
         metalness: 0.02,
         side: THREE.DoubleSide
@@ -5177,7 +5177,7 @@ function createGroundElements() {
     plane.userData.isGround = true;
 
     const divisions = Math.max(10, Math.round(size / 5));
-    const grid = new THREE.GridHelper(size, divisions, 0x4f6b8a, 0x2a3b55);
+    const grid = new THREE.GridHelper(size, divisions, 0x94a3b8, 0xcbd5e1);
     grid.material.depthWrite = false;
     grid.position.y = 0.02;
     grid.userData.isGround = true;
@@ -5280,9 +5280,9 @@ function createDoorOrWindowMesh(obj, wallHeight) {
 
     const geometry = new THREE.BoxGeometry(length, height, depth);
     const material = new THREE.MeshStandardMaterial({
-        color: isWindow ? '#6fb2ff' : '#c19a6b',
-        transparent: isWindow,
-        opacity: isWindow ? 0.7 : 1,
+        color: isWindow ? '#b7d8ff' : '#c19a6b',
+        transparent: false,
+        opacity: 1,
         metalness: 0.1,
         roughness: 0.5
     });
