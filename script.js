@@ -89,7 +89,8 @@ const NODE_HIT_RADIUS = 10;
 const ALIGN_HINT_COLOR = '#e74c3c';
 const MAX_HISTORY = 50;
 const INTERSECTION_TOLERANCE = 5;
-const DEFAULT_WALL_COLOR = '#ffffff';
+const DEFAULT_WALL_COLOR = '#000000';
+const DEFAULT_3D_WALL_COLOR = '#e0dcdc';
 const DEFAULT_DOOR_LINE = '#8b5a2b';
 const DEFAULT_DOOR_FILL = '#e6c9a8';
 const DEFAULT_WINDOW_LINE = '#3b83bd';
@@ -5085,9 +5086,6 @@ function startFallbackAnimation() {
     if (fallback3DAnimationId) cancelAnimationFrame(fallback3DAnimationId);
 
     const animate = () => {
-        if (fallback3DCamera.autoRotate && !fallback3DCamera.isDragging) {
-            fallback3DCamera.theta += 0.003;
-        }
         renderFallback3DScene();
         fallback3DAnimationId = requestAnimationFrame(animate);
     };
@@ -5203,7 +5201,7 @@ function generateConcreteTexture(size = 256, accent = '#e2e8f0') {
     return texture;
 }
 
-function createConcreteMaterial(color = '#d7d9d9') {
+function createConcreteMaterial(color = DEFAULT_3D_WALL_COLOR) {
     const diffuseTexture = generateConcreteTexture(256, color);
     const bumpTexture = generateConcreteTexture(256, '#cbd5e1');
 
@@ -5293,7 +5291,10 @@ function createWallMesh(wall, wallHeight) {
     const thickness = toWorldUnits(wall.thicknessPx || (0.5 * scale));
 
     const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
-    const material = createConcreteMaterial(wall.lineColor || DEFAULT_WALL_COLOR);
+    const wallColor = (wall.lineColor && wall.lineColor !== DEFAULT_WALL_COLOR)
+        ? wall.lineColor
+        : DEFAULT_3D_WALL_COLOR;
+    const material = createConcreteMaterial(wallColor);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
