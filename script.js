@@ -64,6 +64,7 @@ const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
 const threeContainer = document.getElementById('threeContainer');
+const threeStatus = document.getElementById('threeStatus');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -200,6 +201,7 @@ let threeCamera = null;
 let threeControls = null;
 let wallMeshes = [];
 let threeContentGroup = null;
+let threeLibsPromise = null;
 
 // undo / redo
 let undoStack = [];
@@ -4580,6 +4582,62 @@ function redrawCanvas() {
 // ============================================================
 // 3D VIEW (THREE.JS)
 // ============================================================
+function setThreeStatus(message = '', isError = false) {
+    if (!threeStatus) return;
+    threeStatus.textContent = message;
+    threeStatus.classList.toggle('hidden', !message);
+    threeStatus.classList.toggle('error', !!isError);
+}
+
+function loadScriptOnce(src) {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+        if (existing.dataset.loaded === 'true' || existing.readyState === 'complete') {
+            return Promise.resolve();
+        }
+        return new Promise((resolve, reject) => {
+            existing.addEventListener('load', () => resolve(), { once: true });
+            existing.addEventListener('error', reject, { once: true });
+        });
+    }
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = false;
+        script.dataset.loaded = 'false';
+        script.onload = () => {
+            script.dataset.loaded = 'true';
+            resolve();
+        };
+        script.onerror = (err) => reject(err);
+        document.head.appendChild(script);
+    });
+}
+
+function ensureThreeLibraries() {
+    if (typeof THREE !== 'undefined' && THREE.Scene && THREE.PerspectiveCamera) {
+        return Promise.resolve(true);
+    }
+
+    if (!threeLibsPromise) {
+        setThreeStatus('Loading 3D engine…');
+        threeLibsPromise = Promise.all([
+            loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js'),
+            loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/controls/OrbitControls.js')
+        ]).then(() => {
+            setThreeStatus('');
+            return true;
+        }).catch(err => {
+            console.error('Failed to load Three.js', err);
+            setThreeStatus('Unable to load 3D view. Check your connection and try again.', true);
+            throw err;
+        });
+    }
+
+    return threeLibsPromise;
+}
+
 function getThreeViewportSize() {
     const width = Math.max(threeContainer?.clientWidth || 0, canvas?.width || 1200, 1);
     const height = Math.max(threeContainer?.clientHeight || 0, canvas?.height || 900, 1);
@@ -4869,6 +4927,7 @@ function switchTo3DView() {
     is3DView = true;
     if (canvas) canvas.classList.add('hidden');
     if (threeContainer) threeContainer.classList.remove('hidden');
+    setThreeStatus('');
     update3DButtonLabel('Show 2D');
     rebuild3DScene();
     handleThreeResize();
@@ -4878,6 +4937,7 @@ function switchTo2DView() {
     is3DView = false;
     if (canvas) canvas.classList.remove('hidden');
     if (threeContainer) threeContainer.classList.add('hidden');
+    setThreeStatus('');
     update3DButtonLabel('Show 3D');
     redrawCanvas();
 }
@@ -4890,7 +4950,14 @@ function toggleViewMode() {
     }
 }
 
-function viewHousePlanIn3D() {
+async function viewHousePlanIn3D() {
+    try {
+        await ensureThreeLibraries();
+    } catch (err) {
+        console.error('3D view unavailable', err);
+        return;
+    }
+
     ensureThreeView();
     switchTo3DView();
 }
