@@ -5013,16 +5013,28 @@ function drawFallbackWalls() {
 
         const color = wall.lineColor || DEFAULT_WALL_COLOR;
         const faceShades = [0.08, 0.14, -0.05, 0.06, -0.08, 0.02];
-        faces.forEach((face, index) => {
+
+        const projectedFaces = faces.map((face, index) => {
             const projected = face.map(pt => projectFallbackPoint(pt));
-            if (projected.some(p => !p)) return;
-            const shade = faceShades[index] ?? 0;
-            drawFallbackPolygon(projected, {
-                fillStyle: shadeColor(color, 0.22 + shade),
-                strokeStyle: '#0c1220',
-                lineWidth: 1.2
+            if (projected.some(p => !p)) return null;
+
+            const avgDepth = projected.reduce((sum, p) => sum + (p.depth || 0), 0) / projected.length;
+            return {
+                projected,
+                shade: faceShades[index] ?? 0,
+                depth: avgDepth
+            };
+        }).filter(Boolean);
+
+        projectedFaces
+            .sort((a, b) => (b.depth || 0) - (a.depth || 0))
+            .forEach(({ projected, shade }) => {
+                drawFallbackPolygon(projected, {
+                    fillStyle: shadeColor(color, 0.22 + shade),
+                    strokeStyle: '#0c1220',
+                    lineWidth: 1.2
+                });
             });
-        });
     });
 }
 
