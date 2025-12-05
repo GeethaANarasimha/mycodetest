@@ -417,8 +417,13 @@ function drawHorizontalRuler() {
     const rect = canvas.getBoundingClientRect();
     const containerRect = canvasContainer?.getBoundingClientRect();
     if (containerRect) {
-        horizontalRuler.style.left = `${rect.left - containerRect.left}px`;
-        horizontalRuler.style.top = `${rect.top - containerRect.top}px`;
+        // Clamp offsets so the ruler doesn't drift off-screen when the scroll
+        // position changes (e.g. when clicking the grid inside the scrollable
+        // container).
+        const offsetLeft = Math.max(rect.left - containerRect.left, 0);
+        const offsetTop = Math.max(rect.top - containerRect.top, 0);
+        horizontalRuler.style.left = `${offsetLeft}px`;
+        horizontalRuler.style.top = `${offsetTop}px`;
     }
     const dpr = window.devicePixelRatio || 1;
     horizontalRuler.width = rect.width * dpr;
@@ -481,8 +486,12 @@ function drawVerticalRuler() {
     const rect = canvas.getBoundingClientRect();
     const containerRect = canvasContainer?.getBoundingClientRect();
     if (containerRect) {
-        verticalRuler.style.left = `${rect.left - containerRect.left}px`;
-        verticalRuler.style.top = `${rect.top - containerRect.top}px`;
+        // Clamp offsets so the ruler remains visible even if the canvas is
+        // scrolled within the container.
+        const offsetLeft = Math.max(rect.left - containerRect.left, 0);
+        const offsetTop = Math.max(rect.top - containerRect.top, 0);
+        verticalRuler.style.left = `${offsetLeft}px`;
+        verticalRuler.style.top = `${offsetTop}px`;
     }
     const dpr = window.devicePixelRatio || 1;
     verticalRuler.width = RULER_SIZE * dpr;
@@ -3142,6 +3151,11 @@ function init() {
             setMeasurementDistance(backgroundDistanceInput.value, { resetLine: true });
             redrawPreviewMeasurementOverlay();
         });
+    }
+
+    if (canvasContainer) {
+        // Keep rulers aligned with the canvas when the scroll position changes.
+        canvasContainer.addEventListener('scroll', drawRulers);
     }
 
     window.addEventListener('resize', () => {
