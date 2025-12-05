@@ -375,8 +375,9 @@ function applyViewZoom(factor, anchor = null) {
 }
 
 function panView(deltaX, deltaY) {
-    viewOffsetX += deltaX;
-    viewOffsetY += deltaY;
+    const pixelScale = getCanvasPixelScale();
+    viewOffsetX += deltaX / pixelScale.x;
+    viewOffsetY += deltaY / pixelScale.y;
     syncCanvasScrollArea();
     redrawCanvas();
 }
@@ -416,11 +417,12 @@ function drawHorizontalRuler() {
     const rect = canvas.getBoundingClientRect();
     const containerRect = canvasContainer?.getBoundingClientRect();
     if (containerRect) {
-        // Clamp offsets so the ruler doesn't drift off-screen when the scroll
-        // position changes (e.g. when clicking the grid inside the scrollable
-        // container).
-        const offsetLeft = Math.max(rect.left - containerRect.left, 0);
-        const offsetTop = Math.max(rect.top - containerRect.top, 0);
+        // Keep the ruler origin aligned with the visible canvas origin even
+        // when the container is scrolled. Using the raw offsets (including
+        // negative values) lets the ruler track the canvas position instead of
+        // sticking to the container edge.
+        const offsetLeft = rect.left - containerRect.left;
+        const offsetTop = rect.top - containerRect.top;
         horizontalRuler.style.left = `${offsetLeft}px`;
         horizontalRuler.style.top = `${offsetTop}px`;
     }
@@ -495,10 +497,12 @@ function drawVerticalRuler() {
     const rect = canvas.getBoundingClientRect();
     const containerRect = canvasContainer?.getBoundingClientRect();
     if (containerRect) {
-        // Clamp offsets so the ruler remains visible even if the canvas is
-        // scrolled within the container.
-        const offsetLeft = Math.max(rect.left - containerRect.left, 0);
-        const offsetTop = Math.max(rect.top - containerRect.top, 0);
+        // Keep the ruler origin aligned with the visible canvas origin even
+        // when the container is scrolled. Using the raw offsets (including
+        // negative values) lets the ruler track the canvas position instead of
+        // sticking to the container edge.
+        const offsetLeft = rect.left - containerRect.left;
+        const offsetTop = rect.top - containerRect.top;
         verticalRuler.style.left = `${offsetLeft}px`;
         verticalRuler.style.top = `${offsetTop}px`;
     }
@@ -4413,8 +4417,9 @@ function handleMouseMove(e) {
     }
 
     if (isViewPanning && panOrigin && panStartOffset) {
-        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x);
-        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y);
+        const pixelScale = getCanvasPixelScale();
+        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x) / pixelScale.x;
+        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y) / pixelScale.y;
         redrawCanvas();
         return;
     }
