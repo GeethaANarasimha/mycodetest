@@ -14,6 +14,7 @@ window.hoveredSpaceSegment = null;
 window.dimensionHoverX = null;
 window.dimensionHoverY = null;
 window.dimensionActiveWall = null;
+window.selectedDimensionIndex = null;
 
 // Blue color for dimensions
 const DIMENSION_COLOR = '#3498db';
@@ -250,26 +251,32 @@ window.createWallDimension = function(wallData, options = {}) {
 /**
  * Create manual dimension
  */
-window.createManualDimension = function(startX, startY, endX, endY) {
-    const length = Math.hypot(endX - startX, endY - startY);
+window.updateDimensionMeasurement = function(dimension) {
+    if (!dimension) return;
+
+    const length = Math.hypot(dimension.endX - dimension.startX, dimension.endY - dimension.startY);
     const totalInches = Math.round((length / scale) * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-    
+
+    dimension.length = length;
+    dimension.text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+};
+
+window.createManualDimension = function(startX, startY, endX, endY) {
     const dimension = {
         id: nextDimensionId++,
         startX: startX,
         startY: startY,
         endX: endX,
         endY: endY,
-        text: text,
         lineColor: DIMENSION_COLOR,
         lineWidth: 2,
-        length: length,
         isAuto: false
     };
-    
+
+    window.updateDimensionMeasurement(dimension);
+
     dimensions.push(dimension);
     return dimension;
 };
@@ -682,9 +689,9 @@ window.drawDimensions = function() {
     // Draw permanent dimensions
     if (!dimensions || dimensions.length === 0) return;
     
-    dimensions.forEach(dim => {
+    dimensions.forEach((dim, index) => {
         ctx.save();
-        
+
         if (dim.isAuto) {
             ctx.strokeStyle = WALL_DIMENSION_COLOR;
             ctx.setLineDash([4, 2]);
@@ -693,7 +700,8 @@ window.drawDimensions = function() {
             ctx.setLineDash([4, 2]);
         }
         
-        ctx.lineWidth = dim.lineWidth;
+        const isSelected = typeof window.selectedDimensionIndex === 'number' && window.selectedDimensionIndex === index;
+        ctx.lineWidth = dim.lineWidth + (isSelected ? 1 : 0);
         
         // Main dimension line
         ctx.beginPath();
@@ -755,6 +763,18 @@ window.drawDimensions = function() {
             ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
             ctx.fillText(dim.text, 0, 0);
             ctx.restore();
+        }
+
+        if (isSelected) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
+            ctx.beginPath();
+            ctx.arc(dim.startX, dim.startY, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(dim.endX, dim.endY, 4, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         ctx.restore();
