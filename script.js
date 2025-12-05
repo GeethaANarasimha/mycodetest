@@ -7637,9 +7637,15 @@ function handleKeyDown(e) {
         } else {
             const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
             const hasDimensions = window.dimensions && window.dimensions.length > 0;
+            const hasSelectedDimension = selectedDimensionIndex !== null;
 
             if (hasSelection) {
                 deleteSelection();
+            } else if (hasSelectedDimension && window.dimensions?.[selectedDimensionIndex]) {
+                pushUndoState();
+                window.dimensions.splice(selectedDimensionIndex, 1);
+                clearDimensionSelection();
+                redrawCanvas();
             } else if (hasDimensions) {
                 pushUndoState();
                 window.dimensions = [];
