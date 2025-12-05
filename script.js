@@ -4953,23 +4953,43 @@ function handleMouseMove(e) {
                 }
             }
 
+            // Track best alignment candidates so we can snap precisely when near reference lines
+            let bestAlignX = null;
+            let bestAlignY = null;
+
             for (const node of nodes) {
                 if (node.id === lastNode.id) continue;
 
                 const close = Math.hypot(ex - node.x, ey - node.y) <= tol;
-                const alignedX = Math.abs(ex - node.x) <= tol;
-                const alignedY = Math.abs(ey - node.y) <= tol;
+                const dxToNode = Math.abs(ex - node.x);
+                const dyToNode = Math.abs(ey - node.y);
+                const alignedX = dxToNode <= tol;
+                const alignedY = dyToNode <= tol;
 
                 if (close) {
                     alignmentHints.push({ type: 'close', ax: node.x, ay: node.y, ex, ey });
                 } else {
                     if (alignedX) {
                         alignmentHints.push({ type: 'vertical', ax: node.x, ay: node.y, ex, ey });
+                        if (bestAlignX === null || dxToNode < bestAlignX.delta) {
+                            bestAlignX = { value: node.x, delta: dxToNode };
+                        }
                     }
                     if (alignedY) {
                         alignmentHints.push({ type: 'horizontal', ax: node.x, ay: node.y, ex, ey });
+                        if (bestAlignY === null || dyToNode < bestAlignY.delta) {
+                            bestAlignY = { value: node.y, delta: dyToNode };
+                        }
                     }
                 }
+            }
+
+            // Snap to the nearest alignment guide so reference lines represent exact alignment
+            if (bestAlignX) {
+                ex = bestAlignX.value;
+            }
+            if (bestAlignY) {
+                ey = bestAlignY.value;
             }
 
             wallPreviewX = ex;
