@@ -6790,11 +6790,16 @@ function drawDirectLinePath(points, options = {}) {
     ctx.stroke();
 
     const end = points[points.length - 1];
-    // Use the final segment direction (previous distinct point -> end point)
+    const MIN_SEGMENT_LENGTH = 2; // Ignore tiny tail segments when orienting the arrow.
+
+    // Use the final meaningful segment direction (previous distinct point -> end point)
     for (let i = points.length - 2; i >= 0; i--) {
         const start = points[i];
         if (!start || !end) continue;
-        if (start.x === end.x && start.y === end.y) continue;
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        if (Math.abs(dx) < Number.EPSILON && Math.abs(dy) < Number.EPSILON) continue;
+        if (Math.hypot(dx, dy) < MIN_SEGMENT_LENGTH) continue;
         drawDirectLineArrow(start, end);
         break;
     }
