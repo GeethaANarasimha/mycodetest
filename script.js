@@ -4413,8 +4413,9 @@ function handleMouseMove(e) {
     }
 
     if (isViewPanning && panOrigin && panStartOffset) {
-        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x);
-        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y);
+        const pixelScale = getCanvasPixelScale();
+        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x) / pixelScale.x;
+        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y) / pixelScale.y;
         redrawCanvas();
         return;
     }
