@@ -3613,20 +3613,6 @@ function transformDimensionsForSelectedWalls(transformFn) {
         dim.startY = start.y;
         dim.endX = end.x;
         dim.endY = end.y;
-
-        const isHorizontal = dim.orientation === 'horizontal'
-            || Math.abs(dim.startY - dim.endY) <= Math.abs(dim.startX - dim.endX);
-        if (isHorizontal && dim.startX > dim.endX) {
-            [dim.startX, dim.endX] = [dim.endX, dim.startX];
-            [dim.startY, dim.endY] = [dim.endY, dim.startY];
-        }
-
-        const isVertical = dim.orientation === 'vertical'
-            || (!isHorizontal && Math.abs(dim.startY - dim.endY) > Math.abs(dim.startX - dim.endX));
-        if (isVertical && dim.startY > dim.endY) {
-            [dim.startX, dim.endX] = [dim.endX, dim.startX];
-            [dim.startY, dim.endY] = [dim.endY, dim.startY];
-        }
     });
 }
 
@@ -5261,7 +5247,7 @@ function getObjectTransformInfo(obj) {
     let orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
     let angleRad = ((obj.rotation || 0) * Math.PI) / 180;
 
-    if (obj.type === 'door' && obj.attachedWallId) {
+    if ((obj.type === 'door' || obj.type === 'window') && obj.attachedWallId) {
         const wall = walls.find(w => w.id === obj.attachedWallId);
         const n1 = wall && getNodeById(wall.startNodeId);
         const n2 = wall && getNodeById(wall.endNodeId);
@@ -6485,8 +6471,8 @@ function createFloorMesh(floor) {
 }
 
 function createDoorOrWindowMesh(obj, wallHeight) {
-    const drawWidth = toWorldUnits(obj.orientation === 'vertical' ? obj.height : obj.width);
-    const drawDepth = toWorldUnits(obj.orientation === 'vertical' ? obj.width : obj.height);
+    const drawWidth = toWorldUnits(obj.width);
+    const drawDepth = toWorldUnits(obj.height);
     const length = Math.max(drawWidth, 0.1);
     const depth = Math.max(drawDepth, 0.1);
     const isWindow = obj.type === 'window';
@@ -6509,7 +6495,17 @@ function createDoorOrWindowMesh(obj, wallHeight) {
     const centerX = toWorldUnits(obj.x + obj.width / 2);
     const centerZ = toWorldUnits(obj.y + obj.height / 2);
     mesh.position.set(centerX, centerY, centerZ);
-    mesh.rotation.y = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
+
+    if (obj.attachedWallId) {
+        const wall = walls.find(w => w.id === obj.attachedWallId);
+        const n1 = wall && getNodeById(wall.startNodeId);
+        const n2 = wall && getNodeById(wall.endNodeId);
+        if (n1 && n2) {
+            mesh.rotation.y = -Math.atan2(n2.y - n1.y, n2.x - n1.x);
+        }
+    } else {
+        mesh.rotation.y = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
+    }
     return mesh;
 }
 
