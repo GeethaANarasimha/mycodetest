@@ -124,6 +124,7 @@ const SAVE_SECRET = 'apzok-project-key';
 const DEFAULT_TREAD_DEPTH_INCHES = 10;
 const STAIRCASE_MAGNET_THRESHOLD = 12;
 const RULER_SIZE = 28;
+const DEFAULT_VIEW_MARGIN_FEET = 3;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -335,12 +336,9 @@ function formatFeetLabel(totalFeet) {
     return `${sign}${wholeFeet}ft ${inches}in`;
 }
 
-function selectRulerSpacing(screenPxPerFoot) {
-    const candidates = [0.5, 1, 2, 5, 10, 20, 50, 100];
-    for (const feet of candidates) {
-        if (screenPxPerFoot * feet >= 60) return feet;
-    }
-    return candidates[candidates.length - 1];
+function isMultipleOf(value, step, epsilon = 1e-4) {
+    const remainder = Math.abs(value % step);
+    return remainder < epsilon || Math.abs(remainder - step) < epsilon;
 }
 
 function getCanvasCoordsFromEvent(eventOrX, eventY) {
@@ -393,8 +391,9 @@ function syncCanvasScrollArea() {
 }
 
 function resetViewToOrigin() {
-    viewOffsetX = 0;
-    viewOffsetY = 0;
+    const marginPx = DEFAULT_VIEW_MARGIN_FEET * scale * viewScale;
+    viewOffsetX = marginPx;
+    viewOffsetY = marginPx;
 }
 
 function drawRulerBackground(ctx, width, height, isVertical = false) {
@@ -437,10 +436,8 @@ function drawHorizontalRuler() {
 
     const canvasScaleX = rect.width / canvas.width;
     const screenPxPerFoot = Math.max(1, scale * viewScale * canvasScaleX);
-    const majorSpacingFeet = selectRulerSpacing(screenPxPerFoot);
     const startFeet = (-viewOffsetX / viewScale) / scale;
     const visibleFeet = rect.width / screenPxPerFoot;
-    const firstMark = Math.floor(startFeet / majorSpacingFeet) * majorSpacingFeet;
 
     const inchSpacing = screenPxPerFoot / 12;
     if (inchSpacing >= 6) {
@@ -457,20 +454,32 @@ function drawHorizontalRuler() {
         }
     }
 
+    const firstFootTick = Math.floor(startFeet);
+    const lastFootTick = Math.ceil(startFeet + visibleFeet);
+    const showFootTicks = screenPxPerFoot >= 2;
     rCtx.strokeStyle = '#94a3b8';
-    rCtx.fillStyle = '#334155';
-    rCtx.font = '11px Arial';
-    for (let feetValue = firstMark; feetValue <= startFeet + visibleFeet; feetValue += majorSpacingFeet) {
-        const x = ((feetValue * scale) * viewScale + viewOffsetX) * canvasScaleX;
-        const isZero = Math.abs(feetValue) < 1e-4;
-        rCtx.strokeStyle = isZero ? '#ef4444' : '#94a3b8';
-        rCtx.beginPath();
-        rCtx.moveTo(x + 0.5, isZero ? 0 : RULER_SIZE - 14);
-        rCtx.lineTo(x + 0.5, RULER_SIZE);
-        rCtx.stroke();
+    if (showFootTicks) {
+        for (let feetValue = firstFootTick; feetValue <= lastFootTick; feetValue += 1) {
+            const x = ((feetValue * scale) * viewScale + viewOffsetX) * canvasScaleX;
+            const isZero = Math.abs(feetValue) < 1e-4;
+            const isLabelTick = isMultipleOf(feetValue, 5);
+            const tickHeight = isZero ? RULER_SIZE : (isLabelTick ? 14 : 8);
+            rCtx.strokeStyle = isZero ? '#ef4444' : '#94a3b8';
+            rCtx.beginPath();
+            rCtx.moveTo(x + 0.5, RULER_SIZE - tickHeight);
+            rCtx.lineTo(x + 0.5, RULER_SIZE);
+            rCtx.stroke();
+        }
+    }
 
-        const label = formatFeetLabel(feetValue);
-        if (screenPxPerFoot * majorSpacingFeet >= 45) {
+    const showLabels = screenPxPerFoot * 5 >= 32;
+    if (showLabels) {
+        rCtx.fillStyle = '#334155';
+        rCtx.font = '11px Arial';
+        for (let feetValue = Math.ceil(startFeet / 5) * 5; feetValue <= startFeet + visibleFeet; feetValue += 5) {
+            const x = ((feetValue * scale) * viewScale + viewOffsetX) * canvasScaleX;
+            const isZero = Math.abs(feetValue) < 1e-4;
+            const label = formatFeetLabel(feetValue);
             rCtx.save();
             rCtx.translate(x + 4, 12);
             rCtx.fillStyle = isZero ? '#b91c1c' : '#334155';
@@ -505,10 +514,8 @@ function drawVerticalRuler() {
 
     const canvasScaleY = rect.height / canvas.height;
     const screenPxPerFoot = Math.max(1, scale * viewScale * canvasScaleY);
-    const majorSpacingFeet = selectRulerSpacing(screenPxPerFoot);
     const startFeet = (-viewOffsetY / viewScale) / scale;
     const visibleFeet = rect.height / screenPxPerFoot;
-    const firstMark = Math.floor(startFeet / majorSpacingFeet) * majorSpacingFeet;
 
     const inchSpacing = screenPxPerFoot / 12;
     if (inchSpacing >= 6) {
@@ -525,19 +532,31 @@ function drawVerticalRuler() {
         }
     }
 
+    const firstFootTick = Math.floor(startFeet);
+    const lastFootTick = Math.ceil(startFeet + visibleFeet);
+    const showFootTicks = screenPxPerFoot >= 2;
     rCtx.strokeStyle = '#94a3b8';
-    rCtx.fillStyle = '#334155';
-    rCtx.font = '11px Arial';
-    for (let feetValue = firstMark; feetValue <= startFeet + visibleFeet; feetValue += majorSpacingFeet) {
-        const y = ((feetValue * scale) * viewScale + viewOffsetY) * canvasScaleY;
-        const isZero = Math.abs(feetValue) < 1e-4;
-        rCtx.strokeStyle = isZero ? '#ef4444' : '#94a3b8';
-        rCtx.beginPath();
-        rCtx.moveTo(isZero ? 0 : RULER_SIZE - 14, y + 0.5);
-        rCtx.lineTo(RULER_SIZE, y + 0.5);
-        rCtx.stroke();
+    if (showFootTicks) {
+        for (let feetValue = firstFootTick; feetValue <= lastFootTick; feetValue += 1) {
+            const y = ((feetValue * scale) * viewScale + viewOffsetY) * canvasScaleY;
+            const isZero = Math.abs(feetValue) < 1e-4;
+            const isLabelTick = isMultipleOf(feetValue, 5);
+            const tickWidth = isZero ? RULER_SIZE : (isLabelTick ? 14 : 8);
+            rCtx.strokeStyle = isZero ? '#ef4444' : '#94a3b8';
+            rCtx.beginPath();
+            rCtx.moveTo(isZero ? 0 : RULER_SIZE - tickWidth, y + 0.5);
+            rCtx.lineTo(RULER_SIZE, y + 0.5);
+            rCtx.stroke();
+        }
+    }
 
-        if (screenPxPerFoot * majorSpacingFeet >= 45) {
+    const showLabels = screenPxPerFoot * 5 >= 32;
+    if (showLabels) {
+        rCtx.fillStyle = '#334155';
+        rCtx.font = '11px Arial';
+        for (let feetValue = Math.ceil(startFeet / 5) * 5; feetValue <= startFeet + visibleFeet; feetValue += 5) {
+            const y = ((feetValue * scale) * viewScale + viewOffsetY) * canvasScaleY;
+            const isZero = Math.abs(feetValue) < 1e-4;
             const label = formatFeetLabel(feetValue);
             rCtx.save();
             rCtx.translate(RULER_SIZE - 4, y + 14);
