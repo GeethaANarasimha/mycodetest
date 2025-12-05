@@ -3613,6 +3613,37 @@ function transformDimensionsForSelectedWalls(transformFn) {
         dim.startY = start.y;
         dim.endX = end.x;
         dim.endY = end.y;
+
+        const isHorizontal = dim.orientation === 'horizontal'
+            || Math.abs(dim.startY - dim.endY) <= Math.abs(dim.startX - dim.endX);
+        if (isHorizontal && dim.startX > dim.endX) {
+            [dim.startX, dim.endX] = [dim.endX, dim.startX];
+            [dim.startY, dim.endY] = [dim.endY, dim.startY];
+        }
+
+        const isVertical = dim.orientation === 'vertical'
+            || (!isHorizontal && Math.abs(dim.startY - dim.endY) > Math.abs(dim.startX - dim.endX));
+        if (isVertical && dim.startY > dim.endY) {
+            [dim.startX, dim.endX] = [dim.endX, dim.startX];
+            [dim.startY, dim.endY] = [dim.endY, dim.startY];
+        }
+    });
+}
+
+function normalizeWallDirections(wallsToNormalize) {
+    if (!wallsToNormalize || wallsToNormalize.size === 0) return;
+
+    wallsToNormalize.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) return;
+
+        const isHorizontal = Math.abs(n2.x - n1.x) >= Math.abs(n2.y - n1.y);
+        const shouldSwap = isHorizontal ? n1.x > n2.x : n1.y > n2.y;
+
+        if (shouldSwap) {
+            [wall.startNodeId, wall.endNodeId] = [wall.endNodeId, wall.startNodeId];
+        }
     });
 }
 
@@ -3730,6 +3761,8 @@ function flipSelection(direction) {
         }
         return { x, y: center.y - (y - center.y) };
     });
+
+    normalizeWallDirections(selectedWalls);
 
     // Flip objects (position + orientation flags)
     if (direction === 'horizontal' && typeof flipSelectedObjectsHorizontal === 'function') {
