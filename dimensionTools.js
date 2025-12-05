@@ -576,68 +576,70 @@ window.drawHoverSpaceDimension = function(spaceData) {
  */
 window.drawDimensionPreview = function() {
     if (!isDimensionDrawing || dimensionPreviewX === null) return;
-    
-    ctx.save();
-    ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 2]);
-    
-    // Draw dimension line
-    ctx.beginPath();
-    ctx.moveTo(dimensionStartX, dimensionStartY);
-    ctx.lineTo(dimensionPreviewX, dimensionPreviewY);
-    ctx.stroke();
-    
-    // Draw extension lines
-    const dx = dimensionPreviewX - dimensionStartX;
-    const dy = dimensionPreviewY - dimensionStartY;
-    const len = Math.hypot(dx, dy);
-    
-    if (len > 0) {
-        const nx = -dy / len;
-        const ny = dx / len;
-        const offset = 10;
-        
+
+    withViewTransform(() => {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 2]);
+
+        // Draw dimension line
         ctx.beginPath();
-        ctx.moveTo(dimensionStartX + nx * offset, dimensionStartY + ny * offset);
-        ctx.lineTo(dimensionStartX - nx * offset, dimensionStartY - ny * offset);
+        ctx.moveTo(dimensionStartX, dimensionStartY);
+        ctx.lineTo(dimensionPreviewX, dimensionPreviewY);
         ctx.stroke();
-        
-        ctx.beginPath();
-        ctx.moveTo(dimensionPreviewX + nx * offset, dimensionPreviewY + ny * offset);
-        ctx.lineTo(dimensionPreviewX - nx * offset, dimensionPreviewY - ny * offset);
-        ctx.stroke();
-        
-        // Dimension text
-        const totalInches = Math.round((len / scale) * 12);
-        const feet = Math.floor(totalInches / 12);
-        const inches = totalInches % 12;
-        const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-        
-        const midX = (dimensionStartX + dimensionPreviewX) / 2;
-        const midY = (dimensionStartY + dimensionPreviewY) / 2;
-        const textX = midX + nx * 15;
-        const textY = midY + ny * 15;
-        
-        ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
-        const fontPx = measurementFontSize || 12;
-        ctx.font = `${fontPx}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        // Text background
-        const textWidth = ctx.measureText(text).width;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        const textHeight = fontPx * 1.2;
-        ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
-        
-        // Text
-        ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
-        ctx.fillText(text, textX, textY);
-    }
-    
-    ctx.restore();
+
+        // Draw extension lines
+        const dx = dimensionPreviewX - dimensionStartX;
+        const dy = dimensionPreviewY - dimensionStartY;
+        const len = Math.hypot(dx, dy);
+
+        if (len > 0) {
+            const nx = -dy / len;
+            const ny = dx / len;
+            const offset = 10;
+
+            ctx.beginPath();
+            ctx.moveTo(dimensionStartX + nx * offset, dimensionStartY + ny * offset);
+            ctx.lineTo(dimensionStartX - nx * offset, dimensionStartY - ny * offset);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(dimensionPreviewX + nx * offset, dimensionPreviewY + ny * offset);
+            ctx.lineTo(dimensionPreviewX - nx * offset, dimensionPreviewY - ny * offset);
+            ctx.stroke();
+
+            // Dimension text
+            const totalInches = Math.round((len / scale) * 12);
+            const feet = Math.floor(totalInches / 12);
+            const inches = totalInches % 12;
+            const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+
+            const midX = (dimensionStartX + dimensionPreviewX) / 2;
+            const midY = (dimensionStartY + dimensionPreviewY) / 2;
+            const textX = midX + nx * 15;
+            const textY = midY + ny * 15;
+
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+            const fontPx = measurementFontSize || 12;
+            ctx.font = `${fontPx}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Text background
+            const textWidth = ctx.measureText(text).width;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            const textHeight = fontPx * 1.2;
+            ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
+
+            // Text
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+            ctx.fillText(text, textX, textY);
+        }
+
+        ctx.restore();
+    });
 };
 
 /**
