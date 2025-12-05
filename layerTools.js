@@ -9,7 +9,12 @@
     let activeLayerId = FALLBACK_STATE.activeLayerId;
     let layerSelect = null;
     let addLayerButton = null;
+    let editLayersButton = null;
+    let layerManagerModal = null;
+    let layerListContainer = null;
+    let closeLayerManagerButton = null;
     const layerChangeCallbacks = [];
+    const layerStructureChangeCallbacks = [];
 
     function ordinalSuffix(number) {
         const remainderTen = number % 10;
@@ -55,6 +60,17 @@
         });
         ensureActiveLayer();
         layerSelect.value = activeLayerId;
+        renderLayerList();
+    }
+
+    function notifyLayerStructureChange(change) {
+        layerStructureChangeCallbacks.forEach(cb => {
+            try {
+                cb(change);
+            } catch (err) {
+                console.error('Layer structure callback failed', err);
+            }
+        });
     }
 
     function notifyLayerChange(previousId, nextId) {
@@ -91,6 +107,40 @@
         layers.push(newLayer);
         renderLayerOptions();
         setActiveLayer(newLayer.id);
+        notifyLayerStructureChange({ type: 'add', layer: newLayer });
+        return true;
+    }
+
+    function deleteLayer(layerId) {
+        if (layers.length <= 1) {
+            window.alert('At least one floor must remain.');
+            return;
+        }
+
+        const layer = layers.find(l => l.id === layerId);
+        if (!layer) return;
+
+        const confirmed = window.confirm(`Delete "${layer.name}"? This will remove everything on that floor.`);
+        if (!confirmed) return;
+
+        const wasActive = activeLayerId === layerId;
+        layers = layers.filter(l => l.id !== layerId);
+        ensureActiveLayer();
+
+        const nextActiveId = wasActive ? layers[0].id : activeLayerId;
+        renderLayerOptions();
+        setActiveLayer(nextActiveId);
+        notifyLayerStructureChange({ type: 'delete', layerId, nextActiveLayerId: activeLayerId });
+    }
+
+    function renameLayer(layerId, nextName) {
+        const trimmed = nextName.trim();
+        if (!trimmed) return false;
+        const layer = layers.find(l => l.id === layerId);
+        if (!layer) return false;
+        layer.name = trimmed;
+        renderLayerOptions();
+        notifyLayerStructureChange({ type: 'rename', layerId, name: trimmed });
         return true;
     }
 
@@ -101,14 +151,104 @@
         addLayer(name);
     }
 
+    function handleLayerListClick(event) {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const row = target.closest('[data-layer-id]');
+        if (!row) return;
+        const layerId = row.getAttribute('data-layer-id');
+        if (target.matches('[data-action="delete-layer"]')) {
+            deleteLayer(layerId);
+            renderLayerList();
+        } else if (target.matches('[data-action="rename-layer"]')) {
+            const currentName = layers.find(l => l.id === layerId)?.name || '';
+            const nextName = window.prompt('Rename floor', currentName);
+            if (nextName) {
+                renameLayer(layerId, nextName);
+                renderLayerList();
+            }
+        }
+    }
+
+    function renderLayerList() {
+        if (!layerListContainer) return;
+        layerListContainer.innerHTML = '';
+        layers.forEach(layer => {
+            const row = document.createElement('div');
+            row.className = 'layer-row';
+            row.dataset.layerId = layer.id;
+
+            const name = document.createElement('span');
+            name.className = 'layer-row__name';
+            name.textContent = layer.name;
+            row.appendChild(name);
+
+            const actions = document.createElement('div');
+            actions.className = 'layer-row__actions';
+
+            const renameBtn = document.createElement('button');
+            renameBtn.type = 'button';
+            renameBtn.textContent = 'Rename';
+            renameBtn.className = 'pill-btn';
+            renameBtn.dataset.action = 'rename-layer';
+            actions.appendChild(renameBtn);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.className = 'pill-btn danger';
+            deleteBtn.dataset.action = 'delete-layer';
+            actions.appendChild(deleteBtn);
+
+            row.appendChild(actions);
+            layerListContainer.appendChild(row);
+        });
+    }
+
+    function openLayerManager() {
+        if (!layerManagerModal) return;
+        renderLayerList();
+        layerManagerModal.classList.remove('hidden');
+    }
+
+    function closeLayerManager() {
+        if (!layerManagerModal) return;
+        layerManagerModal.classList.add('hidden');
+    }
+
     function initLayerTools() {
         layerSelect = document.getElementById('layerSelect');
         addLayerButton = document.getElementById('addLayerButton');
+        editLayersButton = document.getElementById('editLayersButton');
+        layerManagerModal = document.getElementById('layerManagerModal');
+        layerListContainer = document.getElementById('layerList');
+        closeLayerManagerButton = document.getElementById('closeLayerManager');
+
         if (!layerSelect || !addLayerButton) return;
 
         renderLayerOptions();
         layerSelect.addEventListener('change', (event) => setActiveLayer(event.target.value));
         addLayerButton.addEventListener('click', handleAddLayerClick);
+
+        if (editLayersButton) {
+            editLayersButton.addEventListener('click', openLayerManager);
+        }
+
+        if (layerManagerModal) {
+            layerManagerModal.addEventListener('click', (event) => {
+                if (event.target === layerManagerModal) {
+                    closeLayerManager();
+                }
+            });
+        }
+
+        if (layerListContainer) {
+            layerListContainer.addEventListener('click', handleLayerListClick);
+        }
+
+        if (closeLayerManagerButton) {
+            closeLayerManagerButton.addEventListener('click', closeLayerManager);
+        }
     }
 
     function getLayerState() {
@@ -144,9 +284,16 @@
         }
     }
 
+    function onLayerStructureChange(callback) {
+        if (typeof callback === 'function') {
+            layerStructureChangeCallbacks.push(callback);
+        }
+    }
+
     window.initLayerTools = initLayerTools;
     window.getLayerState = getLayerState;
     window.applyLayerState = applyLayerState;
     window.getActiveLayerId = getActiveLayerId;
     window.onLayerChange = onLayerChange;
+    window.onLayerStructureChange = onLayerStructureChange;
 })();

@@ -468,6 +468,22 @@ function handleLayerChange(nextLayerId, previousLayerId) {
     loadLayerSnapshot(nextLayerId);
 }
 
+function handleLayerStructureChange(change) {
+    if (!change) return;
+    if (change.type === 'add' && change.layer?.id) {
+        ensureLayerSnapshot(change.layer.id);
+        return;
+    }
+
+    if (change.type === 'delete' && change.layerId) {
+        delete layerSnapshots[change.layerId];
+        if (change.nextActiveLayerId) {
+            loadLayerSnapshot(change.nextActiveLayerId);
+        }
+        return;
+    }
+}
+
 function setupLayering() {
     const activeLayerId = currentLayerId();
     ensureLayerSnapshot(activeLayerId);
@@ -475,6 +491,10 @@ function setupLayering() {
 
     if (typeof onLayerChange === 'function') {
         onLayerChange(handleLayerChange);
+    }
+
+    if (typeof window.onLayerStructureChange === 'function') {
+        window.onLayerStructureChange(handleLayerStructureChange);
     }
 }
 
