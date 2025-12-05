@@ -220,6 +220,7 @@ let isSelectionBoxActive = false;
 let selectionBoxStart = null;
 let selectionBoxEnd = null;
 let selectionBoxAdditive = false;
+let selectionBoxPending = false;
 
 function snapRotation(angle, step = 5) {
     const normalized = ((angle % 360) + 360) % 360;
@@ -3351,6 +3352,7 @@ function init() {
             selectedFloorIds.clear();
             selectAllMode = false;
             isSelectionBoxActive = false;
+            selectionBoxPending = false;
             selectionBoxStart = null;
             selectionBoxEnd = null;
             hideContextMenu();
@@ -4210,6 +4212,7 @@ function rectIntersectsSegment(rect, x1, y1, x2, y2) {
 function finalizeSelectionBox() {
     const rect = getSelectionRect();
     isSelectionBoxActive = false;
+    selectionBoxPending = false;
     selectionBoxAdditive = false;
     selectionBoxStart = null;
     selectionBoxEnd = null;
@@ -4806,7 +4809,8 @@ function handleMouseDown(e) {
         // LEFT CLICK ONLY for selection operations
 
         // Click on empty space - clear selection unless Shift is held
-        isSelectionBoxActive = true;
+        selectionBoxPending = true;
+        isSelectionBoxActive = false;
         selectionBoxStart = { x, y };
         selectionBoxEnd = { x, y };
         selectionBoxAdditive = e.shiftKey;
@@ -5026,11 +5030,25 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (selectionBoxPending && selectionBoxStart) {
+        selectionBoxEnd = { x, y };
+        const dx = selectionBoxEnd.x - selectionBoxStart.x;
+        const dy = selectionBoxEnd.y - selectionBoxStart.y;
+        if (Math.hypot(dx, dy) > 3) {
+            isSelectionBoxActive = true;
+        }
+    }
+
     if (isSelectionBoxActive) {
         selectionBoxEnd = { x, y };
         coordinatesDisplay.textContent = `Select box: ${Math.abs(selectionBoxEnd.x - selectionBoxStart.x).toFixed(1)} x ${Math.abs(selectionBoxEnd.y - selectionBoxStart.y).toFixed(1)}`;
         redrawCanvas();
         drawSelectionBoxOverlay();
+        return;
+    }
+
+    if (selectionBoxPending) {
+        redrawCanvas();
         return;
     }
 
@@ -5451,6 +5469,14 @@ function handleMouseUp() {
 
     if (floorDragData) {
         stopFloorDrag();
+        redrawCanvas();
+        return;
+    }
+
+    if (selectionBoxPending) {
+        selectionBoxPending = false;
+        selectionBoxStart = null;
+        selectionBoxEnd = null;
         redrawCanvas();
         return;
     }
@@ -6721,7 +6747,7 @@ function drawDirectLineArrow(start, end) {
     ctx.rotate(angle);
 
     if (directLineArrowImage.complete && directLineArrowImage.naturalWidth > 0) {
-        ctx.drawImage(directLineArrowImage, -size / 2, -size / 2, size, size);
+        ctx.drawImage(directLineArrowImage, -size, -size / 2, size, size);
     } else {
         ctx.fillStyle = '#333';
         ctx.beginPath();
