@@ -404,6 +404,13 @@ function resetViewToOrigin() {
     }
 }
 
+function ensureDefaultViewIfMissing(state) {
+    const hasOffsets = Number.isFinite(state?.view?.offsetX) && Number.isFinite(state?.view?.offsetY);
+    if (!hasOffsets) {
+        resetViewToOrigin();
+    }
+}
+
 function drawRulerBackground(ctx, width, height, isVertical = false) {
     ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, 0, width, height);
@@ -2765,6 +2772,7 @@ function applyProjectState(state) {
     viewScale = state.view?.scale ?? viewScale;
     viewOffsetX = state.view?.offsetX ?? viewOffsetX;
     viewOffsetY = state.view?.offsetY ?? viewOffsetY;
+    ensureDefaultViewIfMissing(state);
 
     nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
     nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
