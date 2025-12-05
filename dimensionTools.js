@@ -420,11 +420,17 @@ window.drawHoverWallDimension = function(wallData) {
         ctx.textBaseline = 'middle';
 
         const textWidth = ctx.measureText(text).width;
+        const textHeight = 12 * 1.2;
+
+        ctx.save();
+        ctx.translate(xPos, midY);
+        ctx.rotate(-Math.PI / 2);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(xPos - textWidth/2 - 2, midY - 8, textWidth + 4, 16);
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.fillText(text, xPos, midY);
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
     } else {
         const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
         const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
@@ -561,11 +567,17 @@ window.drawHoverSpaceDimension = function(spaceData) {
         ctx.textBaseline = 'middle';
 
         const textWidth = ctx.measureText(text).width;
+        const textHeight = 12 * 1.2;
+
+        ctx.save();
+        ctx.translate(dimensionX, midY);
+        ctx.rotate(-Math.PI / 2);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(dimensionX - textWidth/2 - 2, midY - 8, textWidth + 4, 16);
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
         ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
-        ctx.fillText(text, dimensionX, midY);
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
     }
 
     ctx.restore();
@@ -631,11 +643,23 @@ window.drawDimensionPreview = function() {
             const textWidth = ctx.measureText(text).width;
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
             const textHeight = fontPx * 1.2;
-            ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
+            const rotateVertical = Math.abs(dy) > Math.abs(dx);
 
-            // Text
-            ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
-            ctx.fillText(text, textX, textY);
+            if (rotateVertical) {
+                ctx.save();
+                ctx.translate(textX, textY);
+                ctx.rotate(-Math.PI / 2);
+                ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+                ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+                ctx.fillText(text, 0, 0);
+                ctx.restore();
+            } else {
+                ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
+
+                // Text
+                ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+                ctx.fillText(text, textX, textY);
+            }
         }
 
         ctx.restore();
