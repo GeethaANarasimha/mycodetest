@@ -250,7 +250,7 @@ input[type="number"] {
     overflow: auto;
     padding: 0px 14px 14px 28px;
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     align-items: flex-start;
     position: relative;
     min-height: 750px;
