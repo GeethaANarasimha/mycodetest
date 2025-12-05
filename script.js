@@ -375,8 +375,9 @@ function applyViewZoom(factor, anchor = null) {
 }
 
 function panView(deltaX, deltaY) {
-    viewOffsetX += deltaX;
-    viewOffsetY += deltaY;
+    const pixelScale = getCanvasPixelScale();
+    viewOffsetX += deltaX / pixelScale.x;
+    viewOffsetY += deltaY / pixelScale.y;
     syncCanvasScrollArea();
     redrawCanvas();
 }
