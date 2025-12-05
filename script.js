@@ -3592,6 +3592,10 @@ function maintainDoorAttachmentForSelection() {
         if (typeof sizeDoorToWall === 'function') {
             sizeDoorToWall(obj, { wall, n1, n2, projection, orientation }, scale);
         }
+
+        // Keep the door's rotation aligned with the wall direction so it doesn't double-rotate
+        const wallAngleDeg = (Math.atan2(n2.y - n1.y, n2.x - n1.x) * 180) / Math.PI;
+        obj.rotation = snapRotation(wallAngleDeg);
     });
 }
 
@@ -5222,12 +5226,24 @@ function getObjectTransformInfo(obj) {
     const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
     const drawWidth = isVerticalDoor ? obj.height : obj.width;
     const drawHeight = isVerticalDoor ? obj.width : obj.height;
-    const orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
+    let orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
+    let angleRad = ((obj.rotation || 0) * Math.PI) / 180;
+
+    if (obj.type === 'door' && obj.attachedWallId) {
+        const wall = walls.find(w => w.id === obj.attachedWallId);
+        const n1 = wall && getNodeById(wall.startNodeId);
+        const n2 = wall && getNodeById(wall.endNodeId);
+
+        if (n1 && n2) {
+            angleRad = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+            orientationRotation = 0; // Angle already matches the wall
+        }
+    }
 
     return {
         cx: obj.x + obj.width / 2,
         cy: obj.y + obj.height / 2,
-        angle: ((obj.rotation || 0) * Math.PI) / 180 + orientationRotation,
+        angle: angleRad + orientationRotation,
         sx: obj.flipH ? -1 : 1,
         sy: obj.flipV ? -1 : 1,
         drawWidth,
@@ -5276,20 +5292,12 @@ function getObjectHandlePoints(corners) {
 function drawObjects() {
     for (let i = 0; i < objects.length; i++) {
         const obj = objects[i];
-        const { x, y, width, height } = obj;
-        const cx = x + width / 2;
-        const cy = y + height / 2;
-        const rotRad = ((obj.rotation || 0) * Math.PI) / 180;
-        const sx = obj.flipH ? -1 : 1;
-        const sy = obj.flipV ? -1 : 1;
-        const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
-        const drawWidth = isVerticalDoor ? obj.height : obj.width;
-        const drawHeight = isVerticalDoor ? obj.width : obj.height;
-        const orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
+        const { width, height } = obj;
+        const { cx, cy, angle, sx, sy, drawWidth, drawHeight } = getObjectTransformInfo(obj);
 
         ctx.save();
         ctx.translate(cx, cy);
-        ctx.rotate(rotRad + orientationRotation);
+        ctx.rotate(angle);
         ctx.scale(sx, sy);
 
         const localX = -drawWidth / 2;
@@ -5339,7 +5347,7 @@ function drawObjects() {
             ctx.restore();
             ctx.save();
             ctx.translate(cx, cy);
-            ctx.rotate(rotRad + orientationRotation);
+            ctx.rotate(angle);
             ctx.scale(sx, sy);
         } else if (obj.type === 'staircase') {
             drawStaircaseGraphic(obj, localX, localY, width, height);
