@@ -257,12 +257,14 @@ let lastContextMenuCanvasX = null;
 let lastContextMenuCanvasY = null;
 let lastPointerCanvasX = null;
 let lastPointerCanvasY = null;
+let rightClickedFloorEdge = null;
 
 // Floor polygon lasso
 let isFloorLassoActive = false;
 let floorLassoPoints = [];
 let floorLassoPreview = null;
 let floorHoverCorner = null;
+let floorDragData = null;
 
 // View mode (2D/3D)
 let is3DView = false;
@@ -379,11 +381,13 @@ function captureLayerSnapshot(layerId = currentLayerId()) {
 function resetTransientState() {
     selectedWalls.clear();
     rightClickedWall = null;
+    rightClickedFloorEdge = null;
     selectedNode = null;
     isDraggingNode = false;
     dragDir = null;
     dragOriginNodePos = null;
     dragOriginMousePos = null;
+    floorDragData = null;
     isWallDrawing = false;
     wallChain = [];
     wallPreviewX = null;
@@ -1486,8 +1490,9 @@ function ungroupSelectedStaircases() {
 // CONTEXT MENU FUNCTIONS
 // ============================================================
 
-function showContextMenu(x, y, wall = null) {
+function showContextMenu(x, y, { wall = null, floorEdge = null } = {}) {
     rightClickedWall = wall;
+    rightClickedFloorEdge = floorEdge;
 
     const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
     const hasBackgroundImage = !!backgroundImageData;
@@ -1513,10 +1518,17 @@ function showContextMenu(x, y, wall = null) {
         </div>
     `;
 
+    const floorMenu = floorEdge ? `
+        <div class="context-item" data-action="addFloorPoint" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+            Add Floor Point
+        </div>
+    ` : '';
+
     contextMenu.innerHTML = `
         <div style="padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #eee; font-weight: bold;">
             ${wall ? 'Wall Options' : 'Designer Options'}
         </div>
+        ${floorMenu}
         ${backgroundAddItem}
         ${backgroundMenu}
         ${canGroupStairs ? `
@@ -1603,6 +1615,17 @@ function handleContextMenuAction(action) {
         case 'ungroupStairs':
             ungroupSelectedStaircases();
             break;
+        case 'addFloorPoint':
+            if (rightClickedFloorEdge) {
+                pushUndoState();
+                const targetFloor = floors.find(f => f.id === rightClickedFloorEdge.floor.id) || rightClickedFloorEdge.floor;
+                insertFloorPointAtEdge({ ...rightClickedFloorEdge, floor: targetFloor });
+                if (targetFloor) {
+                    selectedFloorIds = new Set([targetFloor.id]);
+                }
+                redrawCanvas();
+            }
+            break;
         case 'background':
             openBackgroundImageModal();
             break;
@@ -1631,6 +1654,7 @@ function handleContextMenuAction(action) {
 function hideContextMenu() {
     contextMenu.style.display = 'none';
     rightClickedWall = null;
+    rightClickedFloorEdge = null;
 }
 
 // ============================================================
@@ -2767,6 +2791,55 @@ function getFloorPoints(floor) {
     return (floor.nodeIds || []).map(id => getNodeById(id)).filter(Boolean);
 }
 
+function getFloorsUsingNode(nodeId) {
+    return floors.filter(floor => (floor.nodeIds || []).includes(nodeId));
+}
+
+function projectPointToSegment(px, py, ax, ay, bx, by) {
+    const vx = bx - ax;
+    const vy = by - ay;
+    const lenSq = vx * vx + vy * vy;
+    if (lenSq === 0) return { x: ax, y: ay, t: 0 };
+    const t = Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / lenSq));
+    return {
+        x: ax + vx * t,
+        y: ay + vy * t,
+        t
+    };
+}
+
+function findFloorEdgeAt(x, y, tolerance = 8) {
+    let closest = null;
+    for (const floor of floors) {
+        const points = getFloorPoints(floor);
+        if (points.length < 2) continue;
+        for (let i = 0; i < points.length; i++) {
+            const start = points[i];
+            const end = points[(i + 1) % points.length];
+            const projection = projectPointToSegment(x, y, start.x, start.y, end.x, end.y);
+            const dist = Math.hypot(x - projection.x, y - projection.y);
+            if (dist <= tolerance && (!closest || dist < closest.distance)) {
+                closest = {
+                    floor,
+                    startIndex: i,
+                    distance: dist,
+                    point: { x: projection.x, y: projection.y }
+                };
+            }
+        }
+    }
+    return closest;
+}
+
+function insertFloorPointAtEdge(edgeInfo) {
+    if (!edgeInfo || !edgeInfo.floor || !edgeInfo.point) return null;
+    const insertIndex = (edgeInfo.startIndex + 1) % edgeInfo.floor.nodeIds.length;
+    const snapped = snapPointToInch(edgeInfo.point.x, edgeInfo.point.y);
+    const node = findOrCreateNode(snapped.x, snapped.y);
+    edgeInfo.floor.nodeIds.splice(insertIndex, 0, node.id);
+    return node;
+}
+
 function getFloorAt(x, y) {
     for (let i = floors.length - 1; i >= 0; i--) {
         const floor = floors[i];
@@ -3523,19 +3596,24 @@ function handleCanvasContextMenu(e) {
         // Don't show context menu in paste mode
         return;
     }
-    
+
     // Find if there's a wall at the click position (optional)
     const wall = findWallAtPoint(x, y, 10);
-    
+    const floorEdge = findFloorEdgeAt(x, y);
+
     // Show context menu at click position with appropriate options
-    showContextMenu(e.clientX, e.clientY, wall);
-    
-    // If there's a wall under the cursor, optionally select it
-    if (wall && currentTool === 'select') {
-        if (!selectedWalls.has(wall)) {
-            selectedWalls.clear();
-            selectedWalls.add(wall);
+    showContextMenu(e.clientX, e.clientY, { wall, floorEdge });
+
+    if (currentTool === 'select') {
+        if (floorEdge) {
+            selectedFloorIds = new Set([floorEdge.floor.id]);
             redrawCanvas();
+        } else if (wall) {
+            if (!selectedWalls.has(wall)) {
+                selectedWalls.clear();
+                selectedWalls.add(wall);
+                redrawCanvas();
+            }
         }
     }
 }
@@ -3774,6 +3852,55 @@ function moveSelectedFloors(dx, dy, { skipUndo = false } = {}) {
     redrawCanvas();
 }
 
+function startFloorDrag(mouseX, mouseY) {
+    if (selectedFloorIds.size === 0) return;
+    const nodeIds = new Set();
+    selectedFloorIds.forEach(id => {
+        const floor = floors.find(f => f.id === id);
+        (floor?.nodeIds || []).forEach(nId => nodeIds.add(nId));
+    });
+
+    if (nodeIds.size === 0) return;
+
+    const startPositions = new Map();
+    nodeIds.forEach(nodeId => {
+        const node = getNodeById(nodeId);
+        if (node) {
+            startPositions.set(nodeId, { x: node.x, y: node.y });
+        }
+    });
+
+    floorDragData = {
+        startMouse: { x: mouseX, y: mouseY },
+        nodeIds,
+        startPositions,
+        undoApplied: false
+    };
+}
+
+function updateFloorDrag(mouseX, mouseY) {
+    if (!floorDragData) return;
+    if (!floorDragData.undoApplied) {
+        pushUndoState();
+        floorDragData.undoApplied = true;
+    }
+    const dx = mouseX - floorDragData.startMouse.x;
+    const dy = mouseY - floorDragData.startMouse.y;
+
+    floorDragData.nodeIds.forEach(nodeId => {
+        const node = getNodeById(nodeId);
+        const origin = floorDragData.startPositions.get(nodeId);
+        if (!node || !origin) return;
+        const snapped = snapPointToInch(origin.x + dx, origin.y + dy);
+        node.x = snapped.x;
+        node.y = snapped.y;
+    });
+}
+
+function stopFloorDrag() {
+    floorDragData = null;
+}
+
 function getThicknessPx() {
     const ft = parseInt(wallThicknessFeetInput.value, 10) || 0;
     const inch = parseInt(wallThicknessInchesInput.value, 10) || 0;
@@ -3923,20 +4050,28 @@ function startNodeDrag(node, mouseX, mouseY) {
         w.startNodeId === node.id || w.endNodeId === node.id
     );
 
-    if (attachedWalls.length === 0) return;
+    const belongsToFloor = getFloorsUsingNode(node.id).length > 0;
+
+    if (attachedWalls.length === 0 && !belongsToFloor) return;
 
     // Prefer a wall that is currently selected so dragging honours the intended segment
     const wall = attachedWalls.find(w => selectedWalls.has(w)) || attachedWalls[0];
-    const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
-    const other = getNodeById(otherNodeId);
+    if (wall) {
+        const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
+        const other = getNodeById(otherNodeId);
 
-    if (!other) return;
+        if (other) {
+            const dx = node.x - other.x;
+            const dy = node.y - other.y;
+            const len = Math.hypot(dx, dy) || 1;
 
-    const dx = node.x - other.x;
-    const dy = node.y - other.y;
-    const len = Math.hypot(dx, dy) || 1;
-
-    dragDir = { x: dx / len, y: dy / len };
+            dragDir = { x: dx / len, y: dy / len };
+        } else {
+            dragDir = null;
+        }
+    } else {
+        dragDir = null;
+    }
     dragOriginNodePos = { x: node.x, y: node.y };
     dragOriginMousePos = { x: mouseX, y: mouseY };
     selectedNode = node;
@@ -4479,8 +4614,17 @@ function handleMouseDown(e) {
         const node = getNodeAt(x, y);
         if (node) {
             clearDimensionSelection();
+            const floorsWithNode = getFloorsUsingNode(node.id);
+            if (floorsWithNode.length > 0) {
+                if (e.shiftKey) {
+                    floorsWithNode.forEach(floor => selectedFloorIds.add(floor.id));
+                } else {
+                    selectedFloorIds = new Set(floorsWithNode.map(floor => floor.id));
+                }
+            } else {
+                selectedFloorIds.clear();
+            }
             startNodeDrag(node, x, y);
-            selectedFloorIds.clear();
             redrawCanvas();
             return;
         }
@@ -4551,6 +4695,7 @@ function handleMouseDown(e) {
                 selectedWalls.clear();
                 selectedObjectIndices.clear();
                 ungroupSelectionElements();
+                startFloorDrag(x, y);
             }
             selectAllMode = false;
             redrawCanvas();
@@ -4899,6 +5044,17 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (floorDragData) {
+        updateFloorDrag(x, y);
+        const sampleNodeId = floorDragData.nodeIds.values().next().value;
+        const sampleNode = sampleNodeId ? getNodeById(sampleNodeId) : null;
+        if (sampleNode) {
+            coordinatesDisplay.textContent = `Floor drag: X: ${sampleNode.x.toFixed(1)}, Y: ${sampleNode.y.toFixed(1)}`;
+        }
+        redrawCanvas();
+        return;
+    }
+
     if (draggingObjectIndex !== null && objectDragOffset) {
         const obj = objects[draggingObjectIndex];
         if (obj) {
@@ -4972,14 +5128,21 @@ function handleMouseMove(e) {
         return;
     }
 
-    if (isDraggingNode && selectedNode && dragDir && dragOriginMousePos && dragOriginNodePos) {
+    if (isDraggingNode && selectedNode && dragOriginMousePos && dragOriginNodePos) {
         const dx = x - dragOriginMousePos.x;
         const dy = y - dragOriginMousePos.y;
-        let t = dx * dragDir.x + dy * dragDir.y;
-        t = snapToInchAlongDirection(t);
 
-        selectedNode.x = dragOriginNodePos.x + dragDir.x * t;
-        selectedNode.y = dragOriginNodePos.y + dragDir.y * t;
+        if (dragDir) {
+            let t = dx * dragDir.x + dy * dragDir.y;
+            t = snapToInchAlongDirection(t);
+
+            selectedNode.x = dragOriginNodePos.x + dragDir.x * t;
+            selectedNode.y = dragOriginNodePos.y + dragDir.y * t;
+        } else {
+            const snapped = snapPointToInch(dragOriginNodePos.x + dx, dragOriginNodePos.y + dy);
+            selectedNode.x = snapped.x;
+            selectedNode.y = snapped.y;
+        }
 
         coordinatesDisplay.textContent = `X: ${selectedNode.x.toFixed(1)}, Y: ${selectedNode.y.toFixed(1)}`;
         redrawCanvas();
@@ -5135,6 +5298,12 @@ function handleMouseUp() {
 
     if (windowHandleDrag) {
         windowHandleDrag = null;
+        redrawCanvas();
+        return;
+    }
+
+    if (floorDragData) {
+        stopFloorDrag();
         redrawCanvas();
         return;
     }
@@ -6173,8 +6342,24 @@ function drawFloors() {
             ctx.stroke();
         }
 
+        drawFloorVertices(points, selectedFloorIds.has(floor.id));
+
         ctx.restore();
     });
+}
+
+function drawFloorVertices(points, isSelected) {
+    ctx.save();
+    points.forEach(pt => {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = isSelected ? 'rgba(22, 160, 133, 0.25)' : '#ffffff';
+        ctx.strokeStyle = isSelected ? '#16a085' : '#7f8c8d';
+        ctx.lineWidth = isSelected ? 2 : 1.25;
+        ctx.fill();
+        ctx.stroke();
+    });
+    ctx.restore();
 }
 
 function getWindowHandles(obj) {
