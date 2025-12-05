@@ -1494,7 +1494,10 @@ function showContextMenu(x, y, { wall = null, floorEdge = null } = {}) {
     rightClickedWall = wall;
     rightClickedFloorEdge = floorEdge;
 
-    const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
+    const hasSelection =
+        selectedWalls.size > 0 ||
+        selectedObjectIndices.size > 0 ||
+        selectedFloorIds.size > 0;
     const hasBackgroundImage = !!backgroundImageData;
     const stairIndices = getSelectedStairIndices();
     const sharedStairGroup = getSharedStairGroupId(stairIndices);
@@ -3599,6 +3602,7 @@ function handleCanvasContextMenu(e) {
 
     // Find if there's a wall at the click position (optional)
     const wall = findWallAtPoint(x, y, 10);
+    const floor = getFloorAt(x, y);
     const floorEdge = findFloorEdgeAt(x, y);
 
     // Show context menu at click position with appropriate options
@@ -3607,6 +3611,9 @@ function handleCanvasContextMenu(e) {
     if (currentTool === 'select') {
         if (floorEdge) {
             selectedFloorIds = new Set([floorEdge.floor.id]);
+            redrawCanvas();
+        } else if (floor) {
+            selectedFloorIds = new Set([floor.id]);
             redrawCanvas();
         } else if (wall) {
             if (!selectedWalls.has(wall)) {
@@ -7840,7 +7847,10 @@ function handleKeyDown(e) {
             selectAllMode = false;
             redrawCanvas();
         } else {
-            const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
+            const hasSelection =
+                selectedWalls.size > 0 ||
+                selectedObjectIndices.size > 0 ||
+                selectedFloorIds.size > 0;
             const hasDimensions = window.dimensions && window.dimensions.length > 0;
             const hasSelectedDimension = selectedDimensionIndex !== null;
 
