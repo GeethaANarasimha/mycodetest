@@ -4823,6 +4823,7 @@ function handleMouseDown(e) {
             selectAllMode = false;
             ungroupSelectionElements();
             clearDimensionSelection();
+            clearDirectLineSelection();
         }
 
         redrawCanvas();
@@ -6777,9 +6778,10 @@ function drawDirectLinePath(points, options = {}) {
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    for (let i = points.length - 1; i > 0; i--) {
-        const start = points[i - 1];
-        const end = points[i];
+    const end = points[points.length - 1];
+    // Use the final segment direction (previous distinct point -> end point)
+    for (let i = points.length - 2; i >= 0; i--) {
+        const start = points[i];
         if (!start || !end) continue;
         if (start.x === end.x && start.y === end.y) continue;
         drawDirectLineArrow(start, end);
