@@ -6748,18 +6748,21 @@ function drawDirectLineArrow(start, end) {
     const size = 18;
 
     ctx.save();
-    // Position the arrow so the base (middle of the triangle) sits exactly on the
-    // line end point, rather than placing the tip there. This keeps the arrowhead
-    // visually connected to the line.
+    // Position the arrow so the tip sits exactly on the end point of the line
+    // segment. This keeps the arrow visually anchored to the direction of the
+    // drawn line instead of floating past the endpoint or snapping to an adjacent
+    // segment.
     ctx.translate(end.x, end.y);
     ctx.rotate(angle);
-    ctx.translate(size, 0);
 
     if (directLineArrowImage.complete && directLineArrowImage.naturalWidth > 0) {
+        // The source asset points to the right, so draw it with the tip aligned
+        // to (0, 0) and the base offset backward along the line direction.
         ctx.drawImage(directLineArrowImage, -size, -size / 2, size, size);
     } else {
         ctx.fillStyle = '#333';
         ctx.beginPath();
+        // Tip at the origin, base offset by `size` along the negative X axis.
         ctx.moveTo(0, 0);
         ctx.lineTo(-size, size / 2);
         ctx.lineTo(-size, -size / 2);
