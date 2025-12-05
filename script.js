@@ -119,6 +119,7 @@ const DEFAULT_STAIR_FILL = '#e5e7eb';
 const MIN_VIEW_SCALE = 0.5;
 const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
+const WALL_ANGLE_SNAP_DEGREES = 15;
 const SAVE_FILE_EXTENSION = '.paz';
 const SAVE_SECRET = 'apzok-project-key';
 const DEFAULT_TREAD_DEPTH_INCHES = 10;
@@ -197,6 +198,12 @@ let selectionBoxAdditive = false;
 function snapRotation(angle, step = 5) {
     const normalized = ((angle % 360) + 360) % 360;
     return (Math.round(normalized / step) * step) % 360;
+}
+
+function snapAngleRadians(angle, stepDegrees = WALL_ANGLE_SNAP_DEGREES) {
+    const angleDegrees = (angle * 180) / Math.PI;
+    const snappedDegrees = snapRotation(angleDegrees, stepDegrees);
+    return (snappedDegrees * Math.PI) / 180;
 }
 
 // WALL CHAINING
@@ -4932,6 +4939,18 @@ function handleMouseMove(e) {
             if (snappedNode) {
                 ex = snappedNode.x;
                 ey = snappedNode.y;
+            } else {
+                const len = Math.hypot(ex - sx, ey - sy);
+                if (len > 0) {
+                    const snappedAngle = snapAngleRadians(Math.atan2(ey - sy, ex - sx));
+                    const snappedEx = sx + Math.cos(snappedAngle) * len;
+                    const snappedEy = sy + Math.sin(snappedAngle) * len;
+
+                    alignmentHints.push({ type: 'angle', ax: sx, ay: sy, ex: snappedEx, ey: snappedEy });
+
+                    ex = snappedEx;
+                    ey = snappedEy;
+                }
             }
 
             for (const node of nodes) {
