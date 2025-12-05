@@ -127,7 +127,6 @@ const DEFAULT_TREAD_DEPTH_INCHES = 10;
 const STAIRCASE_MAGNET_THRESHOLD = 12;
 const RULER_SIZE = 28;
 const DEFAULT_VIEW_MARGIN_FEET = 3;
-const DIRECT_LINE_ARROW_SRC = 'https://static.wixstatic.com/shapes/602ad4_407956fc7daf45d3803b4db9869a74e2.svg';
 const DIRECT_LINE_HANDLE_RADIUS = 8;
 const DIRECT_LINE_HIT_TOLERANCE = 8;
 
@@ -207,8 +206,6 @@ let directLines = [];
 let isDirectLineDrawing = false;
 let directLinePoints = [];
 let directLinePreview = null;
-const directLineArrowImage = new Image();
-directLineArrowImage.src = DIRECT_LINE_ARROW_SRC;
 let selectedDirectLineIndices = new Set();
 let directLinePointSelection = null;
 let directLineDrag = null;
@@ -6912,13 +6909,14 @@ function drawFloorLassoOverlay() {
     ctx.restore();
 }
 
-function drawDirectLineArrow(start, end) {
+function drawDirectLineArrow(start, end, options = {}) {
     if (!start || !end) return;
     if (start.x === end.x && start.y === end.y) return;
     // Align the arrow head with the actual direction of the segment
     // so a 0° heading renders to the right, 90° up, etc.
     const angle = Math.atan2(end.y - start.y, end.x - start.x);
     const size = 18;
+    const color = options.color || '#333';
 
     ctx.save();
     // Position the arrow so the tail (base) sits exactly on the end point of the
@@ -6927,20 +6925,14 @@ function drawDirectLineArrow(start, end) {
     ctx.translate(end.x, end.y);
     ctx.rotate(angle);
 
-    if (directLineArrowImage.complete && directLineArrowImage.naturalWidth > 0) {
-        // The source asset points to the right; draw it with the tail at the
-        // origin so the tip extends forward along the line direction.
-        ctx.drawImage(directLineArrowImage, 0, -size / 2, size, size);
-    } else {
-        ctx.fillStyle = '#333';
-        ctx.beginPath();
-        // Tail at the origin, tip offset forward by `size`.
-        ctx.moveTo(size, 0);
-        ctx.lineTo(0, size / 2);
-        ctx.lineTo(0, -size / 2);
-        ctx.closePath();
-        ctx.fill();
-    }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    // Tail at the origin, tip offset forward by `size`.
+    ctx.moveTo(size, 0);
+    ctx.lineTo(0, size / 2);
+    ctx.lineTo(0, -size / 2);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.restore();
 }
@@ -6955,8 +6947,11 @@ function drawDirectLinePath(points, options = {}) {
     for (let i = 1; i < points.length; i++) {
         ctx.lineTo(points[i].x, points[i].y);
     }
-    ctx.strokeStyle = lineColor || (lineColorInput?.value || DEFAULT_WALL_COLOR);
-    ctx.lineWidth = lineWidth || (parseInt(lineWidthInput?.value, 10) || 2);
+    const strokeColor = lineColor || (lineColorInput?.value || DEFAULT_WALL_COLOR);
+    const strokeWidth = lineWidth || (parseInt(lineWidthInput?.value, 10) || 2);
+
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = strokeWidth;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();
@@ -6978,7 +6973,7 @@ function drawDirectLinePath(points, options = {}) {
     }
 
     if (arrowStart && (arrowStart.x !== end.x || arrowStart.y !== end.y)) {
-        drawDirectLineArrow(arrowStart, end);
+        drawDirectLineArrow(arrowStart, end, { color: strokeColor });
     }
     ctx.restore();
 }
