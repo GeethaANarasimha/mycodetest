@@ -126,6 +126,7 @@ const DEFAULT_TREAD_DEPTH_INCHES = 10;
 const STAIRCASE_MAGNET_THRESHOLD = 12;
 const RULER_SIZE = 28;
 const DEFAULT_VIEW_MARGIN_FEET = 3;
+const DIRECT_LINE_ARROW_SRC = 'https://static.wixstatic.com/shapes/602ad4_407956fc7daf45d3803b4db9869a74e2.svg';
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -197,6 +198,14 @@ let viewOffsetX = 0;
 let viewOffsetY = 0;
 let last2DScrollLeft = 0;
 let last2DScrollTop = 0;
+
+// Direct line tool
+let directLines = [];
+let isDirectLineDrawing = false;
+let directLinePoints = [];
+let directLinePreview = null;
+const directLineArrowImage = new Image();
+directLineArrowImage.src = DIRECT_LINE_ARROW_SRC;
 
 let selectedWalls = new Set(); // MULTIPLE wall selection
 let rightClickedWall = null;
@@ -360,6 +369,7 @@ function cloneLayerStatePayload() {
         nodes: JSON.parse(JSON.stringify(nodes)),
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
+        directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
@@ -398,6 +408,7 @@ function resetTransientState() {
     selectedObjectIndices.clear();
     selectAllMode = false;
     resetFloorLasso();
+    resetDirectLineDrawing();
     clearDimensionSelection();
 
     if (typeof window.resetDimensionTool === 'function') {
@@ -2863,6 +2874,7 @@ function cloneState() {
         nodes: JSON.parse(JSON.stringify(nodes)),
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
+        directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
@@ -2876,6 +2888,7 @@ function restoreState(state) {
     nodes = JSON.parse(JSON.stringify(state.nodes));
     walls = JSON.parse(JSON.stringify(state.walls));
     objects = JSON.parse(JSON.stringify(state.objects));
+    directLines = JSON.parse(JSON.stringify(state.directLines || []));
     floors = JSON.parse(JSON.stringify(state.floors || []));
     nextFloorId = floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1;
 
@@ -2999,6 +3012,7 @@ function buildProjectState() {
         nodes: JSON.parse(JSON.stringify(nodes)),
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
+        directLines: JSON.parse(JSON.stringify(directLines)),
         floors: (floors || []).map(stripFloorPattern),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
@@ -3086,6 +3100,9 @@ function applyProjectState(state) {
 
          captureLayerSnapshot();
      }
+
+     directLines = JSON.parse(JSON.stringify(state.directLines || []));
+     resetDirectLineDrawing();
 
      const settings = state.settings || {};
      scale = settings.scale ?? scale;
@@ -3264,6 +3281,7 @@ function init() {
             cancelBackgroundMeasurement();
             closeTextModal();
             closeStaircaseModal();
+            resetDirectLineDrawing();
         }
     });
 
@@ -3292,6 +3310,10 @@ function init() {
 
             if (currentTool !== 'dimension' && typeof window.resetDimensionTool === 'function') {
                 window.resetDimensionTool();
+            }
+
+            if (currentTool !== 'directline') {
+                resetDirectLineDrawing();
             }
 
             if (currentTool === 'staircase') {
@@ -4490,6 +4512,21 @@ function handleMouseDown(e) {
         return;
     }
 
+    if (currentTool === 'directline') {
+        ({ x, y } = snapPointToInch(x, y));
+        if (!isDirectLineDrawing) {
+            isDirectLineDrawing = true;
+            directLinePoints = [{ x, y }];
+        } else {
+            directLinePoints.push({ x, y });
+        }
+
+        directLinePreview = null;
+        coordinatesDisplay.textContent = `Direct line: ${directLinePoints.length} point(s)`;
+        redrawCanvas();
+        return;
+    }
+
     if (currentTool === 'floor') {
         ({ x, y } = snapPointToInch(x, y));
         const snapNode = getClosestNodeWithinRadius(x, y);
@@ -5115,6 +5152,19 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (currentTool === 'directline') {
+        ({ x, y } = snapPointToInch(x, y));
+        if (isDirectLineDrawing && directLinePoints.length > 0) {
+            directLinePreview = { x, y };
+            const lastPoint = directLinePoints[directLinePoints.length - 1];
+            coordinatesDisplay.textContent = `Direct line: ${(Math.hypot(x - lastPoint.x, y - lastPoint.y) / scale).toFixed(2)}ft segment preview`;
+        } else {
+            coordinatesDisplay.textContent = `Direct line: ${x.toFixed(1)}, ${y.toFixed(1)}`;
+        }
+        redrawCanvas();
+        return;
+    }
+
     if (currentTool === 'floor') {
         ({ x, y } = snapPointToInch(x, y));
         floorHoverCorner = getClosestNodeWithinRadius(x, y);
@@ -5556,6 +5606,14 @@ function applyDimensionDrag(x, y) {
 
 function handleCanvasDoubleClick(e) {
     let { x, y } = screenToWorld(e.clientX, e.clientY);
+
+    if (currentTool === 'directline' && isDirectLineDrawing) {
+        ({ x, y } = snapPointToInch(x, y));
+        directLinePoints.push({ x, y });
+        ignoreNextClick = true;
+        finalizeDirectLine();
+        return;
+    }
 
     if (currentTool === 'floor' && isFloorLassoActive) {
         ({ x, y } = snapPointToInch(x, y));
@@ -6562,6 +6620,100 @@ function drawFloorLassoOverlay() {
     ctx.restore();
 }
 
+function drawDirectLineArrow(start, end) {
+    if (!start || !end) return;
+    const angle = Math.atan2(end.y - start.y, end.x - start.x);
+    const size = 18;
+
+    ctx.save();
+    ctx.translate(end.x, end.y);
+    ctx.rotate(angle);
+
+    if (directLineArrowImage.complete && directLineArrowImage.naturalWidth > 0) {
+        ctx.drawImage(directLineArrowImage, -size / 2, -size / 2, size, size);
+    } else {
+        ctx.fillStyle = '#333';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-size, size / 2);
+        ctx.lineTo(-size, -size / 2);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+function drawDirectLinePath(points, options = {}) {
+    if (!points || points.length < 2) return;
+    const { lineColor, lineWidth } = options;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.strokeStyle = lineColor || (lineColorInput?.value || DEFAULT_WALL_COLOR);
+    ctx.lineWidth = lineWidth || (parseInt(lineWidthInput?.value, 10) || 2);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    drawDirectLineArrow(points[points.length - 2], points[points.length - 1]);
+    ctx.restore();
+}
+
+function drawDirectLines() {
+    directLines.forEach(line => drawDirectLinePath(line.points, line));
+
+    if (isDirectLineDrawing && directLinePoints.length > 0) {
+        const previewPoints = directLinePreview
+            ? directLinePoints.concat([directLinePreview])
+            : directLinePoints;
+        drawDirectLinePath(previewPoints, {
+            lineColor: lineColorInput?.value || DEFAULT_WALL_COLOR,
+            lineWidth: parseInt(lineWidthInput?.value, 10) || 2
+        });
+
+        ctx.save();
+        previewPoints.forEach(pt => {
+            ctx.beginPath();
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.35)';
+            ctx.strokeStyle = '#2980b9';
+            ctx.lineWidth = 1.25;
+            ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+        ctx.restore();
+    }
+}
+
+function resetDirectLineDrawing() {
+    isDirectLineDrawing = false;
+    directLinePoints = [];
+    directLinePreview = null;
+}
+
+function finalizeDirectLine() {
+    if (directLinePoints.length < 2) {
+        resetDirectLineDrawing();
+        redrawCanvas();
+        return;
+    }
+
+    pushUndoState();
+    directLines.push({
+        points: JSON.parse(JSON.stringify(directLinePoints)),
+        lineColor: lineColorInput?.value || DEFAULT_WALL_COLOR,
+        lineWidth: parseInt(lineWidthInput?.value, 10) || 2
+    });
+
+    resetDirectLineDrawing();
+    redrawCanvas();
+}
+
 function redrawCanvas() {
     if (is3DView) {
         refresh3DView();
@@ -6578,6 +6730,7 @@ function redrawCanvas() {
     drawGrid();
     drawFloors();
     drawWalls();
+    drawDirectLines();
     drawObjects();
     drawDimensions();
     drawBackgroundMeasurementLine();
@@ -7839,6 +7992,7 @@ function handleKeyDown(e) {
                 nodes = [];
                 walls = [];
                 objects = [];
+                directLines = [];
                 if (window.dimensions) window.dimensions = [];
             }
             selectedWalls.clear();
@@ -7994,6 +8148,7 @@ function updateToolInfo() {
         case 'select': name = 'Select'; break;
         case 'erase': name = 'Eraser'; break;
         case 'dimension': name = 'Dimension'; break;
+        case 'directline': name = 'Direct Line (click to add points, double-click to finish)'; break;
         case 'text': name = 'Text'; break;
     }
 
