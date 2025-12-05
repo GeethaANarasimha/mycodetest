@@ -73,6 +73,9 @@
         const prev = activeLayerId;
         activeLayerId = id;
         notifyLayerChange(prev, activeLayerId);
+    function setActiveLayer(id) {
+        if (!layers.some(layer => layer.id === id)) return;
+        activeLayerId = id;
     }
 
     function addLayer(name) {

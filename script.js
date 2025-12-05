@@ -2862,6 +2862,11 @@ function buildProjectState() {
         clipboard: JSON.parse(JSON.stringify(clipboard)),
         layerState: typeof getLayerState === 'function' ? getLayerState() : null,
         layerDrawings: exportLayerDrawings(),
+        objects: JSON.parse(JSON.stringify(objects)),
+        floors: (floors || []).map(stripFloorPattern),
+        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
+        clipboard: JSON.parse(JSON.stringify(clipboard)),
+        layerState: typeof getLayerState === 'function' ? getLayerState() : null,
         settings: {
             scale,
             gridSize,
@@ -2937,9 +2942,25 @@ function applyProjectState(state) {
         captureLayerSnapshot();
     }
 
+function applyProjectState(state) {
+    nodes = JSON.parse(JSON.stringify(state.nodes || []));
+    walls = JSON.parse(JSON.stringify(state.walls || []));
+    objects = JSON.parse(JSON.stringify(state.objects || []));
+    floors = (state.floors || []).map(stripFloorPattern);
+
+    if (state.dimensions) {
+        window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
+        window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
+    }
+
+    clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
     isPasteMode = false;
     pasteTargetX = null;
     pasteTargetY = null;
+
+    if (typeof applyLayerState === 'function') {
+        applyLayerState(state.layerState);
+    }
 
     const settings = state.settings || {};
     scale = settings.scale ?? scale;
