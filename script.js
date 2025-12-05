@@ -149,6 +149,8 @@ let nextWallId = 1;
 let floors = [];
 let nextFloorId = 1;
 let nextStairGroupId = 1;
+let selectedDimensionIndex = null;
+let dimensionDrag = null;
 
 let objects = [];
 
@@ -165,6 +167,16 @@ let staircaseSettings = {
     landingLengthInches: 0,
     treadDepthInches: DEFAULT_TREAD_DEPTH_INCHES
 };
+
+function setSelectedDimension(index) {
+    selectedDimensionIndex = index;
+    window.selectedDimensionIndex = index;
+}
+
+function clearDimensionSelection() {
+    setSelectedDimension(null);
+    dimensionDrag = null;
+}
 
 // Background image + measurement
 let backgroundImageData = null; // committed image { image, x, y, width, height }
@@ -382,6 +394,7 @@ function resetTransientState() {
     selectedObjectIndices.clear();
     selectAllMode = false;
     resetFloorLasso();
+    clearDimensionSelection();
 
     if (typeof window.resetDimensionTool === 'function') {
         window.resetDimensionTool();
@@ -3670,6 +3683,29 @@ function moveSelectedWalls(dx, dy, { skipUndo = false } = {}) {
     redrawCanvas();
 }
 
+function moveSelectedDimension(dx, dy, { skipUndo = false } = {}) {
+    if (selectedDimensionIndex === null) return;
+
+    const dimension = window.dimensions?.[selectedDimensionIndex];
+    if (!dimension) return;
+
+    if (!skipUndo) pushUndoState();
+
+    const start = snapPointToInch(dimension.startX + dx, dimension.startY + dy);
+    const end = snapPointToInch(dimension.endX + dx, dimension.endY + dy);
+
+    dimension.startX = start.x;
+    dimension.startY = start.y;
+    dimension.endX = end.x;
+    dimension.endY = end.y;
+
+    if (typeof window.updateDimensionMeasurement === 'function') {
+        window.updateDimensionMeasurement(dimension);
+    }
+
+    redrawCanvas();
+}
+
 function moveSelectedObjects(dx, dy, { skipUndo = false } = {}) {
     if (selectedObjectIndices.size === 0) return;
 
@@ -4387,6 +4423,23 @@ function handleMouseDown(e) {
             return;
         }
 
+        const dimensionHit = getDimensionHandleHit(x, y);
+        if (dimensionHit) {
+            selectAllMode = false;
+            selectedWalls.clear();
+            selectedObjectIndices.clear();
+            selectedFloorIds.clear();
+            selectedNode = null;
+            setSelectedDimension(dimensionHit.index);
+
+            if (dimensionHit.handle) {
+                startDimensionDrag(dimensionHit.index, dimensionHit.handle, x, y);
+            }
+
+            redrawCanvas();
+            return;
+        }
+
         // Check for node handles of selected walls
         for (const wall of selectedWalls) {
             const n1 = getNodeById(wall.startNodeId);
@@ -4405,6 +4458,7 @@ function handleMouseDown(e) {
         // Check for any node
         const node = getNodeAt(x, y);
         if (node) {
+            clearDimensionSelection();
             startNodeDrag(node, x, y);
             selectedFloorIds.clear();
             redrawCanvas();
@@ -4414,6 +4468,7 @@ function handleMouseDown(e) {
         // Check for object
         const objIndex = getObjectAt(x, y, true);
         if (objIndex !== -1) {
+            clearDimensionSelection();
             selectAllMode = false;
             if (e.shiftKey) {
                 if (selectedObjectIndices.has(objIndex)) {
@@ -4439,6 +4494,7 @@ function handleMouseDown(e) {
         // Check for wall
         const wall = getWallAt(x, y);
         if (wall) {
+            clearDimensionSelection();
             if (e.shiftKey) {
                 // MULTIPLE SELECTION with Shift key
                 if (selectedWalls.has(wall)) {
@@ -4463,6 +4519,7 @@ function handleMouseDown(e) {
 
         const floorHit = getFloorAt(x, y);
         if (floorHit) {
+            clearDimensionSelection();
             if (e.shiftKey) {
                 if (selectedFloorIds.has(floorHit.id)) {
                     selectedFloorIds.delete(floorHit.id);
@@ -4495,6 +4552,7 @@ function handleMouseDown(e) {
             selectedFloorIds.clear();
             selectAllMode = false;
             ungroupSelectionElements();
+            clearDimensionSelection();
         }
 
         redrawCanvas();
@@ -4511,6 +4569,9 @@ function handleMouseDown(e) {
             const dimIndex = getDimensionAt(x, y);
             if (dimIndex !== -1) {
                 pushUndoState();
+                if (selectedDimensionIndex === dimIndex) {
+                    clearDimensionSelection();
+                }
                 window.dimensions.splice(dimIndex, 1);
                 redrawCanvas();
                 return;
@@ -4677,6 +4738,11 @@ function handleMouseMove(e) {
         coordinatesDisplay.textContent = `Select box: ${Math.abs(selectionBoxEnd.x - selectionBoxStart.x).toFixed(1)} x ${Math.abs(selectionBoxEnd.y - selectionBoxStart.y).toFixed(1)}`;
         redrawCanvas();
         drawSelectionBoxOverlay();
+        return;
+    }
+
+    if (dimensionDrag) {
+        applyDimensionDrag(x, y);
         return;
     }
 
@@ -5029,6 +5095,12 @@ function handleMouseUp() {
         return;
     }
 
+    if (dimensionDrag) {
+        dimensionDrag = null;
+        redrawCanvas();
+        return;
+    }
+
     if (draggingObjectIndex !== null) {
         stopObjectDrag();
         redrawCanvas();
@@ -5198,6 +5270,92 @@ function handleCanvasClick(e) {
     wallPreviewX = wallPreviewY = null;
     alignmentHints = [];
     redrawCanvas();
+}
+
+function getDimensionHandleHit(x, y) {
+    if (!window.dimensions || window.dimensions.length === 0) return null;
+
+    const handleRadius = 8;
+
+    for (let i = window.dimensions.length - 1; i >= 0; i--) {
+        const dim = window.dimensions[i];
+
+        if (Math.hypot(x - dim.startX, y - dim.startY) <= handleRadius) {
+            return { index: i, handle: 'start' };
+        }
+
+        if (Math.hypot(x - dim.endX, y - dim.endY) <= handleRadius) {
+            return { index: i, handle: 'end' };
+        }
+
+        const distance = distanceToSegment(x, y, dim.startX, dim.startY, dim.endX, dim.endY);
+        if (distance <= handleRadius) {
+            return { index: i, handle: 'line' };
+        }
+    }
+
+    return null;
+}
+
+function startDimensionDrag(index, handle, x, y) {
+    const dimension = window.dimensions?.[index];
+    if (!dimension) return;
+
+    dimensionDrag = {
+        index,
+        handle,
+        startMouse: { x, y },
+        initial: {
+            startX: dimension.startX,
+            startY: dimension.startY,
+            endX: dimension.endX,
+            endY: dimension.endY
+        },
+        undoApplied: false
+    };
+}
+
+function applyDimensionDrag(x, y) {
+    if (!dimensionDrag) return false;
+
+    const dimension = window.dimensions?.[dimensionDrag.index];
+    if (!dimension) return false;
+
+    if (!dimensionDrag.undoApplied) {
+        pushUndoState();
+        dimensionDrag.undoApplied = true;
+    }
+
+    const dx = x - dimensionDrag.startMouse.x;
+    const dy = y - dimensionDrag.startMouse.y;
+    const { initial } = dimensionDrag;
+
+    let newStart = { x: initial.startX, y: initial.startY };
+    let newEnd = { x: initial.endX, y: initial.endY };
+
+    if (dimensionDrag.handle === 'start') {
+        newStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
+    } else if (dimensionDrag.handle === 'end') {
+        newEnd = snapPointToInch(initial.endX + dx, initial.endY + dy);
+    } else if (dimensionDrag.handle === 'line') {
+        const snappedStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
+        const offsetX = snappedStart.x - initial.startX;
+        const offsetY = snappedStart.y - initial.startY;
+        newStart = { x: initial.startX + offsetX, y: initial.startY + offsetY };
+        newEnd = { x: initial.endX + offsetX, y: initial.endY + offsetY };
+    }
+
+    dimension.startX = newStart.x;
+    dimension.startY = newStart.y;
+    dimension.endX = newEnd.x;
+    dimension.endY = newEnd.y;
+
+    if (typeof window.updateDimensionMeasurement === 'function') {
+        window.updateDimensionMeasurement(dimension);
+    }
+
+    redrawCanvas();
+    return true;
 }
 
 function handleCanvasDoubleClick(e) {
@@ -7321,6 +7479,7 @@ function selectAllEntities() {
     selectedWalls = new Set(walls);
     selectedNode = null;
     selectedFloorIds = new Set(floors.map(f => f.id));
+    clearDimensionSelection();
     isDraggingNode = false;
     selectAllMode = true;
     expandSelectionWithGroups();
@@ -7403,13 +7562,18 @@ function handleKeyDown(e) {
         }
 
         if (dx !== 0 || dy !== 0) {
-            const hasSelection = selectedObjectIndices.size > 0 || selectedWalls.size > 0 || selectedFloorIds.size > 0;
+            const hasSelection =
+                selectedObjectIndices.size > 0 ||
+                selectedWalls.size > 0 ||
+                selectedFloorIds.size > 0 ||
+                selectedDimensionIndex !== null;
             if (hasSelection) {
                 e.preventDefault();
                 pushUndoState();
                 moveSelectedObjects(dx, dy, { skipUndo: true });
                 moveSelectedWalls(dx, dy, { skipUndo: true });
                 moveSelectedFloors(dx, dy, { skipUndo: true });
+                moveSelectedDimension(dx, dy, { skipUndo: true });
                 maintainDoorAttachmentForSelection();
                 redrawCanvas();
                 return;
