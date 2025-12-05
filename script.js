@@ -293,6 +293,171 @@ let pasteTargetX = null;
 let pasteTargetY = null;
 let lastPropertyContext = null;
 
+// Layered drawings
+let layerSnapshots = {};
+let isProjectLoading = false;
+
+function currentLayerId() {
+    return typeof getActiveLayerId === 'function' ? getActiveLayerId() : 'default-layer';
+}
+
+function createEmptyLayerSnapshot() {
+    return {
+        nodes: [],
+        walls: [],
+        objects: [],
+        floors: [],
+        dimensions: [],
+        clipboard: {
+            walls: [],
+            objects: [],
+            floors: [],
+            nodes: [],
+            referenceX: 0,
+            referenceY: 0
+        },
+        ids: {
+            nextNodeId: 1,
+            nextWallId: 1,
+            nextFloorId: 1,
+            nextStairGroupId: 1
+        },
+        undoStack: [],
+        redoStack: []
+    };
+}
+
+function ensureLayerSnapshot(layerId) {
+    if (!layerSnapshots[layerId]) {
+        layerSnapshots[layerId] = createEmptyLayerSnapshot();
+    }
+    return layerSnapshots[layerId];
+}
+
+function cloneLayerStatePayload() {
+    return {
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        walls: JSON.parse(JSON.stringify(walls)),
+        objects: JSON.parse(JSON.stringify(objects)),
+        floors: JSON.parse(JSON.stringify(floors)),
+        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
+        clipboard: JSON.parse(JSON.stringify(clipboard)),
+        ids: {
+            nextNodeId,
+            nextWallId,
+            nextFloorId,
+            nextStairGroupId
+        },
+        undoStack: JSON.parse(JSON.stringify(undoStack)),
+        redoStack: JSON.parse(JSON.stringify(redoStack))
+    };
+}
+
+function captureLayerSnapshot(layerId = currentLayerId()) {
+    layerSnapshots[layerId] = cloneLayerStatePayload();
+}
+
+function resetTransientState() {
+    selectedWalls.clear();
+    rightClickedWall = null;
+    selectedNode = null;
+    isDraggingNode = false;
+    dragDir = null;
+    dragOriginNodePos = null;
+    dragOriginMousePos = null;
+    isWallDrawing = false;
+    wallChain = [];
+    wallPreviewX = null;
+    wallPreviewY = null;
+    alignmentHints = [];
+    ignoreNextClick = false;
+    selectedFloorIds.clear();
+    selectedObjectIndices.clear();
+    selectAllMode = false;
+    resetFloorLasso();
+
+    if (typeof window.resetDimensionTool === 'function') {
+        window.resetDimensionTool();
+    }
+}
+
+function loadLayerSnapshot(layerId = currentLayerId()) {
+    const snapshot = ensureLayerSnapshot(layerId);
+    nodes = JSON.parse(JSON.stringify(snapshot.nodes));
+    walls = JSON.parse(JSON.stringify(snapshot.walls));
+    objects = JSON.parse(JSON.stringify(snapshot.objects));
+    floors = JSON.parse(JSON.stringify(snapshot.floors));
+
+    if (snapshot.dimensions) {
+        window.dimensions = JSON.parse(JSON.stringify(snapshot.dimensions));
+        window.nextDimensionId = snapshot.dimensions.length > 0 ? Math.max(...snapshot.dimensions.map(d => d.id)) + 1 : 1;
+    }
+
+    clipboard = JSON.parse(JSON.stringify(snapshot.clipboard || clipboard));
+
+    nextNodeId = snapshot.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
+    nextWallId = snapshot.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
+    nextFloorId = snapshot.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
+    nextStairGroupId = snapshot.ids?.nextStairGroupId ?? nextStairGroupId;
+
+    undoStack = JSON.parse(JSON.stringify(snapshot.undoStack || []));
+    redoStack = JSON.parse(JSON.stringify(snapshot.redoStack || []));
+
+    isPasteMode = false;
+    pasteTargetX = null;
+    pasteTargetY = null;
+
+    resetTransientState();
+    redrawCanvas();
+}
+
+function exportLayerDrawings() {
+    captureLayerSnapshot();
+    const exported = {};
+    Object.entries(layerSnapshots).forEach(([layerId, snapshot]) => {
+        exported[layerId] = {
+            nodes: JSON.parse(JSON.stringify(snapshot.nodes)),
+            walls: JSON.parse(JSON.stringify(snapshot.walls)),
+            objects: JSON.parse(JSON.stringify(snapshot.objects)),
+            floors: JSON.parse(JSON.stringify(snapshot.floors)),
+            dimensions: JSON.parse(JSON.stringify(snapshot.dimensions || [])),
+            ids: JSON.parse(JSON.stringify(snapshot.ids || {}))
+        };
+    });
+    return exported;
+}
+
+function importLayerDrawings(layerData) {
+    layerSnapshots = {};
+    if (!layerData || typeof layerData !== 'object') return;
+    Object.entries(layerData).forEach(([layerId, snapshot]) => {
+        layerSnapshots[layerId] = {
+            ...createEmptyLayerSnapshot(),
+            ...snapshot,
+            undoStack: [],
+            redoStack: []
+        };
+    });
+}
+
+function handleLayerChange(nextLayerId, previousLayerId) {
+    if (!nextLayerId) return;
+    if (!isProjectLoading && previousLayerId) {
+        captureLayerSnapshot(previousLayerId);
+    }
+    loadLayerSnapshot(nextLayerId);
+}
+
+function setupLayering() {
+    const activeLayerId = currentLayerId();
+    ensureLayerSnapshot(activeLayerId);
+    captureLayerSnapshot(activeLayerId);
+
+    if (typeof onLayerChange === 'function') {
+        onLayerChange(handleLayerChange);
+    }
+}
+
 // View helpers
 function getCanvasPixelScale() {
     const rect = canvas.getBoundingClientRect();
@@ -2696,6 +2861,12 @@ function buildProjectState() {
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
         layerState: typeof getLayerState === 'function' ? getLayerState() : null,
+        layerDrawings: exportLayerDrawings(),
+        objects: JSON.parse(JSON.stringify(objects)),
+        floors: (floors || []).map(stripFloorPattern),
+        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
+        clipboard: JSON.parse(JSON.stringify(clipboard)),
+        layerState: typeof getLayerState === 'function' ? getLayerState() : null,
         settings: {
             scale,
             gridSize,
@@ -2742,6 +2913,36 @@ function hydrateBackgroundFromState(background) {
 }
 
 function applyProjectState(state) {
+    isProjectLoading = true;
+
+    importLayerDrawings(state.layerDrawings);
+
+    const hasLayerDrawings = state.layerDrawings && Object.keys(state.layerDrawings).length > 0;
+
+    if (hasLayerDrawings && typeof applyLayerState === 'function') {
+        applyLayerState(state.layerState);
+        loadLayerSnapshot(currentLayerId());
+    } else {
+        nodes = JSON.parse(JSON.stringify(state.nodes || []));
+        walls = JSON.parse(JSON.stringify(state.walls || []));
+        objects = JSON.parse(JSON.stringify(state.objects || []));
+        floors = (state.floors || []).map(stripFloorPattern);
+
+        if (state.dimensions) {
+            window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
+            window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
+        }
+
+        clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
+
+        if (typeof applyLayerState === 'function') {
+            applyLayerState(state.layerState);
+        }
+
+        captureLayerSnapshot();
+    }
+
+function applyProjectState(state) {
     nodes = JSON.parse(JSON.stringify(state.nodes || []));
     walls = JSON.parse(JSON.stringify(state.walls || []));
     objects = JSON.parse(JSON.stringify(state.objects || []));
@@ -2779,11 +2980,13 @@ function applyProjectState(state) {
     viewOffsetY = state.view?.offsetY ?? viewOffsetY;
     ensureDefaultViewIfMissing(state);
 
-    nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
-    nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
-    nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
-    const existingGroupMax = objects.length ? Math.max(...objects.map(o => o?.stairGroupId || 0)) : 0;
-    nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
+    if (!hasLayerDrawings) {
+        nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
+        nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
+        nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
+        const existingGroupMax = objects.length ? Math.max(...objects.map(o => o?.stairGroupId || 0)) : 0;
+        nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
+    }
 
     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
     if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
@@ -2820,6 +3023,8 @@ function applyProjectState(state) {
     updateToolInfo();
     updatePropertiesPanel();
     redrawCanvas();
+
+    isProjectLoading = false;
 }
 
 function saveProjectToFile() {
@@ -2889,6 +3094,8 @@ function init() {
     if (typeof initLayerTools === 'function') {
         initLayerTools();
     }
+
+    setupLayering();
 
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {

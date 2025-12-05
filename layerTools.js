@@ -9,6 +9,7 @@
     let activeLayerId = FALLBACK_STATE.activeLayerId;
     let layerSelect = null;
     let addLayerButton = null;
+    const layerChangeCallbacks = [];
 
     function ordinalSuffix(number) {
         const remainderTen = number % 10;
@@ -56,6 +57,22 @@
         layerSelect.value = activeLayerId;
     }
 
+    function notifyLayerChange(previousId, nextId) {
+        if (previousId === nextId) return;
+        layerChangeCallbacks.forEach(cb => {
+            try {
+                cb(nextId, previousId);
+            } catch (err) {
+                console.error('Layer change callback failed', err);
+            }
+        });
+    }
+
+    function setActiveLayer(id) {
+        if (!layers.some(layer => layer.id === id)) return;
+        const prev = activeLayerId;
+        activeLayerId = id;
+        notifyLayerChange(prev, activeLayerId);
     function setActiveLayer(id) {
         if (!layers.some(layer => layer.id === id)) return;
         activeLayerId = id;
@@ -100,6 +117,7 @@
     }
 
     function applyLayerState(state) {
+        const previous = activeLayerId;
         if (!state || !Array.isArray(state.layers) || state.layers.length === 0) {
             layers = JSON.parse(JSON.stringify(FALLBACK_STATE.layers));
             activeLayerId = FALLBACK_STATE.activeLayerId;
@@ -109,9 +127,23 @@
         }
         ensureActiveLayer();
         renderLayerOptions();
+        notifyLayerChange(previous, activeLayerId);
+    }
+
+    function getActiveLayerId() {
+        ensureActiveLayer();
+        return activeLayerId;
+    }
+
+    function onLayerChange(callback) {
+        if (typeof callback === 'function') {
+            layerChangeCallbacks.push(callback);
+        }
     }
 
     window.initLayerTools = initLayerTools;
     window.getLayerState = getLayerState;
     window.applyLayerState = applyLayerState;
+    window.getActiveLayerId = getActiveLayerId;
+    window.onLayerChange = onLayerChange;
 })();
