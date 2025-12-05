@@ -81,6 +81,7 @@ const staircaseCancelButton = document.getElementById('staircaseCancel');
 const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
+const downloadPdfButton = document.getElementById('downloadPdf');
 const threeContainer = document.getElementById('threeContainer');
 const threeStatus = document.getElementById('threeStatus');
 const horizontalRuler = document.getElementById('horizontalRuler');
@@ -3183,6 +3184,173 @@ function applyProjectState(state) {
      isProjectLoading = false;
  }
 
+let jsPdfLoader = null;
+
+function ensureJsPDF() {
+    if (window.jspdf?.jsPDF) {
+        return Promise.resolve(window.jspdf.jsPDF);
+    }
+
+    if (!jsPdfLoader) {
+        jsPdfLoader = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            script.async = true;
+            script.onload = () => resolve(window.jspdf?.jsPDF || null);
+            script.onerror = (err) => reject(err);
+            document.head.appendChild(script);
+        }).catch(err => {
+            console.error('Failed to load jsPDF', err);
+            return null;
+        });
+    }
+
+    return jsPdfLoader;
+}
+
+function expandBounds(bounds, x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    bounds.minX = Math.min(bounds.minX, x);
+    bounds.minY = Math.min(bounds.minY, y);
+    bounds.maxX = Math.max(bounds.maxX, x);
+    bounds.maxY = Math.max(bounds.maxY, y);
+}
+
+function expandRect(bounds, x, y, width, height) {
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+    expandBounds(bounds, x, y);
+    expandBounds(bounds, x + width, y + height);
+}
+
+function getContentBounds() {
+    const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
+    (nodes || []).forEach(node => expandBounds(bounds, node.x, node.y));
+
+    (floors || []).forEach(floor => {
+        (getFloorPoints(floor) || []).forEach(point => expandBounds(bounds, point.x, point.y));
+    });
+
+    (objects || []).forEach(obj => {
+        const corners = getObjectTransformedCorners(obj);
+        (corners || []).forEach(corner => expandBounds(bounds, corner.x, corner.y));
+    });
+
+    (directLines || []).forEach(line => {
+        (line?.points || []).forEach(pt => expandBounds(bounds, pt.x, pt.y));
+    });
+
+    (window.dimensions || []).forEach(dim => {
+        expandBounds(bounds, dim.startX, dim.startY);
+        expandBounds(bounds, dim.endX, dim.endY);
+
+        const dx = dim.endX - dim.startX;
+        const dy = dim.endY - dim.startY;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len;
+        const ny = dx / len;
+        const side = dim.offsetSign || 1;
+        const fontPx = measurementFontSize || 12;
+        const midX = (dim.startX + dim.endX) / 2;
+        const midY = (dim.startY + dim.endY) / 2;
+        const textX = midX + nx * 8 * side;
+        const textY = midY + ny * 8 * side;
+        const estimatedWidth = Math.max(fontPx, (dim.text?.length || 0) * fontPx * 0.6);
+        const estimatedHeight = fontPx * 1.4;
+        expandRect(bounds, textX - estimatedWidth / 2, textY - estimatedHeight / 2, estimatedWidth, estimatedHeight);
+    });
+
+    if (isBackgroundImageVisible && backgroundImageData) {
+        expandRect(bounds, backgroundImageData.x, backgroundImageData.y, backgroundImageData.width, backgroundImageData.height);
+    }
+
+    if (!isFinite(bounds.minX) || !isFinite(bounds.minY) || !isFinite(bounds.maxX) || !isFinite(bounds.maxY)) {
+        return {
+            minX: 0,
+            minY: 0,
+            maxX: canvas?.width || 0,
+            maxY: canvas?.height || 0,
+            width: canvas?.width || 0,
+            height: canvas?.height || 0
+        };
+    }
+
+    return {
+        minX: bounds.minX,
+        minY: bounds.minY,
+        maxX: bounds.maxX,
+        maxY: bounds.maxY,
+        width: bounds.maxX - bounds.minX,
+        height: bounds.maxY - bounds.minY
+    };
+}
+
+async function downloadPlanAsPDF() {
+    const jsPDFConstructor = await ensureJsPDF();
+    if (!jsPDFConstructor) {
+        alert('Could not load PDF generator. Please check your connection and try again.');
+        return;
+    }
+
+    const bounds = getContentBounds();
+    const padding = 20;
+    const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
+    const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
+
+    const was3DView = is3DView;
+    if (was3DView) {
+        switchTo2DView();
+    }
+
+    const prevWidth = canvas.width;
+    const prevHeight = canvas.height;
+    const prevStyleWidth = canvas.style.width;
+    const prevStyleHeight = canvas.style.height;
+    const prevViewScale = viewScale;
+    const prevOffsetX = viewOffsetX;
+    const prevOffsetY = viewOffsetY;
+
+    try {
+        canvas.width = exportWidth;
+        canvas.height = exportHeight;
+        canvas.style.width = `${exportWidth}px`;
+        canvas.style.height = `${exportHeight}px`;
+
+        viewScale = 1;
+        viewOffsetX = padding - bounds.minX;
+        viewOffsetY = padding - bounds.minY;
+
+        redrawCanvas();
+
+        const dataUrl = canvas.toDataURL('image/png');
+        const pdf = new jsPDFConstructor({
+            orientation: exportWidth >= exportHeight ? 'landscape' : 'portrait',
+            unit: 'px',
+            format: [exportWidth, exportHeight]
+        });
+
+        pdf.addImage(dataUrl, 'PNG', 0, 0, exportWidth, exportHeight);
+        pdf.save('apzok-plan.pdf');
+    } catch (error) {
+        console.error('Failed to download PDF', error);
+        alert('Could not download PDF. Please try again.');
+    } finally {
+        canvas.width = prevWidth;
+        canvas.height = prevHeight;
+        canvas.style.width = prevStyleWidth;
+        canvas.style.height = prevStyleHeight;
+        viewScale = prevViewScale;
+        viewOffsetX = prevOffsetX;
+        viewOffsetY = prevOffsetY;
+        redrawCanvas();
+        syncCanvasScrollArea();
+
+        if (was3DView) {
+            switchTo3DView();
+        }
+    }
+}
+
 function saveProjectToFile() {
     try {
         const state = buildProjectState();
@@ -3395,6 +3563,11 @@ function init() {
         projectFileInput.addEventListener('change', (event) => {
             handleProjectFileUpload(event);
             projectFileInput.value = '';
+        });
+    }
+    if (downloadPdfButton) {
+        downloadPdfButton.addEventListener('click', () => {
+            downloadPlanAsPDF();
         });
     }
 
