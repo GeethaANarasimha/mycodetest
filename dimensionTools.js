@@ -404,16 +404,33 @@ window.drawHoverWallDimension = function(wallData) {
 
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.font = '12px Arial';
+        const fontPx = measurementFontSize || 12;
+        ctx.font = `${fontPx}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
+        const textAngle = (() => {
+            const angle = Math.atan2(dy, dx);
+            if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+                return angle + Math.PI;
+            }
+            return angle;
+        })();
+
         const textWidth = ctx.measureText(text).width;
+        const textHeight = fontPx * 1.2;
+
+        ctx.save();
+        ctx.translate(midX + offsetX, midY + offsetY);
+        ctx.rotate(textAngle);
+
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(midX + offsetX - textWidth/2 - 2, midY + offsetY - 8, textWidth + 4, 16);
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.fillText(text, midX + offsetX, midY + offsetY);
+        ctx.fillText(text, 0, 0);
+
+        ctx.restore();
     }
 
     ctx.restore();
