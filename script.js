@@ -4909,7 +4909,7 @@ function handleMouseMove(e) {
             alignmentHints = [];
         } else {
             const angle = Math.atan2(dy, dx);
-            const snapStep = Math.PI / 4;
+            const snapStep = Math.PI / 2; // Restrict wall drawing to 0/90/180/270 degrees
             const snappedAngle = Math.round(angle / snapStep) * snapStep;
             const length = Math.hypot(dx, dy);
 
