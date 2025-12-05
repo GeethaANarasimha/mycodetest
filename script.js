@@ -6748,8 +6748,12 @@ function drawDirectLineArrow(start, end) {
     const size = 18;
 
     ctx.save();
+    // Position the arrow so the base (middle of the triangle) sits exactly on the
+    // line end point, rather than placing the tip there. This keeps the arrowhead
+    // visually connected to the line.
     ctx.translate(end.x, end.y);
     ctx.rotate(angle);
+    ctx.translate(size, 0);
 
     if (directLineArrowImage.complete && directLineArrowImage.naturalWidth > 0) {
         ctx.drawImage(directLineArrowImage, -size, -size / 2, size, size);
