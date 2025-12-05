@@ -395,6 +395,13 @@ function resetViewToOrigin() {
     const marginPx = DEFAULT_VIEW_MARGIN_FEET * scale * viewScale;
     viewOffsetX = marginPx;
     viewOffsetY = marginPx;
+
+    if (canvasContainer) {
+        // Make sure the visible corner aligns with the rulers instead of keeping
+        // any previous scroll position.
+        canvasContainer.scrollLeft = 0;
+        canvasContainer.scrollTop = 0;
+    }
 }
 
 function drawRulerBackground(ctx, width, height, isVertical = false) {
