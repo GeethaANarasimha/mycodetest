@@ -120,7 +120,7 @@ const MIN_VIEW_SCALE = 0.5;
 const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
 const WALL_ANGLE_SNAP_DEGREES = 15;
-const SAVE_FILE_EXTENSION = '.paz';
+const SAVE_FILE_EXTENSION = '.ipynb';
 const SAVE_SECRET = 'apzok-project-key';
 const DEFAULT_TREAD_DEPTH_INCHES = 10;
 const STAIRCASE_MAGNET_THRESHOLD = 12;
@@ -3100,7 +3100,7 @@ function handleProjectFileUpload(event) {
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith(SAVE_FILE_EXTENSION)) {
-        alert('Please select a valid .paz project file.');
+        alert('Please select a valid .ipynb project file.');
         return;
     }
 
@@ -3112,7 +3112,7 @@ function handleProjectFileUpload(event) {
             applyProjectState(state);
         } catch (error) {
             console.error('Failed to load project', error);
-            alert('Could not load project. Ensure you selected a valid .paz file.');
+            alert('Could not load project. Ensure you selected a valid .ipynb file.');
         }
     };
     reader.readAsText(file);
