@@ -498,13 +498,13 @@ function drawVerticalRuler() {
     const containerRect = canvasContainer?.getBoundingClientRect();
     if (containerRect) {
         // Keep the ruler origin aligned with the visible canvas origin even
-        // when the container is scrolled. Using the raw offsets (including
-        // negative values) lets the ruler track the canvas position instead of
-        // sticking to the container edge.
+        // when the container is scrolled. Clamping prevents the ruler from
+        // sliding outside the viewport (and effectively disappearing) when the
+        // user pans or scrolls far from the canvas origin.
         const offsetLeft = rect.left - containerRect.left;
         const offsetTop = rect.top - containerRect.top;
-        verticalRuler.style.left = `${offsetLeft}px`;
-        verticalRuler.style.top = `${offsetTop}px`;
+        verticalRuler.style.left = `${Math.max(0, offsetLeft)}px`;
+        verticalRuler.style.top = `${Math.max(0, offsetTop)}px`;
     }
     const dpr = window.devicePixelRatio || 1;
     verticalRuler.width = RULER_SIZE * dpr;
