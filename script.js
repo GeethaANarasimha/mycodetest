@@ -83,6 +83,8 @@ const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
 const threeContainer = document.getElementById('threeContainer');
 const threeStatus = document.getElementById('threeStatus');
+const horizontalRuler = document.getElementById('horizontalRuler');
+const verticalRuler = document.getElementById('verticalRuler');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -121,6 +123,7 @@ const SAVE_FILE_EXTENSION = '.paz';
 const SAVE_SECRET = 'apzok-project-key';
 const DEFAULT_TREAD_DEPTH_INCHES = 10;
 const STAIRCASE_MAGNET_THRESHOLD = 12;
+const RULER_SIZE = 28;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -318,6 +321,28 @@ function worldToScreen(x, y) {
     };
 }
 
+function formatFeetLabel(totalFeet) {
+    const sign = totalFeet < 0 ? '-' : '';
+    const absFeet = Math.abs(totalFeet);
+    const wholeFeet = Math.floor(absFeet);
+    const inches = Math.round((absFeet - wholeFeet) * 12);
+    if (inches === 12) {
+        return `${sign}${wholeFeet + 1}ft`;
+    }
+    if (inches === 0) {
+        return `${sign}${wholeFeet}ft`;
+    }
+    return `${sign}${wholeFeet}ft ${inches}in`;
+}
+
+function selectRulerSpacing(screenPxPerFoot) {
+    const candidates = [0.5, 1, 2, 5, 10, 20, 50, 100];
+    for (const feet of candidates) {
+        if (screenPxPerFoot * feet >= 60) return feet;
+    }
+    return candidates[candidates.length - 1];
+}
+
 function getCanvasCoordsFromEvent(eventOrX, eventY) {
     if (eventOrX && typeof eventOrX === 'object' && 'clientX' in eventOrX) {
         return screenToWorld(eventOrX.clientX, eventOrX.clientY);
@@ -365,6 +390,159 @@ function syncCanvasScrollArea() {
     // to scale when using the mouse wheel to pan vertically.
     canvas.style.minWidth = `${BASE_CANVAS_WIDTH}px`;
     canvas.style.minHeight = `${BASE_CANVAS_HEIGHT}px`;
+}
+
+function drawRulerBackground(ctx, width, height, isVertical = false) {
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.beginPath();
+    if (isVertical) {
+        ctx.moveTo(width - 0.5, 0);
+        ctx.lineTo(width - 0.5, height);
+    } else {
+        ctx.moveTo(0, height - 0.5);
+        ctx.lineTo(width, height - 0.5);
+    }
+    ctx.stroke();
+}
+
+function drawHorizontalRuler() {
+    if (!horizontalRuler || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const containerRect = canvasContainer?.getBoundingClientRect();
+    if (containerRect) {
+        horizontalRuler.style.left = `${rect.left - containerRect.left}px`;
+        horizontalRuler.style.top = `${rect.top - containerRect.top}px`;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    horizontalRuler.width = rect.width * dpr;
+    horizontalRuler.height = RULER_SIZE * dpr;
+    horizontalRuler.style.width = `${rect.width}px`;
+    horizontalRuler.style.height = `${RULER_SIZE}px`;
+    const rCtx = horizontalRuler.getContext('2d');
+    rCtx.save();
+    rCtx.scale(dpr, dpr);
+    drawRulerBackground(rCtx, rect.width, RULER_SIZE, false);
+
+    const canvasScaleX = rect.width / canvas.width;
+    const screenPxPerFoot = Math.max(1, scale * viewScale * canvasScaleX);
+    const majorSpacingFeet = selectRulerSpacing(screenPxPerFoot);
+    const startFeet = (-viewOffsetX / viewScale) / scale;
+    const visibleFeet = rect.width / screenPxPerFoot;
+    const firstMark = Math.floor(startFeet / majorSpacingFeet) * majorSpacingFeet;
+
+    const inchSpacing = screenPxPerFoot / 12;
+    if (inchSpacing >= 6) {
+        const firstInch = Math.floor(startFeet * 12);
+        const lastInch = Math.ceil((startFeet + visibleFeet) * 12);
+        rCtx.strokeStyle = '#e2e8f0';
+        for (let i = firstInch; i <= lastInch; i++) {
+            const feetValue = i / 12;
+            const x = ((feetValue * scale) * viewScale + viewOffsetX) * canvasScaleX;
+            rCtx.beginPath();
+            rCtx.moveTo(x + 0.5, RULER_SIZE - 10);
+            rCtx.lineTo(x + 0.5, RULER_SIZE);
+            rCtx.stroke();
+        }
+    }
+
+    rCtx.strokeStyle = '#94a3b8';
+    rCtx.fillStyle = '#334155';
+    rCtx.font = '11px Arial';
+    for (let feetValue = firstMark; feetValue <= startFeet + visibleFeet; feetValue += majorSpacingFeet) {
+        const x = ((feetValue * scale) * viewScale + viewOffsetX) * canvasScaleX;
+        const isZero = Math.abs(feetValue) < 1e-4;
+        rCtx.strokeStyle = isZero ? '#ef4444' : '#94a3b8';
+        rCtx.beginPath();
+        rCtx.moveTo(x + 0.5, isZero ? 0 : RULER_SIZE - 14);
+        rCtx.lineTo(x + 0.5, RULER_SIZE);
+        rCtx.stroke();
+
+        const label = formatFeetLabel(feetValue);
+        if (screenPxPerFoot * majorSpacingFeet >= 45) {
+            rCtx.save();
+            rCtx.translate(x + 4, 12);
+            rCtx.fillStyle = isZero ? '#b91c1c' : '#334155';
+            rCtx.fillText(label, 0, 0);
+            rCtx.restore();
+        }
+    }
+    rCtx.restore();
+}
+
+function drawVerticalRuler() {
+    if (!verticalRuler || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const containerRect = canvasContainer?.getBoundingClientRect();
+    if (containerRect) {
+        verticalRuler.style.left = `${rect.left - containerRect.left}px`;
+        verticalRuler.style.top = `${rect.top - containerRect.top}px`;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    verticalRuler.width = RULER_SIZE * dpr;
+    verticalRuler.height = rect.height * dpr;
+    verticalRuler.style.width = `${RULER_SIZE}px`;
+    verticalRuler.style.height = `${rect.height}px`;
+    const rCtx = verticalRuler.getContext('2d');
+    rCtx.save();
+    rCtx.scale(dpr, dpr);
+    drawRulerBackground(rCtx, RULER_SIZE, rect.height, true);
+
+    const canvasScaleY = rect.height / canvas.height;
+    const screenPxPerFoot = Math.max(1, scale * viewScale * canvasScaleY);
+    const majorSpacingFeet = selectRulerSpacing(screenPxPerFoot);
+    const startFeet = (-viewOffsetY / viewScale) / scale;
+    const visibleFeet = rect.height / screenPxPerFoot;
+    const firstMark = Math.floor(startFeet / majorSpacingFeet) * majorSpacingFeet;
+
+    const inchSpacing = screenPxPerFoot / 12;
+    if (inchSpacing >= 6) {
+        const firstInch = Math.floor(startFeet * 12);
+        const lastInch = Math.ceil((startFeet + visibleFeet) * 12);
+        rCtx.strokeStyle = '#e2e8f0';
+        for (let i = firstInch; i <= lastInch; i++) {
+            const feetValue = i / 12;
+            const y = ((feetValue * scale) * viewScale + viewOffsetY) * canvasScaleY;
+            rCtx.beginPath();
+            rCtx.moveTo(RULER_SIZE - 10, y + 0.5);
+            rCtx.lineTo(RULER_SIZE, y + 0.5);
+            rCtx.stroke();
+        }
+    }
+
+    rCtx.strokeStyle = '#94a3b8';
+    rCtx.fillStyle = '#334155';
+    rCtx.font = '11px Arial';
+    for (let feetValue = firstMark; feetValue <= startFeet + visibleFeet; feetValue += majorSpacingFeet) {
+        const y = ((feetValue * scale) * viewScale + viewOffsetY) * canvasScaleY;
+        const isZero = Math.abs(feetValue) < 1e-4;
+        rCtx.strokeStyle = isZero ? '#ef4444' : '#94a3b8';
+        rCtx.beginPath();
+        rCtx.moveTo(isZero ? 0 : RULER_SIZE - 14, y + 0.5);
+        rCtx.lineTo(RULER_SIZE, y + 0.5);
+        rCtx.stroke();
+
+        if (screenPxPerFoot * majorSpacingFeet >= 45) {
+            const label = formatFeetLabel(feetValue);
+            rCtx.save();
+            rCtx.translate(RULER_SIZE - 4, y + 14);
+            rCtx.rotate(-Math.PI / 2);
+            rCtx.fillStyle = isZero ? '#b91c1c' : '#334155';
+            rCtx.fillText(label, 0, 0);
+            rCtx.restore();
+        }
+    }
+    rCtx.restore();
+}
+
+function drawRulers() {
+    const shouldHide = is3DView;
+    if (horizontalRuler) horizontalRuler.classList.toggle('hidden', shouldHide);
+    if (verticalRuler) verticalRuler.classList.toggle('hidden', shouldHide);
+    if (shouldHide) return;
+    drawHorizontalRuler();
+    drawVerticalRuler();
 }
 
 function fitViewToBackground(data) {
@@ -2964,6 +3142,7 @@ function init() {
     window.addEventListener('resize', () => {
         syncPreviewCanvasSize();
         redrawPreviewMeasurementOverlay();
+        drawRulers();
     });
 
     toggleGridButton.addEventListener('click', () => {
@@ -2994,6 +3173,7 @@ function init() {
     updateToolInfo();
     updatePropertiesPanel();
     update3DButtonLabel('Show 3D');
+    drawRulers();
 }
 
 // ============================================================
@@ -5727,6 +5907,7 @@ function redrawCanvas() {
     drawFloorLassoOverlay();
     ctx.restore();
 
+    drawRulers();
     updatePropertiesPanel();
 }
 
