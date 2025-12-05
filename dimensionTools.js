@@ -13,6 +13,7 @@ window.hoveredWall = null;
 window.hoveredSpaceSegment = null;
 window.dimensionHoverX = null;
 window.dimensionHoverY = null;
+window.dimensionActiveWall = null;
 
 // Blue color for dimensions
 const DIMENSION_COLOR = '#3498db';
@@ -117,6 +118,18 @@ window.handleDimensionMouseDown = function(e) {
  */
 function startManualDimension(x, y) {
     ({ x, y } = snapPointToInch(x, y));
+
+    // If the user begins a manual dimension on or near a wall, align the dimension to that wall
+    const nearestWall = window.hoveredWall || (typeof window.findNearestWall === 'function' ? window.findNearestWall(x, y, 20) : null);
+    if (nearestWall?.n1 && nearestWall?.n2) {
+        const projected = projectPointToWallSegment(x, y, nearestWall.n1.x, nearestWall.n1.y, nearestWall.n2.x, nearestWall.n2.y);
+        x = projected.x;
+        y = projected.y;
+        window.dimensionActiveWall = nearestWall;
+    } else {
+        window.dimensionActiveWall = null;
+    }
+
     dimensionStartX = x;
     dimensionStartY = y;
     isDimensionDrawing = true;
@@ -135,6 +148,20 @@ function startManualDimension(x, y) {
  */
 function endManualDimension(x, y) {
     ({ x, y } = snapPointToInch(x, y));
+
+    if (window.dimensionActiveWall?.n1 && window.dimensionActiveWall?.n2) {
+        const projected = projectPointToWallSegment(
+            x,
+            y,
+            window.dimensionActiveWall.n1.x,
+            window.dimensionActiveWall.n1.y,
+            window.dimensionActiveWall.n2.x,
+            window.dimensionActiveWall.n2.y
+        );
+        x = projected.x;
+        y = projected.y;
+    }
+
     pushUndoState();
     createManualDimension(dimensionStartX, dimensionStartY, x, y);
     
@@ -144,7 +171,8 @@ function endManualDimension(x, y) {
     dimensionStartY = null;
     dimensionPreviewX = null;
     dimensionPreviewY = null;
-    
+    window.dimensionActiveWall = null;
+
     redrawCanvas();
 }
 
@@ -272,6 +300,20 @@ window.handleDimensionMouseMove = function(e) {
     } else {
         // Manual dimension drawing mode
         ({ x, y } = snapPointToInch(x, y));
+
+        if (window.dimensionActiveWall?.n1 && window.dimensionActiveWall?.n2) {
+            const projected = projectPointToWallSegment(
+                x,
+                y,
+                window.dimensionActiveWall.n1.x,
+                window.dimensionActiveWall.n1.y,
+                window.dimensionActiveWall.n2.x,
+                window.dimensionActiveWall.n2.y
+            );
+            x = projected.x;
+            y = projected.y;
+        }
+
         dimensionPreviewX = x;
         dimensionPreviewY = y;
         coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to finish measurement`;
@@ -743,6 +785,7 @@ window.resetDimensionTool = function() {
     dimensionStartY = null;
     dimensionPreviewX = null;
     dimensionPreviewY = null;
+    window.dimensionActiveWall = null;
     hoveredWall = null;
     hoveredSpaceSegment = null;
     dimensionHoverX = null;
