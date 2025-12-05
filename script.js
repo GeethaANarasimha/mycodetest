@@ -375,8 +375,9 @@ function applyViewZoom(factor, anchor = null) {
 }
 
 function panView(deltaX, deltaY) {
-    viewOffsetX += deltaX;
-    viewOffsetY += deltaY;
+    const pixelScale = getCanvasPixelScale();
+    viewOffsetX += deltaX / pixelScale.x;
+    viewOffsetY += deltaY / pixelScale.y;
     syncCanvasScrollArea();
     redrawCanvas();
 }
@@ -4413,8 +4414,9 @@ function handleMouseMove(e) {
     }
 
     if (isViewPanning && panOrigin && panStartOffset) {
-        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x);
-        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y);
+        const pixelScale = getCanvasPixelScale();
+        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x) / pixelScale.x;
+        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y) / pixelScale.y;
         redrawCanvas();
         return;
     }
