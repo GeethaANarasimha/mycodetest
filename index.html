@@ -58,6 +58,10 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_30f8437bfae148a38aca059207dc1ce2.svg" alt="">
         <span class="tool-label">Dimension</span>
     </button>
+    <button class="tool-btn" data-tool="directline" aria-label="Direct Line">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_407956fc7daf45d3803b4db9869a74e2.svg" alt="">
+        <span class="tool-label">Direct Line</span>
+    </button>
     <button class="tool-btn" data-tool="text" aria-label="Text">
         <span class="tool-icon text-icon">T</span>
         <span class="tool-label">Text</span>
@@ -130,12 +134,12 @@
         </div>
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,directline,select,erase,pan">
         <label>Line Width</label>
         <input id="lineWidth" type="number" value="2">
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,directline,select,erase,pan">
         <label>Line Color</label>
         <div class="property-input-row">
             <input id="lineColor" type="color" value="#000000">
@@ -174,17 +178,17 @@
         </div>
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,floor,dimension,directline,select,erase,pan">
         <label>Grid Size</label>
         <input id="gridSize" type="number" value="20">
     </div>
 
-    <div class="property-group inline" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group inline" data-contexts="wall,door,window,staircase,furniture,floor,dimension,directline,select,erase,pan">
         <label class="checkbox"><input type="checkbox" id="snapToGrid" checked> Snap to Grid</label>
         <label class="checkbox"><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
     </div>
 
-    <div class="property-group button-row" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group button-row" data-contexts="wall,door,window,staircase,furniture,floor,dimension,directline,select,erase,pan">
         <button id="toggleGrid">Toggle Grid</button>
         <button id="toggleBackgroundImage" class="hidden">Hide Background Image</button>
     </div>
