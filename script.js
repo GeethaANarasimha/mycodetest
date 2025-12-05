@@ -4908,29 +4908,8 @@ function handleMouseMove(e) {
             wallPreviewY = sy;
             alignmentHints = [];
         } else {
-            const angle = Math.atan2(dy, dx);
-            const allowedAnglesDeg = [0, 20, 90, 180];
-            const angleDeg = (angle * 180) / Math.PI;
-            const normalizedAngle = (angleDeg + 360) % 360;
-
-            let snappedAngleDeg = allowedAnglesDeg[0];
-            let smallestDiff = 360;
-
-            for (const candidate of allowedAnglesDeg) {
-                const rawDiff = Math.abs(candidate - normalizedAngle);
-                const diff = Math.min(rawDiff, 360 - rawDiff);
-
-                if (diff < smallestDiff) {
-                    smallestDiff = diff;
-                    snappedAngleDeg = candidate;
-                }
-            }
-
-            const snappedAngle = (snappedAngleDeg * Math.PI) / 180;
-            const length = Math.hypot(dx, dy);
-
-            let ex = sx + length * Math.cos(snappedAngle);
-            let ey = sy + length * Math.sin(snappedAngle);
+            let ex = x;
+            let ey = y;
 
             ({ x: ex, y: ey } = snapPointToInch(ex, ey));
 
