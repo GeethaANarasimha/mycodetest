@@ -2827,8 +2827,14 @@ function handleProjectFileUpload(event) {
 function init() {
     canvas.setAttribute('tabindex', '0');
 
-    canvas.addEventListener('mousedown', () => {
-        canvas.focus();
+    canvas.addEventListener('mousedown', (event) => {
+        // Prevent the browser from scrolling the layout when the canvas gains
+        // focus (some browsers try to scroll the focused element into view).
+        if (typeof canvas.focus === 'function') {
+            canvas.focus({ preventScroll: true });
+        } else {
+            canvas.focus();
+        }
     });
 
     wallThicknessFeetInput.value = '0';
