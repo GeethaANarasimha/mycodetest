@@ -6742,7 +6742,9 @@ function drawFloorLassoOverlay() {
 function drawDirectLineArrow(start, end) {
     if (!start || !end) return;
     if (start.x === end.x && start.y === end.y) return;
-    const angle = Math.atan2(start.y - end.y, start.x - end.x);
+    // Align the arrow head with the actual direction of the segment
+    // so a 0° heading renders to the right, 90° up, etc.
+    const angle = Math.atan2(end.y - start.y, end.x - start.x);
     const size = 18;
 
     ctx.save();
