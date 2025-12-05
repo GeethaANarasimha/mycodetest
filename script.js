@@ -6748,24 +6748,23 @@ function drawDirectLineArrow(start, end) {
     const size = 18;
 
     ctx.save();
-    // Position the arrow so the tip sits exactly on the end point of the line
-    // segment. This keeps the arrow visually anchored to the direction of the
-    // drawn line instead of floating past the endpoint or snapping to an adjacent
-    // segment.
+    // Position the arrow so the tail (base) sits exactly on the end point of the
+    // line segment. This keeps the line visually connected to the tail instead
+    // of intersecting the mid-wing of the arrow graphic.
     ctx.translate(end.x, end.y);
     ctx.rotate(angle);
 
     if (directLineArrowImage.complete && directLineArrowImage.naturalWidth > 0) {
-        // The source asset points to the right, so draw it with the tip aligned
-        // to (0, 0) and the base offset backward along the line direction.
-        ctx.drawImage(directLineArrowImage, -size, -size / 2, size, size);
+        // The source asset points to the right; draw it with the tail at the
+        // origin so the tip extends forward along the line direction.
+        ctx.drawImage(directLineArrowImage, 0, -size / 2, size, size);
     } else {
         ctx.fillStyle = '#333';
         ctx.beginPath();
-        // Tip at the origin, base offset by `size` along the negative X axis.
-        ctx.moveTo(0, 0);
-        ctx.lineTo(-size, size / 2);
-        ctx.lineTo(-size, -size / 2);
+        // Tail at the origin, tip offset forward by `size`.
+        ctx.moveTo(size, 0);
+        ctx.lineTo(0, size / 2);
+        ctx.lineTo(0, -size / 2);
         ctx.closePath();
         ctx.fill();
     }
