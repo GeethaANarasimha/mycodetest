@@ -146,4 +146,5 @@
     window.applyLayerState = applyLayerState;
     window.getActiveLayerId = getActiveLayerId;
     window.onLayerChange = onLayerChange;
+}
 })();
