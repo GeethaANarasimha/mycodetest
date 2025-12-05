@@ -6791,16 +6791,29 @@ function drawDirectLinePath(points, options = {}) {
     const end = points[points.length - 1];
     const MIN_SEGMENT_LENGTH = 2; // Ignore tiny tail segments when orienting the arrow.
 
-    // Use the final meaningful segment direction (previous distinct point -> end point)
-    for (let i = points.length - 2; i >= 0; i--) {
+    // Use the overall path direction (first meaningful point -> end point) so the
+    // arrow reflects the intended destination even if intermediate points bend
+    // the line sideways.
+    let arrowStart = null;
+    for (let i = 0; i < points.length - 1; i++) {
         const start = points[i];
         if (!start || !end) continue;
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         if (Math.abs(dx) < Number.EPSILON && Math.abs(dy) < Number.EPSILON) continue;
         if (Math.hypot(dx, dy) < MIN_SEGMENT_LENGTH) continue;
-        drawDirectLineArrow(start, end);
+        arrowStart = start;
         break;
+    }
+
+    // Fall back to the penultimate point if all earlier points are too close
+    // (e.g., double-click finishing a tiny segment).
+    if (!arrowStart && points.length > 1) {
+        arrowStart = points[points.length - 2];
+    }
+
+    if (arrowStart) {
+        drawDirectLineArrow(arrowStart, end);
     }
     ctx.restore();
 }
