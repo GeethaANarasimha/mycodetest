@@ -13,6 +13,7 @@ window.hoveredWall = null;
 window.hoveredSpaceSegment = null;
 window.dimensionHoverX = null;
 window.dimensionHoverY = null;
+window.dimensionActiveWall = null;
 
 // Blue color for dimensions
 const DIMENSION_COLOR = '#3498db';
@@ -117,6 +118,18 @@ window.handleDimensionMouseDown = function(e) {
  */
 function startManualDimension(x, y) {
     ({ x, y } = snapPointToInch(x, y));
+
+    // If the user begins a manual dimension on or near a wall, align the dimension to that wall
+    const nearestWall = window.hoveredWall || (typeof window.findNearestWall === 'function' ? window.findNearestWall(x, y, 20) : null);
+    if (nearestWall?.n1 && nearestWall?.n2) {
+        const projected = projectPointToWallSegment(x, y, nearestWall.n1.x, nearestWall.n1.y, nearestWall.n2.x, nearestWall.n2.y);
+        x = projected.x;
+        y = projected.y;
+        window.dimensionActiveWall = nearestWall;
+    } else {
+        window.dimensionActiveWall = null;
+    }
+
     dimensionStartX = x;
     dimensionStartY = y;
     isDimensionDrawing = true;
@@ -135,6 +148,20 @@ function startManualDimension(x, y) {
  */
 function endManualDimension(x, y) {
     ({ x, y } = snapPointToInch(x, y));
+
+    if (window.dimensionActiveWall?.n1 && window.dimensionActiveWall?.n2) {
+        const projected = projectPointToWallSegment(
+            x,
+            y,
+            window.dimensionActiveWall.n1.x,
+            window.dimensionActiveWall.n1.y,
+            window.dimensionActiveWall.n2.x,
+            window.dimensionActiveWall.n2.y
+        );
+        x = projected.x;
+        y = projected.y;
+    }
+
     pushUndoState();
     createManualDimension(dimensionStartX, dimensionStartY, x, y);
     
@@ -144,7 +171,8 @@ function endManualDimension(x, y) {
     dimensionStartY = null;
     dimensionPreviewX = null;
     dimensionPreviewY = null;
-    
+    window.dimensionActiveWall = null;
+
     redrawCanvas();
 }
 
@@ -211,7 +239,8 @@ window.createWallDimension = function(wallData, options = {}) {
         length: length,
         isAuto: true,
         orientation: orientation,
-        wallId: wallData.wall.id
+        wallId: wallData.wall.id,
+        offsetSign: offsetSign
     };
     
     dimensions.push(dimension);
@@ -271,6 +300,20 @@ window.handleDimensionMouseMove = function(e) {
     } else {
         // Manual dimension drawing mode
         ({ x, y } = snapPointToInch(x, y));
+
+        if (window.dimensionActiveWall?.n1 && window.dimensionActiveWall?.n2) {
+            const projected = projectPointToWallSegment(
+                x,
+                y,
+                window.dimensionActiveWall.n1.x,
+                window.dimensionActiveWall.n1.y,
+                window.dimensionActiveWall.n2.x,
+                window.dimensionActiveWall.n2.y
+            );
+            x = projected.x;
+            y = projected.y;
+        }
+
         dimensionPreviewX = x;
         dimensionPreviewY = y;
         coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to finish measurement`;
@@ -339,7 +382,8 @@ window.drawHoverWallDimension = function(wallData) {
         const midX = (n1.x + n2.x) / 2;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.font = '12px Arial';
+        const fontPx = measurementFontSize || 12;
+        ctx.font = `${fontPx}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
@@ -376,11 +420,17 @@ window.drawHoverWallDimension = function(wallData) {
         ctx.textBaseline = 'middle';
 
         const textWidth = ctx.measureText(text).width;
+        const textHeight = 12 * 1.2;
+
+        ctx.save();
+        ctx.translate(xPos, midY);
+        ctx.rotate(-Math.PI / 2);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(xPos - textWidth/2 - 2, midY - 8, textWidth + 4, 16);
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.fillText(text, xPos, midY);
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
     } else {
         const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
         const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
@@ -402,16 +452,33 @@ window.drawHoverWallDimension = function(wallData) {
 
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.font = '12px Arial';
+        const fontPx = measurementFontSize || 12;
+        ctx.font = `${fontPx}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
+        const textAngle = (() => {
+            const angle = Math.atan2(dy, dx);
+            if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+                return angle + Math.PI;
+            }
+            return angle;
+        })();
+
         const textWidth = ctx.measureText(text).width;
+        const textHeight = fontPx * 1.2;
+
+        ctx.save();
+        ctx.translate(midX + offsetX, midY + offsetY);
+        ctx.rotate(textAngle);
+
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(midX + offsetX - textWidth/2 - 2, midY + offsetY - 8, textWidth + 4, 16);
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.fillText(text, midX + offsetX, midY + offsetY);
+        ctx.fillText(text, 0, 0);
+
+        ctx.restore();
     }
 
     ctx.restore();
@@ -500,11 +567,17 @@ window.drawHoverSpaceDimension = function(spaceData) {
         ctx.textBaseline = 'middle';
 
         const textWidth = ctx.measureText(text).width;
+        const textHeight = 12 * 1.2;
+
+        ctx.save();
+        ctx.translate(dimensionX, midY);
+        ctx.rotate(-Math.PI / 2);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(dimensionX - textWidth/2 - 2, midY - 8, textWidth + 4, 16);
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
         ctx.fillStyle = 'rgba(155, 89, 182, 0.9)';
-        ctx.fillText(text, dimensionX, midY);
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
     }
 
     ctx.restore();
@@ -515,66 +588,82 @@ window.drawHoverSpaceDimension = function(spaceData) {
  */
 window.drawDimensionPreview = function() {
     if (!isDimensionDrawing || dimensionPreviewX === null) return;
-    
-    ctx.save();
-    ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 2]);
-    
-    // Draw dimension line
-    ctx.beginPath();
-    ctx.moveTo(dimensionStartX, dimensionStartY);
-    ctx.lineTo(dimensionPreviewX, dimensionPreviewY);
-    ctx.stroke();
-    
-    // Draw extension lines
-    const dx = dimensionPreviewX - dimensionStartX;
-    const dy = dimensionPreviewY - dimensionStartY;
-    const len = Math.hypot(dx, dy);
-    
-    if (len > 0) {
-        const nx = -dy / len;
-        const ny = dx / len;
-        const offset = 10;
-        
+
+    withViewTransform(() => {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 2]);
+
+        // Draw dimension line
         ctx.beginPath();
-        ctx.moveTo(dimensionStartX + nx * offset, dimensionStartY + ny * offset);
-        ctx.lineTo(dimensionStartX - nx * offset, dimensionStartY - ny * offset);
+        ctx.moveTo(dimensionStartX, dimensionStartY);
+        ctx.lineTo(dimensionPreviewX, dimensionPreviewY);
         ctx.stroke();
-        
-        ctx.beginPath();
-        ctx.moveTo(dimensionPreviewX + nx * offset, dimensionPreviewY + ny * offset);
-        ctx.lineTo(dimensionPreviewX - nx * offset, dimensionPreviewY - ny * offset);
-        ctx.stroke();
-        
-        // Dimension text
-        const totalInches = Math.round((len / scale) * 12);
-        const feet = Math.floor(totalInches / 12);
-        const inches = totalInches % 12;
-        const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-        
-        const midX = (dimensionStartX + dimensionPreviewX) / 2;
-        const midY = (dimensionStartY + dimensionPreviewY) / 2;
-        const textX = midX + nx * 15;
-        const textY = midY + ny * 15;
-        
-        ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        // Text background
-        const textWidth = ctx.measureText(text).width;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(textX - textWidth/2 - 2, textY - 8, textWidth + 4, 16);
-        
-        // Text
-        ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
-        ctx.fillText(text, textX, textY);
-    }
-    
-    ctx.restore();
+
+        // Draw extension lines
+        const dx = dimensionPreviewX - dimensionStartX;
+        const dy = dimensionPreviewY - dimensionStartY;
+        const len = Math.hypot(dx, dy);
+
+        if (len > 0) {
+            const nx = -dy / len;
+            const ny = dx / len;
+            const offset = 10;
+
+            ctx.beginPath();
+            ctx.moveTo(dimensionStartX + nx * offset, dimensionStartY + ny * offset);
+            ctx.lineTo(dimensionStartX - nx * offset, dimensionStartY - ny * offset);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(dimensionPreviewX + nx * offset, dimensionPreviewY + ny * offset);
+            ctx.lineTo(dimensionPreviewX - nx * offset, dimensionPreviewY - ny * offset);
+            ctx.stroke();
+
+            // Dimension text
+            const totalInches = Math.round((len / scale) * 12);
+            const feet = Math.floor(totalInches / 12);
+            const inches = totalInches % 12;
+            const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+
+            const midX = (dimensionStartX + dimensionPreviewX) / 2;
+            const midY = (dimensionStartY + dimensionPreviewY) / 2;
+            const textX = midX + nx * 15;
+            const textY = midY + ny * 15;
+
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+            const fontPx = measurementFontSize || 12;
+            ctx.font = `${fontPx}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Text background
+            const textWidth = ctx.measureText(text).width;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            const textHeight = fontPx * 1.2;
+            const rotateVertical = Math.abs(dy) > Math.abs(dx);
+
+            if (rotateVertical) {
+                ctx.save();
+                ctx.translate(textX, textY);
+                ctx.rotate(-Math.PI / 2);
+                ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+                ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+                ctx.fillText(text, 0, 0);
+                ctx.restore();
+            } else {
+                ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
+
+                // Text
+                ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+                ctx.fillText(text, textX, textY);
+            }
+        }
+
+        ctx.restore();
+    });
 };
 
 /**
@@ -621,6 +710,7 @@ window.drawDimensions = function() {
             const nx = -dy / len;
             const ny = dx / len;
             const offset = 6;
+            const side = dim.offsetSign || 1;
             
             // Extension lines
             ctx.beginPath();
@@ -636,25 +726,37 @@ window.drawDimensions = function() {
             // Dimension text
             ctx.setLineDash([]);
             ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
-            ctx.font = '12px Arial';
+            const fontPx = measurementFontSize || 12;
+            ctx.font = `${fontPx}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            
+
             const midX = (dim.startX + dim.endX) / 2;
             const midY = (dim.startY + dim.endY) / 2;
-            const textX = midX + nx * 8;
-            const textY = midY + ny * 8;
-            
+            const textX = midX + nx * 8 * side;
+            const textY = midY + ny * 8 * side;
+
+            let textAngle = Math.atan2(dy, dx);
+            if (textAngle > Math.PI / 2 || textAngle < -Math.PI / 2) {
+                textAngle += Math.PI;
+            }
+
+            ctx.save();
+            ctx.translate(textX, textY);
+            ctx.rotate(textAngle);
+
             // Text background
             const textWidth = ctx.measureText(dim.text).width;
+            const textHeight = fontPx * 1.2;
             ctx.fillStyle = DIMENSION_TEXT_BG;
-            ctx.fillRect(textX - textWidth/2 - 2, textY - 8, textWidth + 4, 16);
-            
+            ctx.fillRect(-textWidth/2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+
             // Text
             ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
-            ctx.fillText(dim.text, textX, textY);
+            ctx.fillText(dim.text, 0, 0);
+            ctx.restore();
         }
-        
+
         ctx.restore();
     });
 };
@@ -709,6 +811,7 @@ window.resetDimensionTool = function() {
     dimensionStartY = null;
     dimensionPreviewX = null;
     dimensionPreviewY = null;
+    window.dimensionActiveWall = null;
     hoveredWall = null;
     hoveredSpaceSegment = null;
     dimensionHoverX = null;

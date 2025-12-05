@@ -7,6 +7,7 @@ const canvas = document.getElementById('drawingCanvas');
 const ctx = canvas.getContext('2d');
 const canvasContainer = document.querySelector('.canvas-container');
 const toolButtons = document.querySelectorAll('.tool-btn[data-tool]');
+const staircaseToolButton = document.querySelector('.tool-btn[data-tool="staircase"]');
 const doorTypeSelect = document.getElementById('doorType');
 const wallThicknessFeetInput = document.getElementById('wallThicknessFeet');
 const wallThicknessInchesInput = document.getElementById('wallThicknessInches');
@@ -55,13 +56,35 @@ const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgro
 const finishBackgroundMeasurementButton = document.getElementById('finishBackgroundMeasurement');
 const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
 const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
+const toggle3DViewButton = document.getElementById('toggle3DView');
 const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
 const textModalConfirm = document.getElementById('textModalConfirm');
 const textModalCancel = document.getElementById('textModalCancel');
+const staircaseModal = document.getElementById('staircaseModal');
+const staircaseModeButtons = document.querySelectorAll('.staircase-mode-btn');
+const staircaseStepsSection = document.getElementById('staircaseStepsSection');
+const staircaseLandingSection = document.getElementById('staircaseLandingSection');
+const staircaseWidthFeetInput = document.getElementById('staircaseWidthFeet');
+const staircaseWidthInchesInput = document.getElementById('staircaseWidthInches');
+const staircaseRunInchesInput = document.getElementById('staircaseRunInches');
+const staircaseStepsInput = document.getElementById('staircaseSteps');
+const landingWidthFeetInput = document.getElementById('landingWidthFeet');
+const landingWidthInchesInput = document.getElementById('landingWidthInches');
+const landingLengthFeetInput = document.getElementById('landingLengthFeet');
+const landingLengthInchesInput = document.getElementById('landingLengthInches');
+const landingTypeRadios = document.querySelectorAll('input[name="landingType"]');
+const squaredLandingHint = document.getElementById('squaredLandingHint');
+const staircaseSummary = document.getElementById('staircaseSummary');
+const staircaseApplyButton = document.getElementById('staircaseApply');
+const staircaseCancelButton = document.getElementById('staircaseCancel');
 const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
+const threeContainer = document.getElementById('threeContainer');
+const threeStatus = document.getElementById('threeStatus');
+const horizontalRuler = document.getElementById('horizontalRuler');
+const verticalRuler = document.getElementById('verticalRuler');
 
 // Create context menu element
 const contextMenu = document.createElement('div');
@@ -86,16 +109,22 @@ const NODE_HIT_RADIUS = 10;
 const ALIGN_HINT_COLOR = '#e74c3c';
 const MAX_HISTORY = 50;
 const INTERSECTION_TOLERANCE = 5;
-const DEFAULT_WALL_COLOR = '#2c3e50';
+const DEFAULT_WALL_COLOR = '#000000';
+const DEFAULT_3D_WALL_COLOR = '#e0dcdc';
 const DEFAULT_DOOR_LINE = '#8b5a2b';
 const DEFAULT_DOOR_FILL = '#e6c9a8';
 const DEFAULT_WINDOW_LINE = '#3b83bd';
 const DEFAULT_WINDOW_FILL = '#ffffff';
+const DEFAULT_STAIR_FILL = '#e5e7eb';
 const MIN_VIEW_SCALE = 0.5;
 const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
 const SAVE_FILE_EXTENSION = '.paz';
 const SAVE_SECRET = 'apzok-project-key';
+const DEFAULT_TREAD_DEPTH_INCHES = 10;
+const STAIRCASE_MAGNET_THRESHOLD = 12;
+const RULER_SIZE = 28;
+const DEFAULT_VIEW_MARGIN_FEET = 3;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -118,8 +147,23 @@ let nextNodeId = 1;
 let nextWallId = 1;
 let floors = [];
 let nextFloorId = 1;
+let nextStairGroupId = 1;
 
 let objects = [];
+
+let staircaseSettings = {
+    mode: 'steps',
+    widthFeet: 3,
+    widthInches: 0,
+    runInches: DEFAULT_TREAD_DEPTH_INCHES,
+    steps: 10,
+    landingType: 'rectangular',
+    landingWidthFeet: 4,
+    landingWidthInches: 0,
+    landingLengthFeet: 4,
+    landingLengthInches: 0,
+    treadDepthInches: DEFAULT_TREAD_DEPTH_INCHES
+};
 
 // Background image + measurement
 let backgroundImageData = null; // committed image { image, x, y, width, height }
@@ -138,6 +182,8 @@ const BASE_CANVAS_HEIGHT = canvas.height;
 let viewScale = 1;
 let viewOffsetX = 0;
 let viewOffsetY = 0;
+let last2DScrollLeft = 0;
+let last2DScrollTop = 0;
 
 let selectedWalls = new Set(); // MULTIPLE wall selection
 let rightClickedWall = null;
@@ -147,6 +193,11 @@ let isSelectionBoxActive = false;
 let selectionBoxStart = null;
 let selectionBoxEnd = null;
 let selectionBoxAdditive = false;
+
+function snapRotation(angle, step = 5) {
+    const normalized = ((angle % 360) + 360) % 360;
+    return (Math.round(normalized / step) * step) % 360;
+}
 
 // WALL CHAINING
 let isWallDrawing = false;
@@ -172,8 +223,12 @@ let draggingObjectIndex = null;
 let objectDragOffset = null;
 let objectDragUndoApplied = false;
 let windowHandleDrag = null;
+let staircaseHandleDrag = null;
+let staircaseEditTargetIndex = null;
+let groupDragOffsets = null;
 let selectedFloorIds = new Set();
 let floorTextureTargetId = null;
+let isSelectionGrouped = false;
 
 // Prevent paste mode from being cancelled when switching tools programmatically
 let suppressPasteCancel = false;
@@ -189,6 +244,34 @@ let isFloorLassoActive = false;
 let floorLassoPoints = [];
 let floorLassoPreview = null;
 let floorHoverCorner = null;
+
+// View mode (2D/3D)
+let is3DView = false;
+let threeScene = null;
+let threeRenderer = null;
+let threeCamera = null;
+let threeControls = null;
+let wallMeshes = [];
+let threeContentGroup = null;
+let orbitCenterHelper = null;
+let threeLibsPromise = null;
+let useFallback3DRenderer = false;
+let fallback3DCanvas = null;
+let fallback3DCtx = null;
+let fallback3DAnimationId = null;
+let fallback3DCamera = {
+    distance: 80,
+    theta: Math.PI / 4,
+    phi: Math.PI / 4,
+    target: { x: 0, y: 5, z: 0 },
+    autoRotate: false,
+    isDragging: false,
+    dragMode: 'orbit',
+    lastPointer: null
+};
+const THREE_WALL_HEIGHT_FEET = 10;
+const THREE_FLOOR_THICKNESS_FEET = 5;
+const THREE_PLAN_OUTLINE_HEIGHT = 0.05;
 
 // undo / redo
 let undoStack = [];
@@ -222,6 +305,8 @@ function getCanvasPixelScale() {
 function screenToWorld(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     const scale = getCanvasPixelScale();
+    // Calibrate pointer location against any CSS scaling/zoom so hit-testing stays
+    // accurate regardless of the current view scale or device zoom level.
     const canvasX = (clientX - rect.left) / scale.x;
     const canvasY = (clientY - rect.top) / scale.y;
     return {
@@ -235,6 +320,25 @@ function worldToScreen(x, y) {
         x: x * viewScale + viewOffsetX,
         y: y * viewScale + viewOffsetY
     };
+}
+
+function formatFeetLabel(totalFeet) {
+    const sign = totalFeet < 0 ? '-' : '';
+    const absFeet = Math.abs(totalFeet);
+    const wholeFeet = Math.floor(absFeet);
+    const inches = Math.round((absFeet - wholeFeet) * 12);
+    if (inches === 12) {
+        return `${sign}${wholeFeet + 1}ft`;
+    }
+    if (inches === 0) {
+        return `${sign}${wholeFeet}ft`;
+    }
+    return `${sign}${wholeFeet}ft ${inches}in`;
+}
+
+function isMultipleOf(value, step, epsilon = 1e-4) {
+    const remainder = Math.abs(value % step);
+    return remainder < epsilon || Math.abs(remainder - step) < epsilon;
 }
 
 function getCanvasCoordsFromEvent(eventOrX, eventY) {
@@ -271,8 +375,9 @@ function applyViewZoom(factor, anchor = null) {
 }
 
 function panView(deltaX, deltaY) {
-    viewOffsetX += deltaX;
-    viewOffsetY += deltaY;
+    const pixelScale = getCanvasPixelScale();
+    viewOffsetX += deltaX / pixelScale.x;
+    viewOffsetY += deltaY / pixelScale.y;
     syncCanvasScrollArea();
     redrawCanvas();
 }
@@ -284,6 +389,211 @@ function syncCanvasScrollArea() {
     // to scale when using the mouse wheel to pan vertically.
     canvas.style.minWidth = `${BASE_CANVAS_WIDTH}px`;
     canvas.style.minHeight = `${BASE_CANVAS_HEIGHT}px`;
+}
+
+function resetViewToOrigin() {
+    const marginPx = DEFAULT_VIEW_MARGIN_FEET * scale * viewScale;
+    viewOffsetX = marginPx;
+    viewOffsetY = marginPx;
+
+    if (canvasContainer) {
+        // Make sure the visible corner aligns with the rulers instead of keeping
+        // any previous scroll position.
+        canvasContainer.scrollLeft = 0;
+        canvasContainer.scrollTop = 0;
+    }
+}
+
+function ensureDefaultViewIfMissing(state) {
+    const hasOffsets = Number.isFinite(state?.view?.offsetX) && Number.isFinite(state?.view?.offsetY);
+    if (!hasOffsets) {
+        resetViewToOrigin();
+    }
+}
+
+function drawRulerBackground(ctx, width, height, isVertical = false) {
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.beginPath();
+    if (isVertical) {
+        ctx.moveTo(width - 0.5, 0);
+        ctx.lineTo(width - 0.5, height);
+    } else {
+        ctx.moveTo(0, height - 0.5);
+        ctx.lineTo(width, height - 0.5);
+    }
+    ctx.stroke();
+}
+
+function drawHorizontalRuler() {
+    if (!horizontalRuler || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const containerRect = canvasContainer?.getBoundingClientRect();
+    if (containerRect) {
+        // Keep the ruler origin aligned with the visible canvas origin even
+        // when the container is scrolled. Using the raw offsets (including
+        // negative values) lets the ruler track the canvas position instead of
+        // sticking to the container edge.
+        const offsetLeft = rect.left - containerRect.left;
+        const offsetTop = rect.top - containerRect.top;
+        horizontalRuler.style.left = `${offsetLeft}px`;
+        horizontalRuler.style.top = `${offsetTop}px`;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    horizontalRuler.width = rect.width * dpr;
+    horizontalRuler.height = RULER_SIZE * dpr;
+    horizontalRuler.style.width = `${rect.width}px`;
+    horizontalRuler.style.height = `${RULER_SIZE}px`;
+    const rCtx = horizontalRuler.getContext('2d');
+    rCtx.save();
+    rCtx.scale(dpr, dpr);
+    drawRulerBackground(rCtx, rect.width, RULER_SIZE, false);
+
+    const canvasScaleX = rect.width / canvas.width;
+    const screenPxPerFoot = Math.max(1, scale * viewScale * canvasScaleX);
+    const startFeet = (-viewOffsetX / viewScale) / scale;
+    const visibleFeet = rect.width / screenPxPerFoot;
+
+    const inchSpacing = screenPxPerFoot / 12;
+    if (inchSpacing >= 6) {
+        const firstInch = Math.floor(startFeet * 12);
+        const lastInch = Math.ceil((startFeet + visibleFeet) * 12);
+        rCtx.strokeStyle = '#e2e8f0';
+        for (let i = firstInch; i <= lastInch; i++) {
+            const feetValue = i / 12;
+            const x = ((feetValue * scale) * viewScale + viewOffsetX) * canvasScaleX;
+            rCtx.beginPath();
+            rCtx.moveTo(x + 0.5, RULER_SIZE - 10);
+            rCtx.lineTo(x + 0.5, RULER_SIZE);
+            rCtx.stroke();
+        }
+    }
+
+    const firstFootTick = Math.floor(startFeet);
+    const lastFootTick = Math.ceil(startFeet + visibleFeet);
+    const showFootTicks = screenPxPerFoot >= 2;
+    rCtx.strokeStyle = '#94a3b8';
+    if (showFootTicks) {
+        for (let feetValue = firstFootTick; feetValue <= lastFootTick; feetValue += 1) {
+            const x = ((feetValue * scale) * viewScale + viewOffsetX) * canvasScaleX;
+            const isZero = Math.abs(feetValue) < 1e-4;
+            const isLabelTick = isMultipleOf(feetValue, 5);
+            const tickHeight = isZero ? RULER_SIZE : (isLabelTick ? 14 : 8);
+            rCtx.strokeStyle = isZero ? '#ef4444' : '#94a3b8';
+            rCtx.beginPath();
+            rCtx.moveTo(x + 0.5, RULER_SIZE - tickHeight);
+            rCtx.lineTo(x + 0.5, RULER_SIZE);
+            rCtx.stroke();
+        }
+    }
+
+    const showLabels = screenPxPerFoot * 5 >= 32;
+    if (showLabels) {
+        rCtx.fillStyle = '#334155';
+        rCtx.font = '11px Arial';
+        for (let feetValue = Math.ceil(startFeet / 5) * 5; feetValue <= startFeet + visibleFeet; feetValue += 5) {
+            const x = ((feetValue * scale) * viewScale + viewOffsetX) * canvasScaleX;
+            const isZero = Math.abs(feetValue) < 1e-4;
+            const label = formatFeetLabel(feetValue);
+            rCtx.save();
+            rCtx.translate(x + 4, 12);
+            rCtx.fillStyle = isZero ? '#b91c1c' : '#334155';
+            rCtx.fillText(label, 0, 0);
+            rCtx.restore();
+        }
+    }
+    rCtx.restore();
+}
+
+function drawVerticalRuler() {
+    if (!verticalRuler || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const containerRect = canvasContainer?.getBoundingClientRect();
+    if (containerRect) {
+        // Keep the ruler origin aligned with the visible canvas origin even
+        // when the container is scrolled. Clamping prevents the ruler from
+        // sliding outside the viewport (and effectively disappearing) when the
+        // user pans or scrolls far from the canvas origin.
+        const offsetLeft = rect.left - containerRect.left;
+        const offsetTop = rect.top - containerRect.top;
+        verticalRuler.style.left = `${Math.max(0, offsetLeft)}px`;
+        verticalRuler.style.top = `${Math.max(0, offsetTop)}px`;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    verticalRuler.width = RULER_SIZE * dpr;
+    verticalRuler.height = rect.height * dpr;
+    verticalRuler.style.width = `${RULER_SIZE}px`;
+    verticalRuler.style.height = `${rect.height}px`;
+    const rCtx = verticalRuler.getContext('2d');
+    rCtx.save();
+    rCtx.scale(dpr, dpr);
+    drawRulerBackground(rCtx, RULER_SIZE, rect.height, true);
+
+    const canvasScaleY = rect.height / canvas.height;
+    const screenPxPerFoot = Math.max(1, scale * viewScale * canvasScaleY);
+    const startFeet = (-viewOffsetY / viewScale) / scale;
+    const visibleFeet = rect.height / screenPxPerFoot;
+
+    const inchSpacing = screenPxPerFoot / 12;
+    if (inchSpacing >= 6) {
+        const firstInch = Math.floor(startFeet * 12);
+        const lastInch = Math.ceil((startFeet + visibleFeet) * 12);
+        rCtx.strokeStyle = '#e2e8f0';
+        for (let i = firstInch; i <= lastInch; i++) {
+            const feetValue = i / 12;
+            const y = ((feetValue * scale) * viewScale + viewOffsetY) * canvasScaleY;
+            rCtx.beginPath();
+            rCtx.moveTo(RULER_SIZE - 10, y + 0.5);
+            rCtx.lineTo(RULER_SIZE, y + 0.5);
+            rCtx.stroke();
+        }
+    }
+
+    const firstFootTick = Math.floor(startFeet);
+    const lastFootTick = Math.ceil(startFeet + visibleFeet);
+    const showFootTicks = screenPxPerFoot >= 2;
+    rCtx.strokeStyle = '#94a3b8';
+    if (showFootTicks) {
+        for (let feetValue = firstFootTick; feetValue <= lastFootTick; feetValue += 1) {
+            const y = ((feetValue * scale) * viewScale + viewOffsetY) * canvasScaleY;
+            const isZero = Math.abs(feetValue) < 1e-4;
+            const isLabelTick = isMultipleOf(feetValue, 5);
+            const tickWidth = isZero ? RULER_SIZE : (isLabelTick ? 14 : 8);
+            rCtx.strokeStyle = isZero ? '#ef4444' : '#94a3b8';
+            rCtx.beginPath();
+            rCtx.moveTo(isZero ? 0 : RULER_SIZE - tickWidth, y + 0.5);
+            rCtx.lineTo(RULER_SIZE, y + 0.5);
+            rCtx.stroke();
+        }
+    }
+
+    const showLabels = screenPxPerFoot * 5 >= 32;
+    if (showLabels) {
+        rCtx.fillStyle = '#334155';
+        rCtx.font = '11px Arial';
+        for (let feetValue = Math.ceil(startFeet / 5) * 5; feetValue <= startFeet + visibleFeet; feetValue += 5) {
+            const y = ((feetValue * scale) * viewScale + viewOffsetY) * canvasScaleY;
+            const isZero = Math.abs(feetValue) < 1e-4;
+            const label = formatFeetLabel(feetValue);
+            rCtx.save();
+            rCtx.translate(RULER_SIZE - 4, y + 14);
+            rCtx.rotate(-Math.PI / 2);
+            rCtx.fillStyle = isZero ? '#b91c1c' : '#334155';
+            rCtx.fillText(label, 0, 0);
+            rCtx.restore();
+        }
+    }
+    rCtx.restore();
+}
+
+function drawRulers() {
+    const shouldHide = is3DView;
+    if (horizontalRuler) horizontalRuler.classList.toggle('hidden', shouldHide);
+    if (verticalRuler) verticalRuler.classList.toggle('hidden', shouldHide);
+    if (shouldHide) return;
+    drawHorizontalRuler();
+    drawVerticalRuler();
 }
 
 function fitViewToBackground(data) {
@@ -820,6 +1130,153 @@ function deleteBackgroundImage() {
     redrawCanvas();
 }
 
+function isStairObject(obj) {
+    return obj?.type === 'staircase';
+}
+
+function getStairGroupOffsets(index) {
+    const source = objects[index];
+    if (!isStairObject(source) || !source.stairGroupId) return null;
+
+    const offsets = [];
+    objects.forEach((candidate, candidateIndex) => {
+        if (
+            candidateIndex !== index &&
+            isStairObject(candidate) &&
+            candidate.stairGroupId === source.stairGroupId
+        ) {
+            offsets.push({
+                index: candidateIndex,
+                offsetX: candidate.x - source.x,
+                offsetY: candidate.y - source.y
+            });
+        }
+    });
+    return offsets.length > 0 ? offsets : null;
+}
+
+function expandSelectionWithGroups() {
+    const additions = [];
+    selectedObjectIndices.forEach(index => {
+        const obj = objects[index];
+        if (!isStairObject(obj) || !obj.stairGroupId) return;
+
+        objects.forEach((candidate, candidateIndex) => {
+            if (
+                isStairObject(candidate) &&
+                candidate.stairGroupId === obj.stairGroupId
+            ) {
+                additions.push(candidateIndex);
+            }
+        });
+    });
+
+    additions.forEach(idx => selectedObjectIndices.add(idx));
+}
+
+function hasAnySelection() {
+    return selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0;
+}
+
+function getSceneCenter() {
+    const points = [];
+
+    nodes.forEach(node => {
+        points.push({ x: node.x, y: node.y });
+    });
+
+    objects.forEach(obj => {
+        if (!obj) return;
+        points.push({ x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 });
+    });
+
+    if (points.length === 0) return null;
+
+    const minX = Math.min(...points.map(p => p.x));
+    const maxX = Math.max(...points.map(p => p.x));
+    const minY = Math.min(...points.map(p => p.y));
+    const maxY = Math.max(...points.map(p => p.y));
+
+    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}
+
+function getGroupedSelectionCenter() {
+    const center = getSelectionCenter();
+    if (center) return center;
+    if (isSelectionGrouped || selectAllMode) return getSceneCenter();
+    return null;
+}
+
+function groupSelectionElements({ silent = false } = {}) {
+    if (!hasAnySelection()) {
+        if (!silent) alert('Select one or more elements to group.');
+        return false;
+    }
+
+    isSelectionGrouped = true;
+    return true;
+}
+
+function ungroupSelectionElements() {
+    isSelectionGrouped = false;
+}
+
+function clearSelectionGroupingIfEmpty() {
+    if (!hasAnySelection()) {
+        ungroupSelectionElements();
+    }
+}
+
+function getSelectedStairIndices() {
+    return Array.from(selectedObjectIndices).filter(index => isStairObject(objects[index]));
+}
+
+function getSharedStairGroupId(indices) {
+    if (!indices || indices.length === 0) return null;
+    const ids = new Set();
+    indices.forEach(index => {
+        const id = objects[index]?.stairGroupId;
+        if (id) ids.add(id);
+    });
+    return ids.size === 1 ? ids.values().next().value : null;
+}
+
+function groupSelectedStaircases() {
+    const stairIndices = getSelectedStairIndices();
+    if (stairIndices.length < 2) {
+        alert('Select two or more stair elements to group.');
+        return;
+    }
+
+    const sharedGroup = getSharedStairGroupId(stairIndices);
+    if (sharedGroup) return;
+
+    const groupId = nextStairGroupId++;
+    stairIndices.forEach(index => {
+        const obj = objects[index];
+        if (!isStairObject(obj)) return;
+        obj.stairGroupId = groupId;
+    });
+
+    expandSelectionWithGroups();
+    redrawCanvas();
+}
+
+function ungroupSelectedStaircases() {
+    const stairIndices = getSelectedStairIndices();
+    const sharedGroup = getSharedStairGroupId(stairIndices);
+    if (!sharedGroup) return;
+
+    stairIndices.forEach(index => {
+        const obj = objects[index];
+        if (isStairObject(obj) && obj.stairGroupId === sharedGroup) {
+            delete obj.stairGroupId;
+        }
+    });
+
+    redrawCanvas();
+}
+
 // ============================================================
 // CONTEXT MENU FUNCTIONS
 // ============================================================
@@ -829,6 +1286,10 @@ function showContextMenu(x, y, wall = null) {
 
     const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
     const hasBackgroundImage = !!backgroundImageData;
+    const stairIndices = getSelectedStairIndices();
+    const sharedStairGroup = getSharedStairGroupId(stairIndices);
+    const canGroupStairs = stairIndices.length >= 2 && !sharedStairGroup;
+    const canUngroupStairs = stairIndices.length > 0 && !!sharedStairGroup;
     const backgroundVisibilityLabel = isBackgroundImageVisible ? 'Hide Background Image' : 'Show Background Image';
     const backgroundMenu = hasBackgroundImage ? `
         <div class="context-item" data-action="toggleBackgroundVisibility" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
@@ -853,6 +1314,16 @@ function showContextMenu(x, y, wall = null) {
         </div>
         ${backgroundAddItem}
         ${backgroundMenu}
+        ${canGroupStairs ? `
+            <div class="context-item" data-action="groupStairs" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+                Group Stair Elements
+            </div>
+        ` : ''}
+        ${canUngroupStairs ? `
+            <div class="context-item" data-action="ungroupStairs" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+                Ungroup Stair Elements
+            </div>
+        ` : ''}
         ${wall ? `
             <div class="context-item" data-action="split" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
                 Split Wall
@@ -920,6 +1391,12 @@ function handleContextMenuAction(action) {
             break;
         case 'paste':
             startPasteMode(lastContextMenuCanvasX, lastContextMenuCanvasY);
+            break;
+        case 'groupStairs':
+            groupSelectedStaircases();
+            break;
+        case 'ungroupStairs':
+            ungroupSelectedStaircases();
             break;
         case 'background':
             openBackgroundImageModal();
@@ -1158,6 +1635,7 @@ function performPaste() {
     // Generate new IDs for pasted items
     const nodeIdMap = new Map();
     const wallIdMap = new Map();
+    const stairGroupMap = new Map();
     
     // Paste nodes with new IDs and offset
     clipboard.nodes.forEach(oldNode => {
@@ -1192,6 +1670,14 @@ function performPaste() {
             x: oldObj.x + offsetX,
             y: oldObj.y + offsetY
         };
+
+        if (isStairObject(newObj) && newObj.stairGroupId) {
+            if (!stairGroupMap.has(newObj.stairGroupId)) {
+                stairGroupMap.set(newObj.stairGroupId, nextStairGroupId++);
+            }
+            newObj.stairGroupId = stairGroupMap.get(newObj.stairGroupId);
+        }
+
         const newIndex = objects.push(newObj) - 1;
         selectedObjectIndices.add(newIndex);
     });
@@ -1282,6 +1768,14 @@ function drawPastePreview() {
             ctx.moveTo(x, y + h / 2);
             ctx.lineTo(x + w, y + h / 2);
             ctx.stroke();
+        } else if (oldObj.type === 'staircase') {
+            drawStaircaseGraphic({
+                ...oldObj,
+                x,
+                y,
+                width: w,
+                height: h
+            }, x, y, w, h);
         } else if (oldObj.type === 'furniture') {
             ctx.fillRect(x, y, w, h);
             ctx.strokeRect(x, y, w, h);
@@ -2216,7 +2710,7 @@ function buildProjectState() {
             fillColor: fillColorInput?.value || '#d9d9d9'
         },
         view: { scale: viewScale, offsetX: viewOffsetX, offsetY: viewOffsetY },
-        ids: { nextNodeId, nextWallId, nextFloorId },
+        ids: { nextNodeId, nextWallId, nextFloorId, nextStairGroupId },
         background,
         measurementDistanceFeet,
         backgroundImageVisible: isBackgroundImageVisible
@@ -2278,10 +2772,13 @@ function applyProjectState(state) {
     viewScale = state.view?.scale ?? viewScale;
     viewOffsetX = state.view?.offsetX ?? viewOffsetX;
     viewOffsetY = state.view?.offsetY ?? viewOffsetY;
+    ensureDefaultViewIfMissing(state);
 
     nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
     nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
     nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
+    const existingGroupMax = objects.length ? Math.max(...objects.map(o => o?.stairGroupId || 0)) : 0;
+    nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
 
     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
     if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
@@ -2368,8 +2865,14 @@ function handleProjectFileUpload(event) {
 function init() {
     canvas.setAttribute('tabindex', '0');
 
-    canvas.addEventListener('mousedown', () => {
-        canvas.focus();
+    canvas.addEventListener('mousedown', (event) => {
+        // Prevent the browser from scrolling the layout when the canvas gains
+        // focus (some browsers try to scroll the focused element into view).
+        if (typeof canvas.focus === 'function') {
+            canvas.focus({ preventScroll: true });
+        } else {
+            canvas.focus();
+        }
     });
 
     wallThicknessFeetInput.value = '0';
@@ -2419,8 +2922,17 @@ function init() {
             closeBackgroundImageModal();
             cancelBackgroundMeasurement();
             closeTextModal();
+            closeStaircaseModal();
         }
     });
+
+    if (staircaseToolButton) {
+        staircaseToolButton.addEventListener('click', () => {
+            // Make sure the settings dialog appears even if other listeners short-circuit
+            staircaseEditTargetIndex = null;
+            openStaircaseModal();
+        });
+    }
 
     toolButtons.forEach(button => {
         button.addEventListener('click', () => {
@@ -2439,6 +2951,13 @@ function init() {
 
             if (currentTool !== 'dimension' && typeof window.resetDimensionTool === 'function') {
                 window.resetDimensionTool();
+            }
+
+            if (currentTool === 'staircase') {
+                staircaseEditTargetIndex = null;
+                openStaircaseModal();
+            } else {
+                closeStaircaseModal();
             }
 
             // Cancel paste mode when switching tools (unless triggered programmatically for paste)
@@ -2507,6 +3026,51 @@ function init() {
     if (textModalCancel) {
         textModalCancel.addEventListener('click', closeTextModal);
     }
+    if (staircaseApplyButton) {
+        staircaseApplyButton.addEventListener('click', applyStaircaseSettings);
+    }
+    if (staircaseCancelButton) {
+        staircaseCancelButton.addEventListener('click', () => {
+            closeStaircaseModal();
+            // Revert to select tool if user cancels before drawing
+            if (currentTool === 'staircase') {
+                currentTool = 'select';
+                toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'select'));
+                updateToolInfo();
+            }
+        });
+    }
+    [
+        staircaseWidthFeetInput,
+        staircaseWidthInchesInput,
+        staircaseRunInchesInput,
+        staircaseStepsInput,
+        landingWidthFeetInput,
+        landingWidthInchesInput,
+        landingLengthFeetInput,
+        landingLengthInchesInput
+    ].forEach(input => {
+        if (input) {
+            input.addEventListener('input', updateStaircaseSummary);
+            input.addEventListener('change', updateStaircaseSummary);
+        }
+    });
+
+    staircaseModeButtons?.forEach(button => {
+        button.addEventListener('click', () => {
+            const mode = button.dataset.staircaseMode;
+            syncStaircaseModeUI(mode);
+            syncLandingTypeUI(getSelectedLandingType());
+            updateStaircaseSummary();
+        });
+    });
+
+    landingTypeRadios?.forEach(radio => {
+        radio.addEventListener('change', () => {
+            syncLandingTypeUI(radio.value);
+            updateStaircaseSummary();
+        });
+    });
     if (textModalInput) {
         textModalInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
@@ -2551,8 +3115,8 @@ function init() {
     }
 
     const transformActions = [
-        { button: rotateLeftButton, handler: () => rotateSelection(-15) },
-        { button: rotateRightButton, handler: () => rotateSelection(15) },
+        { button: rotateLeftButton, handler: () => rotateSelection(-5) },
+        { button: rotateRightButton, handler: () => rotateSelection(5) },
         { button: flipHorizontalButton, handler: () => flipSelection('horizontal') },
         { button: flipVerticalButton, handler: () => flipSelection('vertical') },
     ];
@@ -2633,9 +3197,15 @@ function init() {
         });
     }
 
+    if (canvasContainer) {
+        // Keep rulers aligned with the canvas when the scroll position changes.
+        canvasContainer.addEventListener('scroll', drawRulers);
+    }
+
     window.addEventListener('resize', () => {
         syncPreviewCanvasSize();
         redrawPreviewMeasurementOverlay();
+        drawRulers();
     });
 
     toggleGridButton.addEventListener('click', () => {
@@ -2647,19 +3217,27 @@ function init() {
         toggleBackgroundImageButton.addEventListener('click', toggleBackgroundImageVisibility);
     }
 
+    if (toggle3DViewButton) {
+        toggle3DViewButton.addEventListener('click', toggleViewMode);
+    }
+
     canvas.addEventListener('keydown', handleKeyDown);
 
     toolButtons.forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-tool') === currentTool);
     });
 
+    resetViewToOrigin();
     syncCanvasScrollArea();
     drawGrid();
     syncBackgroundControls();
     updateTextStyleButtons();
     updateMeasurementPreview();
+    updateStaircaseSummary();
     updateToolInfo();
     updatePropertiesPanel();
+    update3DButtonLabel('Show 3D');
+    drawRulers();
 }
 
 // ============================================================
@@ -2719,6 +3297,123 @@ function snapPointToInch(x, y) {
 function snapToInchAlongDirection(t) {
     const inchPx = scale / 12;
     return Math.round(t / inchPx) * inchPx;
+}
+
+function getStairSnapCandidates(excludeIndex = null) {
+    const candidates = { x: [], y: [] };
+
+    walls.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        [n1, n2].forEach(node => {
+            if (!node) return;
+            candidates.x.push(node.x);
+            candidates.y.push(node.y);
+        });
+        if (n1 && n2) {
+            candidates.x.push((n1.x + n2.x) / 2);
+            candidates.y.push((n1.y + n2.y) / 2);
+        }
+    });
+
+    objects.forEach((obj, index) => {
+        if (index === excludeIndex || !isStairObject(obj)) return;
+        candidates.x.push(obj.x, obj.x + obj.width, obj.x + obj.width / 2);
+        candidates.y.push(obj.y, obj.y + obj.height, obj.y + obj.height / 2);
+    });
+
+    return candidates;
+}
+
+function applyStaircaseMagnet(obj, handle = 'center', objIndex = null) {
+    if (!isStairObject(obj)) return;
+
+    const threshold = Math.max(STAIRCASE_MAGNET_THRESHOLD, scale * 0.3);
+    const candidates = getStairSnapCandidates(objIndex);
+    const edges = {
+        left: obj.x,
+        right: obj.x + obj.width,
+        top: obj.y,
+        bottom: obj.y + obj.height
+    };
+
+    const findDelta = (value, pool) => {
+        let best = null;
+        pool.forEach(candidate => {
+            const delta = candidate - value;
+            if (Math.abs(delta) <= threshold && (best === null || Math.abs(delta) < Math.abs(best))) {
+                best = delta;
+            }
+        });
+        return best;
+    };
+
+    if (handle === 'left') {
+        const snap = findDelta(edges.left, candidates.x);
+        if (snap !== null) {
+            const newLeft = edges.left + snap;
+            const newWidth = edges.right - newLeft;
+            if (newWidth >= scale * 0.5) {
+                obj.x = newLeft;
+                obj.width = newWidth;
+            }
+        }
+        return;
+    }
+
+    if (handle === 'right') {
+        const snap = findDelta(edges.right, candidates.x);
+        if (snap !== null) {
+            const newRight = edges.right + snap;
+            const newWidth = newRight - edges.left;
+            if (newWidth >= scale * 0.5) {
+                obj.width = newWidth;
+            }
+        }
+        return;
+    }
+
+    if (handle === 'top') {
+        const snap = findDelta(edges.top, candidates.y);
+        if (snap !== null) {
+            const newTop = edges.top + snap;
+            const newHeight = edges.bottom - newTop;
+            if (newHeight >= scale * 0.5) {
+                obj.y = newTop;
+                obj.height = newHeight;
+            }
+        }
+        return;
+    }
+
+    if (handle === 'bottom') {
+        const snap = findDelta(edges.bottom, candidates.y);
+        if (snap !== null) {
+            const newBottom = edges.bottom + snap;
+            const newHeight = newBottom - edges.top;
+            if (newHeight >= scale * 0.5) {
+                obj.height = newHeight;
+            }
+        }
+        return;
+    }
+
+    const leftDelta = findDelta(edges.left, candidates.x);
+    const rightDelta = findDelta(edges.right, candidates.x);
+    const topDelta = findDelta(edges.top, candidates.y);
+    const bottomDelta = findDelta(edges.bottom, candidates.y);
+
+    const chooseDelta = (a, b) => {
+        if (a === null) return b;
+        if (b === null) return a;
+        return Math.abs(a) <= Math.abs(b) ? a : b;
+    };
+
+    const dx = chooseDelta(leftDelta, rightDelta);
+    const dy = chooseDelta(topDelta, bottomDelta);
+
+    if (dx !== null) obj.x += dx;
+    if (dy !== null) obj.y += dy;
 }
 
 function moveSelectedWalls(dx, dy, { skipUndo = false } = {}) {
@@ -2971,12 +3666,14 @@ function startObjectDrag(index, mouseX, mouseY) {
     draggingObjectIndex = index;
     objectDragOffset = { x: mouseX - obj.x, y: mouseY - obj.y };
     objectDragUndoApplied = false;
+    groupDragOffsets = getStairGroupOffsets(index);
 }
 
 function stopObjectDrag() {
     draggingObjectIndex = null;
     objectDragOffset = null;
     objectDragUndoApplied = false;
+    groupDragOffsets = null;
 }
 
 // ============================================================
@@ -3080,6 +3777,8 @@ function finalizeSelectionBox() {
         }
     });
 
+    expandSelectionWithGroups();
+
     redrawCanvas();
 }
 
@@ -3101,7 +3800,18 @@ function projectPointToWallSegment(px, py, x1, y1, x2, y2) {
 }
 
 function maintainDoorAttachmentForSelection() {
-    selectedObjectIndices.forEach(index => {
+    const affectedIndices = new Set(selectedObjectIndices);
+
+    // Include doors that are attached to any selected wall so they move/rotate with the wall
+    selectedWalls.forEach(wall => {
+        objects.forEach((obj, index) => {
+            if (obj?.type === 'door' && obj.attachedWallId === wall.id) {
+                affectedIndices.add(index);
+            }
+        });
+    });
+
+    affectedIndices.forEach(index => {
         const obj = objects[index];
         if (!obj || obj.type !== 'door' || !obj.attachedWallId) return;
 
@@ -3125,6 +3835,44 @@ function maintainDoorAttachmentForSelection() {
 
         if (typeof sizeDoorToWall === 'function') {
             sizeDoorToWall(obj, { wall, n1, n2, projection, orientation }, scale);
+        }
+
+        // Keep the door's rotation aligned with the wall direction so it doesn't double-rotate
+        obj.rotation = orientation === 'horizontal' ? 0 : 90;
+    });
+}
+
+function transformDimensionsForSelectedWalls(transformFn) {
+    if (!window.dimensions || window.dimensions.length === 0 || selectedWalls.size === 0) return;
+
+    const selectedWallIds = new Set(Array.from(selectedWalls).map(w => w.id));
+
+    window.dimensions.forEach(dim => {
+        if (!dim.wallId || !selectedWallIds.has(dim.wallId)) return;
+
+        const start = transformFn(dim.startX, dim.startY);
+        const end = transformFn(dim.endX, dim.endY);
+
+        dim.startX = start.x;
+        dim.startY = start.y;
+        dim.endX = end.x;
+        dim.endY = end.y;
+    });
+}
+
+function normalizeWallDirections(wallsToNormalize) {
+    if (!wallsToNormalize || wallsToNormalize.size === 0) return;
+
+    wallsToNormalize.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) return;
+
+        const isHorizontal = Math.abs(n2.x - n1.x) >= Math.abs(n2.y - n1.y);
+        const shouldSwap = isHorizontal ? n1.x > n2.x : n1.y > n2.y;
+
+        if (shouldSwap) {
+            [wall.startNodeId, wall.endNodeId] = [wall.endNodeId, wall.startNodeId];
         }
     });
 }
@@ -3165,7 +3913,8 @@ function getSelectionCenter() {
 }
 
 function rotateSelection(angle) {
-    const center = getSelectionCenter();
+    clearSelectionGroupingIfEmpty();
+    const center = getGroupedSelectionCenter();
     if (!center) {
         alert('Please select something to rotate');
         return;
@@ -3174,6 +3923,15 @@ function rotateSelection(angle) {
     pushUndoState();
 
     const angleRad = (angle * Math.PI) / 180;
+
+    transformDimensionsForSelectedWalls((x, y) => {
+        const dx = x - center.x;
+        const dy = y - center.y;
+        return {
+            x: center.x + dx * Math.cos(angleRad) - dy * Math.sin(angleRad),
+            y: center.y + dx * Math.sin(angleRad) + dy * Math.cos(angleRad)
+        };
+    });
 
     // Rotate nodes belonging to selected walls/floors
     getSelectionNodeIds().forEach(id => {
@@ -3207,7 +3965,8 @@ function rotateSelection(angle) {
 }
 
 function flipSelection(direction) {
-    const center = getSelectionCenter();
+    clearSelectionGroupingIfEmpty();
+    const center = getGroupedSelectionCenter();
     if (!center) {
         alert('Please select something to flip');
         return;
@@ -3225,6 +3984,15 @@ function flipSelection(direction) {
             node.y = center.y - (node.y - center.y);
         }
     });
+
+    transformDimensionsForSelectedWalls((x, y) => {
+        if (direction === 'horizontal') {
+            return { x: center.x - (x - center.x), y };
+        }
+        return { x, y: center.y - (y - center.y) };
+    });
+
+    normalizeWallDirections(selectedWalls);
 
     // Flip objects (position + orientation flags)
     if (direction === 'horizontal' && typeof flipSelectedObjectsHorizontal === 'function') {
@@ -3312,6 +4080,7 @@ function handleMouseDown(e) {
                 selectedWalls.clear();
                 selectedObjectIndices.clear();
                 selectAllMode = false;
+                ungroupSelectionElements();
                 redrawCanvas();
             }
             return;
@@ -3334,6 +4103,29 @@ function handleMouseDown(e) {
     }
 
     if (currentTool === 'select') {
+        const staircaseHandle = getStaircaseHandleHit(x, y);
+        if (staircaseHandle) {
+            const obj = objects[staircaseHandle.index];
+            if (obj) {
+                pushUndoState();
+                const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
+                staircaseHandleDrag = {
+                    index: staircaseHandle.index,
+                    handle: staircaseHandle.handle,
+                    initial: { x: obj.x, y: obj.y, width: obj.width, height: obj.height, rotation: obj.rotation || 0 },
+                    center,
+                    startAngle: Math.atan2(y - center.y, x - center.x),
+                    undoApplied: true,
+                    groupOffsets: getStairGroupOffsets(staircaseHandle.index)
+                };
+                selectAllMode = false;
+                selectedObjectIndices = new Set([staircaseHandle.index]);
+                expandSelectionWithGroups();
+                redrawCanvas();
+            }
+            return;
+        }
+
         const windowHandle = getWindowHandleHit(x, y);
         if (windowHandle) {
             if (windowHandle.type === 'move') {
@@ -3402,7 +4194,9 @@ function handleMouseDown(e) {
                 selectedObjectIndices.add(objIndex);
                 selectedWalls.clear();
                 selectedFloorIds.clear();
+                ungroupSelectionElements();
             }
+            expandSelectionWithGroups();
             if (!e.shiftKey) {
                 startObjectDrag(objIndex, x, y);
             }
@@ -3426,6 +4220,7 @@ function handleMouseDown(e) {
                 selectedWalls.clear();
                 selectedWalls.add(wall);
                 selectedNode = null;
+                ungroupSelectionElements();
             }
             selectedFloorIds.clear();
             selectedObjectIndices.clear();
@@ -3446,6 +4241,7 @@ function handleMouseDown(e) {
                 selectedFloorIds = new Set([floorHit.id]);
                 selectedWalls.clear();
                 selectedObjectIndices.clear();
+                ungroupSelectionElements();
             }
             selectAllMode = false;
             redrawCanvas();
@@ -3466,6 +4262,7 @@ function handleMouseDown(e) {
             selectedObjectIndices.clear();
             selectedFloorIds.clear();
             selectAllMode = false;
+            ungroupSelectionElements();
         }
 
         redrawCanvas();
@@ -3529,12 +4326,88 @@ function getDefaultStyleForType(type) {
         return { lineColor: DEFAULT_WINDOW_LINE, fillColor: DEFAULT_WINDOW_FILL };
     }
 
+    if (type === 'staircase') {
+        return { lineColor: baseLine, fillColor: DEFAULT_STAIR_FILL };
+    }
+
     if (type === 'text') {
         const textColor = textColorInput?.value || '#000000';
         return { lineColor: textColor, fillColor: 'transparent' };
     }
 
     return { lineColor: baseLine, fillColor: baseFill };
+}
+
+function getStairSettings(obj = {}) {
+    if (obj.staircase) return obj.staircase;
+    return staircaseSettings;
+}
+
+function computeStaircaseBounds(startX, startY, currentX, currentY) {
+    const mode = staircaseSettings.mode || 'steps';
+    if (mode === 'landing') {
+        const landingWidthFeet = Math.max(1, feetWithInches(staircaseSettings.landingWidthFeet, staircaseSettings.landingWidthInches) || 1);
+        const landingLengthFeet = Math.max(1, feetWithInches(staircaseSettings.landingLengthFeet, staircaseSettings.landingLengthInches) || 1);
+        const widthPx = Math.max(landingLengthFeet * scale, 24);
+        const heightPx = Math.max(landingWidthFeet * scale, 24);
+
+        const dirX = currentX >= startX ? 1 : -1;
+        const dirY = currentY >= startY ? 1 : -1;
+
+        const x = dirX === 1 ? startX : startX - widthPx;
+        const y = dirY === 1 ? startY : startY - heightPx;
+
+        return { x, y, width: widthPx, height: heightPx, orientation: 'landing' };
+    }
+
+    const widthFeet = Math.max(1, feetWithInches(staircaseSettings.widthFeet, staircaseSettings.widthInches) || 3.5);
+    const steps = Math.max(3, staircaseSettings.steps || 10);
+    const treadDepthInches = staircaseSettings.runInches || staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES;
+
+    const widthPx = Math.max(widthFeet * scale, 24);
+    const treadPx = (treadDepthInches / 12) * scale;
+    const runPx = treadPx * steps;
+
+    const orientation = Math.abs(currentX - startX) >= Math.abs(currentY - startY)
+        ? 'horizontal'
+        : 'vertical';
+
+    const dirX = currentX >= startX ? 1 : -1;
+    const dirY = currentY >= startY ? 1 : -1;
+
+    const width = orientation === 'horizontal' ? runPx : widthPx;
+    const height = orientation === 'horizontal' ? widthPx : runPx;
+
+    const x = dirX === 1 ? startX : startX - width;
+    const y = dirY === 1 ? startY : startY - height;
+
+    return { x, y, width, height, orientation };
+}
+
+function computeStaircaseSizeFromSettings(settings, orientation = 'horizontal') {
+    const mode = settings.mode || 'steps';
+    const minPx = 24;
+
+    if (mode === 'landing') {
+        const landingWidthFeet = Math.max(1, feetWithInches(settings.landingWidthFeet, settings.landingWidthInches) || 1);
+        const landingLengthFeet = Math.max(1, feetWithInches(settings.landingLengthFeet, settings.landingLengthInches) || 1);
+        return {
+            width: Math.max(landingLengthFeet * scale, minPx),
+            height: Math.max(landingWidthFeet * scale, minPx)
+        };
+    }
+
+    const widthFeet = Math.max(1, feetWithInches(settings.widthFeet, settings.widthInches) || 3.5);
+    const steps = Math.max(3, settings.steps || 10);
+    const treadDepthInches = settings.runInches || settings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES;
+    const widthPx = Math.max(widthFeet * scale, minPx);
+    const runPx = Math.max((treadDepthInches / 12) * scale * steps, minPx);
+    const isHorizontal = orientation === 'horizontal';
+
+    return {
+        width: isHorizontal ? runPx : widthPx,
+        height: isHorizontal ? widthPx : runPx
+    };
 }
 
 function measureTextDimensions(text, fontSize = 18, fontWeight = 'normal', fontStyle = 'normal') {
@@ -3559,8 +4432,9 @@ function handleMouseMove(e) {
     }
 
     if (isViewPanning && panOrigin && panStartOffset) {
-        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x);
-        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y);
+        const pixelScale = getCanvasPixelScale();
+        viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x) / pixelScale.x;
+        viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y) / pixelScale.y;
         redrawCanvas();
         return;
     }
@@ -3570,6 +4444,88 @@ function handleMouseMove(e) {
         coordinatesDisplay.textContent = `Select box: ${Math.abs(selectionBoxEnd.x - selectionBoxStart.x).toFixed(1)} x ${Math.abs(selectionBoxEnd.y - selectionBoxStart.y).toFixed(1)}`;
         redrawCanvas();
         drawSelectionBoxOverlay();
+        return;
+    }
+
+    if (staircaseHandleDrag) {
+        const obj = objects[staircaseHandleDrag.index];
+        if (obj) {
+            ({ x, y } = snapToGridPoint(x, y));
+            const minSize = scale * 0.5;
+            const initial = staircaseHandleDrag.initial;
+            const dragCenter = staircaseHandleDrag.center;
+
+            switch (staircaseHandleDrag.handle) {
+                case 'center': {
+                    const dx = x - dragCenter.x;
+                    const dy = y - dragCenter.y;
+                    obj.x = initial.x + dx;
+                    obj.y = initial.y + dy;
+                    break;
+                }
+                case 'left': {
+                    const newX = Math.min(x, initial.x + initial.width - minSize);
+                    obj.x = newX;
+                    obj.width = Math.max(minSize, initial.width + (initial.x - newX));
+                    break;
+                }
+                case 'right': {
+                    obj.width = Math.max(minSize, x - initial.x);
+                    break;
+                }
+                case 'top': {
+                    const newY = Math.min(y, initial.y + initial.height - minSize);
+                    obj.y = newY;
+                    obj.height = Math.max(minSize, initial.height + (initial.y - newY));
+                    break;
+                }
+                case 'bottom': {
+                    obj.height = Math.max(minSize, y - initial.y);
+                    break;
+                }
+                case 'top-right': {
+                    obj.width = Math.max(minSize, x - initial.x);
+                    const newY = Math.min(y, initial.y + initial.height - minSize);
+                    obj.y = newY;
+                    obj.height = Math.max(minSize, initial.height + (initial.y - newY));
+                    break;
+                }
+                case 'bottom-right': {
+                    obj.width = Math.max(minSize, x - initial.x);
+                    obj.height = Math.max(minSize, y - initial.y);
+                    break;
+                }
+                case 'bottom-left': {
+                    const newX = Math.min(x, initial.x + initial.width - minSize);
+                    obj.x = newX;
+                    obj.width = Math.max(minSize, initial.width + (initial.x - newX));
+                    obj.height = Math.max(minSize, y - initial.y);
+                    break;
+                }
+                case 'rotate': {
+                    const angle = Math.atan2(y - dragCenter.y, x - dragCenter.x);
+                    let newRotation = initial.rotation + ((angle - staircaseHandleDrag.startAngle) * 180) / Math.PI;
+                    obj.rotation = snapRotation(newRotation);
+                    break;
+                }
+            }
+
+            if (staircaseHandleDrag.handle !== 'rotate') {
+                applyStaircaseMagnet(obj, staircaseHandleDrag.handle, staircaseHandleDrag.index);
+
+                if (staircaseHandleDrag.handle === 'center' && staircaseHandleDrag.groupOffsets) {
+                    staircaseHandleDrag.groupOffsets.forEach(({ index, offsetX, offsetY }) => {
+                        const member = objects[index];
+                        if (!member) return;
+                        member.x = obj.x + offsetX;
+                        member.y = obj.y + offsetY;
+                    });
+                }
+            }
+
+            coordinatesDisplay.textContent = `X: ${obj.x.toFixed(1)}, Y: ${obj.y.toFixed(1)}`;
+            redrawCanvas();
+        }
         return;
     }
 
@@ -3632,9 +4588,23 @@ function handleMouseMove(e) {
                 objectDragUndoApplied = true;
             }
 
-            ({ x, y } = snapToGridPoint(x - objectDragOffset.x, y - objectDragOffset.y));
-            obj.x = x;
-            obj.y = y;
+            const snapped = snapToGridPoint(x - objectDragOffset.x, y - objectDragOffset.y);
+            obj.x = snapped.x;
+            obj.y = snapped.y;
+
+            if (isStairObject(obj)) {
+                applyStaircaseMagnet(obj, 'center', draggingObjectIndex);
+            }
+
+            if (groupDragOffsets) {
+                groupDragOffsets.forEach(({ index, offsetX, offsetY }) => {
+                    const member = objects[index];
+                    if (!member) return;
+                    member.x = obj.x + offsetX;
+                    member.y = obj.y + offsetY;
+                });
+                expandSelectionWithGroups();
+            }
 
             if (obj.type === 'door' && typeof window.snapDoorToNearestWall === 'function') {
                 window.snapDoorToNearestWall(obj, walls, scale);
@@ -3822,6 +4792,12 @@ function handleMouseUp() {
         return;
     }
 
+    if (staircaseHandleDrag) {
+        staircaseHandleDrag = null;
+        redrawCanvas();
+        return;
+    }
+
     if (windowHandleDrag) {
         windowHandleDrag = null;
         redrawCanvas();
@@ -3846,17 +4822,27 @@ function handleMouseUp() {
     if (!isDrawing) return;
     isDrawing = false;
 
-    if (!['door', 'window', 'furniture'].includes(currentTool)) return;
+    if (!['door', 'window', 'furniture', 'staircase'].includes(currentTool)) return;
     if (startX === currentX && startY === currentY) return;
 
     pushUndoState();
 
     const styles = getDefaultStyleForType(currentTool);
 
-    const x = Math.min(startX, currentX);
-    const y = Math.min(startY, currentY);
-    const w = Math.abs(currentX - startX);
-    const h = Math.abs(currentY - startY);
+    let x = Math.min(startX, currentX);
+    let y = Math.min(startY, currentY);
+    let w = Math.abs(currentX - startX);
+    let h = Math.abs(currentY - startY);
+    let orientation = Math.abs(currentX - startX) >= Math.abs(currentY - startY) ? 'horizontal' : 'vertical';
+
+    if (currentTool === 'staircase') {
+        const bounds = computeStaircaseBounds(startX, startY, currentX, currentY);
+        x = bounds.x;
+        y = bounds.y;
+        w = bounds.width;
+        h = bounds.height;
+        orientation = bounds.orientation;
+    }
 
     const newObj = {
         type: currentTool,
@@ -3868,7 +4854,8 @@ function handleMouseUp() {
         fillColor: styles.fillColor,
         rotation: 0,
         flipH: false,
-        flipV: false
+        flipV: false,
+        orientation
     };
 
     if (currentTool === 'door') {
@@ -3880,6 +4867,8 @@ function handleMouseUp() {
         if (typeof window.initializeWindowObject === 'function') {
             window.initializeWindowObject(newObj, walls, scale);
         }
+    } else if (currentTool === 'staircase') {
+        newObj.staircase = { ...staircaseSettings };
     }
 
     objects.push(newObj);
@@ -4018,6 +5007,15 @@ function handleCanvasDoubleClick(e) {
         return;
     }
 
+    const dblObjIndex = getObjectAt(x, y, true);
+    if (dblObjIndex !== -1) {
+        const obj = objects[dblObjIndex];
+        if (obj?.type === 'staircase') {
+            openStaircaseEditorForObject(dblObjIndex);
+            return;
+        }
+    }
+
     if (!isWallDrawing) {
         const floor = getFloorAt(x, y);
         if (floor) {
@@ -4114,6 +5112,9 @@ function drawGrid() {
 }
 
 function drawWalls() {
+    const selectedToHighlight = [];
+
+    // First draw all walls so selection handles aren't hidden behind joints
     for (const w of walls) {
         const n1 = getNodeById(w.startNodeId);
         const n2 = getNodeById(w.endNodeId);
@@ -4130,13 +5131,17 @@ function drawWalls() {
         ctx.restore();
 
         if (showDimensions) drawWallDimension(n1.x, n1.y, n2.x, n2.y, w.thicknessPx);
-        
-        // Draw selection highlight for selected walls
+
         if (selectedWalls.has(w)) {
-            drawWallSelectionHighlight(n1, n2, w);
+            selectedToHighlight.push({ n1, n2, wall: w });
         }
     }
-    
+
+    // Draw selection highlight for selected walls after all walls are rendered
+    for (const { n1, n2, wall } of selectedToHighlight) {
+        drawWallSelectionHighlight(n1, n2, wall);
+    }
+
     // Draw paste preview if in paste mode and paste point is set
     if (isPasteMode && pasteTargetX !== null && pasteTargetY !== null) {
         drawPastePreview();
@@ -4281,11 +5286,28 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const tx = midX + nx * offset;
     const ty = midY + ny * offset;
 
+    const angle = Math.atan2(dy, dx);
+    let renderAngle = angle;
+    if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
+        renderAngle += Math.PI;
+    }
+
     withViewTransform(() => {
         ctx.save();
+        ctx.translate(tx, ty);
+        ctx.rotate(renderAngle);
         ctx.fillStyle = '#e74c3c';
         ctx.font = `${measurementFontSize}px Arial`;
-        ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const textWidth = ctx.measureText(text).width;
+        const textHeight = measurementFontSize * 1.2;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillText(text, 0, 0);
         ctx.restore();
     });
 }
@@ -4302,23 +5324,293 @@ function drawDimensions() {
 // ============================================================
 // OBJECTS
 // ============================================================
+function drawStraightStair(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const steps = Math.max(3, stair.steps || 10);
+    const hasLanding = stair.layout === 'landing';
+    const landingSize = hasLanding ? Math.min(drawWidth, drawHeight, (stair.landingDepthFeet || 3) * scale) : 0;
+    const orientation = obj.orientation || (drawWidth >= drawHeight ? 'horizontal' : 'vertical');
+    const runLength = orientation === 'horizontal' ? drawWidth : drawHeight;
+    const crossLength = orientation === 'horizontal' ? drawHeight : drawWidth;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(originX, originY, drawWidth, drawHeight);
+    ctx.clip();
+
+    const drawLine = (offset) => {
+        if (orientation === 'horizontal') {
+            ctx.moveTo(originX + offset, originY);
+            ctx.lineTo(originX + offset, originY + crossLength);
+        } else {
+            ctx.moveTo(originX, originY + offset);
+            ctx.lineTo(originX + crossLength, originY + offset);
+        }
+    };
+
+    ctx.beginPath();
+    if (landingSize > 0) {
+        const halfSteps = Math.ceil(steps / 2);
+        const runWithoutLanding = Math.max(runLength - landingSize, 10);
+        const segment = runWithoutLanding / 2;
+        const spacing = segment / halfSteps;
+        for (let i = 1; i < halfSteps; i++) {
+            drawLine(spacing * i);
+        }
+        const startSecond = segment + landingSize;
+        for (let i = 1; i < halfSteps; i++) {
+            drawLine(startSecond + spacing * i);
+        }
+        if (orientation === 'horizontal') {
+            ctx.rect(originX + segment, originY + crossLength / 2 - landingSize / 2, landingSize, landingSize);
+        } else {
+            ctx.rect(originX + crossLength / 2 - landingSize / 2, originY + segment, landingSize, landingSize);
+        }
+    } else {
+        const spacing = runLength / steps;
+        for (let i = 1; i < steps; i++) {
+            drawLine(spacing * i);
+        }
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawLShapedStair(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const steps = Math.max(4, stair.steps || 10);
+    const stepsFirst = Math.ceil(steps / 2);
+    const stepsSecond = steps - stepsFirst;
+    const landingSize = Math.min((stair.landingDepthFeet || 3) * scale, Math.min(drawWidth, drawHeight) * 0.45);
+    const orientation = obj.orientation || (drawWidth >= drawHeight ? 'horizontal' : 'vertical');
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(originX, originY, drawWidth, drawHeight);
+    ctx.clip();
+    ctx.beginPath();
+
+    if (orientation === 'horizontal') {
+        const run1 = Math.max(drawWidth - landingSize, landingSize * 1.2);
+        const spacing1 = run1 / stepsFirst;
+        for (let i = 1; i < stepsFirst; i++) {
+            ctx.moveTo(originX + spacing1 * i, originY);
+            ctx.lineTo(originX + spacing1 * i, originY + landingSize);
+        }
+
+        ctx.rect(originX + run1 - landingSize, originY, landingSize, landingSize);
+
+        const run2 = Math.max(drawHeight - landingSize, landingSize * 1.2);
+        const spacing2 = run2 / Math.max(1, stepsSecond);
+        for (let i = 1; i < stepsSecond; i++) {
+            ctx.moveTo(originX + run1 - landingSize, originY + landingSize + spacing2 * i);
+            ctx.lineTo(originX + run1, originY + landingSize + spacing2 * i);
+        }
+    } else {
+        const run1 = Math.max(drawHeight - landingSize, landingSize * 1.2);
+        const spacing1 = run1 / stepsFirst;
+        for (let i = 1; i < stepsFirst; i++) {
+            ctx.moveTo(originX, originY + spacing1 * i);
+            ctx.lineTo(originX + landingSize, originY + spacing1 * i);
+        }
+
+        ctx.rect(originX, originY + run1 - landingSize, landingSize, landingSize);
+
+        const run2 = Math.max(drawWidth - landingSize, landingSize * 1.2);
+        const spacing2 = run2 / Math.max(1, stepsSecond);
+        for (let i = 1; i < stepsSecond; i++) {
+            ctx.moveTo(originX + landingSize + spacing2 * i, originY + run1 - landingSize);
+            ctx.lineTo(originX + landingSize + spacing2 * i, originY + run1);
+        }
+    }
+
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawUShapedStair(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const steps = Math.max(4, stair.steps || 10);
+    const stepsFirst = Math.ceil(steps / 2);
+    const stepsSecond = steps - stepsFirst;
+    const landingSize = Math.min((stair.landingDepthFeet || 3) * scale, drawHeight * 0.35);
+    const runSegment = Math.max((drawHeight - landingSize) / 2, 10);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(originX, originY, drawWidth, drawHeight);
+    ctx.clip();
+    ctx.beginPath();
+
+    const spacing1 = runSegment / stepsFirst;
+    for (let i = 1; i < stepsFirst; i++) {
+        ctx.moveTo(originX, originY + spacing1 * i);
+        ctx.lineTo(originX + drawWidth, originY + spacing1 * i);
+    }
+
+    ctx.rect(originX, originY + runSegment, drawWidth, landingSize);
+
+    const spacing2 = runSegment / Math.max(1, stepsSecond);
+    for (let i = 1; i < stepsSecond; i++) {
+        const offset = runSegment + landingSize + spacing2 * i;
+        ctx.moveTo(originX, originY + offset);
+        ctx.lineTo(originX + drawWidth, originY + offset);
+    }
+
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawLandingGraphic(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const stroke = obj.lineColor || '#111827';
+    const lw = obj.lineWidth || 2;
+
+    ctx.save();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lw;
+
+    if (stair.landingType === 'squared') {
+        ctx.beginPath();
+        ctx.moveTo(originX + drawWidth, originY + drawHeight);
+        ctx.lineTo(originX, originY);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+function drawStaircaseGraphic(obj, originX, originY, drawWidth, drawHeight) {
+    const stair = getStairSettings(obj);
+    const fill = obj.fillColor || DEFAULT_STAIR_FILL;
+    const stroke = obj.lineColor || '#111827';
+    const lw = obj.lineWidth || 2;
+    const mode = stair.mode || 'steps';
+    const layout = stair.layout || 'straight';
+
+    ctx.save();
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.rect(originX, originY, drawWidth, drawHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    if (mode === 'landing') {
+        drawLandingGraphic(obj, originX, originY, drawWidth, drawHeight);
+    } else if (layout === 'l-shape') {
+        drawLShapedStair(obj, originX, originY, drawWidth, drawHeight);
+    } else if (layout === 'u-shape') {
+        drawUShapedStair(obj, originX, originY, drawWidth, drawHeight);
+    } else {
+        drawStraightStair(obj, originX, originY, drawWidth, drawHeight);
+    }
+    ctx.restore();
+}
+
+function getObjectTransformInfo(obj) {
+    const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
+    const drawWidth = isVerticalDoor ? obj.height : obj.width;
+    const drawHeight = isVerticalDoor ? obj.width : obj.height;
+    let orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
+    let angleRad = ((obj.rotation || 0) * Math.PI) / 180;
+
+    if ((obj.type === 'door' || obj.type === 'window') && obj.attachedWallId) {
+        const wall = walls.find(w => w.id === obj.attachedWallId);
+        const n1 = wall && getNodeById(wall.startNodeId);
+        const n2 = wall && getNodeById(wall.endNodeId);
+
+        if (n1 && n2) {
+            angleRad = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+            orientationRotation = 0; // Angle already matches the wall
+        }
+    }
+
+    return {
+        cx: obj.x + obj.width / 2,
+        cy: obj.y + obj.height / 2,
+        angle: angleRad + orientationRotation,
+        sx: obj.flipH ? -1 : 1,
+        sy: obj.flipV ? -1 : 1,
+        drawWidth,
+        drawHeight
+    };
+}
+
+function getObjectTransformedCorners(obj) {
+    // Text renders around its top-left corner (to keep glyphs readable when flipped),
+    // so we mirror that logic here to keep the selection border aligned with the drawn text.
+    if (obj.type === 'text') {
+        const { cx, cy, angle, sx, sy, drawWidth, drawHeight } = getObjectTransformInfo(obj);
+        const localX = -drawWidth / 2;
+        const localY = -drawHeight / 2;
+        const flippedLocalX = localX * sx;
+        const flippedLocalY = localY * sy;
+
+        const rotX = flippedLocalX * Math.cos(angle) - flippedLocalY * Math.sin(angle);
+        const rotY = flippedLocalX * Math.sin(angle) + flippedLocalY * Math.cos(angle);
+        const anchor = { x: cx + rotX, y: cy + rotY };
+
+        const rotatePoint = (px, py) => ({
+            x: anchor.x + px * Math.cos(angle) - py * Math.sin(angle),
+            y: anchor.y + px * Math.sin(angle) + py * Math.cos(angle)
+        });
+
+        return [
+            anchor,
+            rotatePoint(drawWidth, 0),
+            rotatePoint(drawWidth, drawHeight),
+            rotatePoint(0, drawHeight)
+        ];
+    }
+
+    const { cx, cy, angle, sx, sy, drawWidth, drawHeight } = getObjectTransformInfo(obj);
+    const halfW = drawWidth / 2;
+    const halfH = drawHeight / 2;
+
+    const locals = [
+        { x: -halfW, y: -halfH },
+        { x: halfW, y: -halfH },
+        { x: halfW, y: halfH },
+        { x: -halfW, y: halfH }
+    ];
+
+    return locals.map(({ x, y }) => {
+        const lx = x * sx;
+        const ly = y * sy;
+        const rx = lx * Math.cos(angle) - ly * Math.sin(angle);
+        const ry = lx * Math.sin(angle) + ly * Math.cos(angle);
+        return { x: cx + rx, y: cy + ry };
+    });
+}
+
+function getObjectHandlePoints(corners) {
+    if (!corners || corners.length !== 4) return [];
+    const [c0, c1, c2, c3] = corners;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+    return [
+        c0,
+        mid(c0, c1),
+        c1,
+        mid(c1, c2),
+        c2,
+        mid(c2, c3),
+        c3,
+        mid(c3, c0)
+    ];
+}
+
 function drawObjects() {
     for (let i = 0; i < objects.length; i++) {
         const obj = objects[i];
-        const { x, y, width, height } = obj;
-        const cx = x + width / 2;
-        const cy = y + height / 2;
-        const rotRad = ((obj.rotation || 0) * Math.PI) / 180;
-        const sx = obj.flipH ? -1 : 1;
-        const sy = obj.flipV ? -1 : 1;
-        const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
-        const drawWidth = isVerticalDoor ? obj.height : obj.width;
-        const drawHeight = isVerticalDoor ? obj.width : obj.height;
-        const orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
+        const { width, height } = obj;
+        const { cx, cy, angle, sx, sy, drawWidth, drawHeight } = getObjectTransformInfo(obj);
 
         ctx.save();
         ctx.translate(cx, cy);
-        ctx.rotate(rotRad + orientationRotation);
+        ctx.rotate(angle);
         ctx.scale(sx, sy);
 
         const localX = -drawWidth / 2;
@@ -4346,13 +5638,32 @@ function drawObjects() {
             ctx.lineTo(localX + width, localY + height / 2);
             ctx.stroke();
         } else if (obj.type === 'text') {
+            // Keep text readable even when objects are flipped by mirroring
+            // the position instead of the glyphs themselves
+            const { angle, sx, sy } = getObjectTransformInfo(obj);
             const fontSize = obj.fontSize || 18;
             const fontWeight = obj.fontWeight || 'normal';
             const fontStyle = obj.fontStyle || 'normal';
+            const flippedLocalX = localX * sx;
+            const flippedLocalY = localY * sy;
+            const rotX = flippedLocalX * Math.cos(angle) - flippedLocalY * Math.sin(angle);
+            const rotY = flippedLocalX * Math.sin(angle) + flippedLocalY * Math.cos(angle);
+
+            ctx.restore();
+            ctx.save();
+            ctx.translate(cx + rotX, cy + rotY);
+            ctx.rotate(angle);
             ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`.trim();
             ctx.textBaseline = 'top';
             ctx.fillStyle = obj.textColor || obj.lineColor || '#000000';
-            ctx.fillText(obj.text, localX, localY);
+            ctx.fillText(obj.text, 0, 0);
+            ctx.restore();
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(angle);
+            ctx.scale(sx, sy);
+        } else if (obj.type === 'staircase') {
+            drawStaircaseGraphic(obj, localX, localY, width, height);
         } else if (obj.type === 'furniture') {
             ctx.fillRect(localX, localY, width, height);
             ctx.strokeRect(localX, localY, width, height);
@@ -4361,30 +5672,50 @@ function drawObjects() {
         ctx.restore();
 
         if (selectedObjectIndices.has(i)) {
+            const corners = getObjectTransformedCorners(obj);
             ctx.save();
             ctx.strokeStyle = '#2980b9';
             ctx.lineWidth = 2;
-            ctx.strokeRect(x, y, width, height);
+            ctx.beginPath();
+            ctx.moveTo(corners[0].x, corners[0].y);
+            for (let c = 1; c < corners.length; c++) {
+                ctx.lineTo(corners[c].x, corners[c].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
 
-            const handleSize = 8;
-            const handles = [
-                { hx: x, hy: y },
-                { hx: x + width / 2 - handleSize / 2, hy: y },
-                { hx: x + width - handleSize, hy: y },
-                { hx: x, hy: y + height / 2 - handleSize / 2 },
-                { hx: x + width - handleSize, hy: y + height / 2 - handleSize / 2 },
-                { hx: x, hy: y + height - handleSize },
-                { hx: x + width / 2 - handleSize / 2, hy: y + height - handleSize },
-                { hx: x + width - handleSize, hy: y + height - handleSize }
-            ];
+            if (obj.type === 'staircase') {
+                const { handleSize, handles } = getStaircaseHandles(obj, corners);
+                const half = handleSize / 2;
 
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#2980b9';
-            ctx.lineWidth = 1;
-            handles.forEach(({ hx, hy }) => {
-                ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
-                ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
-            });
+                handles.forEach(handle => {
+                    const stroke = handle.type === 'rotate' ? '#f39c12' : '#2980b9';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.strokeStyle = stroke;
+                    ctx.lineWidth = 1.5;
+
+                    if (handle.type === 'rotate') {
+                        ctx.beginPath();
+                        ctx.arc(handle.hx, handle.hy, half + 2, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+                    } else {
+                        ctx.fillRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
+                        ctx.strokeRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
+                    }
+                });
+            } else {
+                const handleSize = 8;
+                const handles = getObjectHandlePoints(corners);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = '#2980b9';
+                ctx.lineWidth = 1;
+                handles.forEach(({ x: hx, y: hy }) => {
+                    ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
+                    ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
+                });
+            }
             ctx.restore();
         }
     }
@@ -4451,9 +5782,82 @@ function getWindowHandleHit(x, y) {
     return null;
 }
 
+function getStaircaseHandles(obj, cachedCorners = null) {
+    const handleSize = 12;
+    const corners = cachedCorners || getObjectTransformedCorners(obj);
+    const [c0, c1, c2, c3] = corners;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    const center = mid(c0, c2);
+
+    return {
+        handleSize,
+        handles: [
+            { type: 'rotate', hx: c0.x, hy: c0.y },
+            { type: 'top', hx: mid(c0, c1).x, hy: mid(c0, c1).y },
+            { type: 'top-right', hx: c1.x, hy: c1.y },
+            { type: 'right', hx: mid(c1, c2).x, hy: mid(c1, c2).y },
+            { type: 'bottom-right', hx: c2.x, hy: c2.y },
+            { type: 'bottom', hx: mid(c2, c3).x, hy: mid(c2, c3).y },
+            { type: 'bottom-left', hx: c3.x, hy: c3.y },
+            { type: 'left', hx: mid(c3, c0).x, hy: mid(c3, c0).y },
+            { type: 'center', hx: center.x, hy: center.y }
+        ]
+    };
+}
+
+function getStaircaseHandleHit(x, y) {
+    for (const index of selectedObjectIndices) {
+        const obj = objects[index];
+        if (!obj || obj.type !== 'staircase') continue;
+
+        const { handleSize, handles } = getStaircaseHandles(obj);
+        const half = handleSize / 2;
+
+        for (const handle of handles) {
+            if (
+                x >= handle.hx - half &&
+                x <= handle.hx + half &&
+                y >= handle.hy - half &&
+                y <= handle.hy + half
+            ) {
+                return { index, handle: handle.type };
+            }
+        }
+    }
+    return null;
+}
+
+function promptStaircaseSize(obj) {
+    if (!obj || obj.type !== 'staircase') return;
+
+    const currentWidthFeet = obj.width / scale;
+    const currentLengthFeet = obj.height / scale;
+
+    const widthInput = prompt('Update staircase/landing width (feet):', currentWidthFeet.toFixed(2));
+    if (widthInput === null) return;
+
+    const lengthInput = prompt('Update staircase/landing length (feet):', currentLengthFeet.toFixed(2));
+    if (lengthInput === null) return;
+
+    const newWidth = parseFloat(widthInput);
+    const newLength = parseFloat(lengthInput);
+
+    if (Number.isNaN(newWidth) || Number.isNaN(newLength)) {
+        alert('Please enter valid numbers for width and length.');
+        return;
+    }
+
+    pushUndoState();
+
+    const minSizePx = scale * 0.5;
+    obj.width = Math.max(minSizePx, newWidth * scale);
+    obj.height = Math.max(minSizePx, newLength * scale);
+    redrawCanvas();
+}
+
 function drawCurrentDragObject() {
     if (!isDrawing) return;
-    if (!['door', 'window', 'furniture'].includes(currentTool)) return;
+    if (!['door', 'window', 'furniture', 'staircase'].includes(currentTool)) return;
 
     const x = Math.min(startX, currentX);
     const y = Math.min(startY, currentY);
@@ -4485,6 +5889,16 @@ function drawCurrentDragObject() {
             ctx.moveTo(x, y + h / 2);
             ctx.lineTo(x + w, y + h / 2);
             ctx.stroke();
+        } else if (currentTool === 'staircase') {
+            const bounds = computeStaircaseBounds(startX, startY, currentX, currentY);
+            drawStaircaseGraphic({
+                type: 'staircase',
+                lineColor: previewStyles.lineColor,
+                fillColor: previewStyles.fillColor,
+                lineWidth: parseInt(lineWidthInput.value, 10) || 2,
+                staircase: staircaseSettings,
+                orientation: bounds.orientation
+            }, bounds.x, bounds.y, bounds.width, bounds.height);
         } else if (currentTool === 'furniture') {
             ctx.fillRect(x, y, w, h);
             ctx.strokeRect(x, y, w, h);
@@ -4536,6 +5950,10 @@ function drawFloorLassoOverlay() {
 }
 
 function redrawCanvas() {
+    if (is3DView) {
+        refresh3DView();
+        return;
+    }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -4554,7 +5972,1102 @@ function redrawCanvas() {
     drawFloorLassoOverlay();
     ctx.restore();
 
+    drawRulers();
     updatePropertiesPanel();
+}
+
+// ============================================================
+// 3D VIEW (THREE.JS)
+// ============================================================
+function setThreeStatus(message = '', isError = false) {
+    if (!threeStatus) return;
+    threeStatus.textContent = message;
+    threeStatus.classList.toggle('hidden', !message);
+    threeStatus.classList.toggle('error', !!isError);
+}
+
+function loadScriptOnce(src) {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+        if (existing.dataset.loaded === 'true' || existing.readyState === 'complete') {
+            return Promise.resolve();
+        }
+        return new Promise((resolve, reject) => {
+            existing.addEventListener('load', () => resolve(), { once: true });
+            existing.addEventListener('error', reject, { once: true });
+        });
+    }
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = false;
+        script.dataset.loaded = 'false';
+        script.onload = () => {
+            script.dataset.loaded = 'true';
+            resolve();
+        };
+        script.onerror = (err) => reject(err);
+        document.head.appendChild(script);
+    });
+}
+
+function ensureThreeLibraries() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        useFallback3DRenderer = true;
+        if (!threeLibsPromise) {
+            threeLibsPromise = Promise.resolve(false);
+        }
+        setThreeStatus('Offline mode: using built-in 3D preview.');
+        return threeLibsPromise;
+    }
+
+    if (typeof THREE !== 'undefined' && THREE.Scene && THREE.PerspectiveCamera) {
+        if (!threeLibsPromise) {
+            threeLibsPromise = Promise.resolve(true);
+        }
+        setThreeStatus('');
+        return threeLibsPromise;
+    }
+
+    if (!threeLibsPromise) {
+        setThreeStatus('Loading 3D engine…');
+
+        const loader = Promise.all([
+            loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js'),
+            loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/controls/OrbitControls.js')
+        ]).then(() => {
+            if (typeof THREE === 'undefined') {
+                throw new Error('Three.js failed to initialize');
+            }
+            setThreeStatus('');
+            return true;
+        });
+
+        const timeout = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Timed out loading Three.js')), 3500);
+        });
+
+        threeLibsPromise = Promise.race([loader, timeout]).catch(err => {
+            console.warn('Falling back to offline 3D renderer', err);
+            setThreeStatus('Using offline 3D preview (Three.js unreachable).');
+            useFallback3DRenderer = true;
+            return false;
+        });
+    }
+
+    return threeLibsPromise;
+}
+
+function getThreeViewportSize() {
+    const width = Math.max(threeContainer?.clientWidth || 0, canvas?.width || 1200, 1);
+    const height = Math.max(threeContainer?.clientHeight || 0, canvas?.height || 900, 1);
+    return { width, height };
+}
+
+function ensureThreeView() {
+    if (threeScene || !threeContainer || typeof THREE === 'undefined') return;
+    const { width, height } = getThreeViewportSize();
+
+    threeScene = new THREE.Scene();
+    threeScene.background = new THREE.Color('#f5f5f5');
+
+    threeCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
+    threeCamera.position.set(0, 50, 90);
+
+    threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
+    threeRenderer.setSize(width, height);
+    threeRenderer.setClearColor(threeScene.background, 1);
+    if ('outputEncoding' in threeRenderer) {
+        threeRenderer.outputEncoding = THREE.sRGBEncoding;
+    } else if ('outputColorSpace' in threeRenderer) {
+        threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    }
+    threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+    threeRenderer.toneMappingExposure = 1.1;
+    threeRenderer.shadowMap.enabled = true;
+    threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    threeRenderer.physicallyCorrectLights = true;
+    threeContainer.appendChild(threeRenderer.domElement);
+
+    if (typeof THREE.OrbitControls === 'function') {
+        threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
+        threeControls.enableDamping = true;
+        threeControls.enablePan = true;
+        threeControls.enableZoom = true;
+        threeControls.enableRotate = true;
+        threeControls.screenSpacePanning = true;
+        threeControls.zoomSpeed = 0.6;
+        threeControls.rotateSpeed = 0.65;
+        threeControls.panSpeed = 0.8;
+        threeControls.minDistance = 2;
+        threeControls.maxDistance = Infinity;
+        threeControls.minPolarAngle = 0.05;
+        threeControls.maxPolarAngle = Math.PI - 0.02;
+        threeControls.autoRotate = false;
+        threeControls.autoRotateSpeed = 0.4;
+    }
+
+    // Brighter lighting to keep floor meshes and orbit controls clearly visible
+    threeScene.add(new THREE.AmbientLight(0xffffff, 1.9));
+
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 1.6);
+    hemiLight.position.set(0, scale * 6, 0);
+    threeScene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.4);
+    dirLight.position.set(scale * 25, scale * 40, scale * 25);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.camera.near = 10;
+    dirLight.shadow.camera.far = scale * 120;
+    threeScene.add(dirLight);
+
+    const pointLight = new THREE.PointLight(0xffffff, 1.5, scale * 160);
+    pointLight.position.set(-scale * 15, scale * 20, -scale * 15);
+    pointLight.castShadow = true;
+    threeScene.add(pointLight);
+
+    const spotLight = new THREE.SpotLight(0xffffff, 1.35, scale * 220, Math.PI / 4, 0.18, 1);
+    spotLight.position.set(0, scale * 30, 0);
+    spotLight.target.position.set(0, 0, 0);
+    spotLight.castShadow = true;
+    spotLight.shadow.mapSize.set(1024, 1024);
+    spotLight.shadow.bias = -0.00012;
+    threeScene.add(spotLight);
+    threeScene.add(spotLight.target);
+
+    threeContentGroup = new THREE.Group();
+    threeScene.add(threeContentGroup);
+
+    window.addEventListener('resize', handleThreeResize);
+
+    const renderLoop = () => {
+        requestAnimationFrame(renderLoop);
+        if (!threeRenderer || !threeScene || !threeCamera) return;
+        if (threeControls) threeControls.update();
+        threeRenderer.render(threeScene, threeCamera);
+    };
+    renderLoop();
+}
+
+function getPlanBounds() {
+    let minX = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxZ = -Infinity;
+
+    const considerPoint = (px, pz) => {
+        minX = Math.min(minX, px);
+        minZ = Math.min(minZ, pz);
+        maxX = Math.max(maxX, px);
+        maxZ = Math.max(maxZ, pz);
+    };
+
+    if (Array.isArray(nodes)) {
+        nodes.forEach(n => considerPoint(toWorldUnits(n.x), toWorldUnits(n.y)));
+    }
+
+    if (Array.isArray(floors)) {
+        floors.forEach(floor => {
+            const points = getFloorPoints(floor);
+            points.forEach(p => considerPoint(toWorldUnits(p.x), toWorldUnits(p.y)));
+        });
+    }
+
+    if (!isFinite(minX) || !isFinite(minZ)) {
+        const defaultSize = 10;
+        minX = -defaultSize;
+        maxX = defaultSize;
+        minZ = -defaultSize;
+        maxZ = defaultSize;
+    }
+
+    return {
+        minX,
+        maxX,
+        minZ,
+        maxZ,
+        width: maxX - minX,
+        depth: maxZ - minZ
+    };
+}
+
+function buildOrbitBoundingBox() {
+    const bounds = getPlanBounds();
+    const gridPadding = toWorldUnits(gridSize || 20) * 2;
+    const padding = Math.max(bounds.width, bounds.depth, gridPadding * 3) * 0.15 + gridPadding;
+
+    const min = new THREE.Vector3(bounds.minX - padding, 0, bounds.minZ - padding);
+    const max = new THREE.Vector3(
+        bounds.maxX + padding,
+        Math.max(THREE_WALL_HEIGHT_FEET * 1.4, padding * 0.35),
+        bounds.maxZ + padding
+    );
+
+    return new THREE.Box3(min, max);
+}
+
+function ensureFallback3DView() {
+    if (!threeContainer) return;
+
+    if (!fallback3DCanvas) {
+        fallback3DCanvas = document.createElement('canvas');
+        fallback3DCanvas.id = 'fallback3dCanvas';
+        fallback3DCanvas.className = 'fallback-3d-canvas';
+        fallback3DCtx = fallback3DCanvas.getContext('2d');
+        threeContainer.innerHTML = '';
+        threeContainer.appendChild(fallback3DCanvas);
+
+        fallback3DCanvas.addEventListener('pointerdown', handleFallbackPointerDown);
+        fallback3DCanvas.addEventListener('pointermove', handleFallbackPointerMove);
+        fallback3DCanvas.addEventListener('pointerup', handleFallbackPointerUp);
+        fallback3DCanvas.addEventListener('pointerleave', handleFallbackPointerUp);
+        fallback3DCanvas.addEventListener('wheel', handleFallbackWheel, { passive: false });
+        fallback3DCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        window.addEventListener('resize', resizeFallbackCanvas);
+    }
+
+    resizeFallbackCanvas();
+    updateFallbackCameraTarget();
+    startFallbackAnimation();
+}
+
+function resizeFallbackCanvas() {
+    if (!fallback3DCanvas || !threeContainer) return;
+    const { clientWidth, clientHeight } = threeContainer;
+    fallback3DCanvas.width = Math.max(clientWidth, 1);
+    fallback3DCanvas.height = Math.max(clientHeight, 1);
+}
+
+function getFallbackCameraPosition() {
+    const { distance, theta, phi, target } = fallback3DCamera;
+    return {
+        x: target.x + distance * Math.cos(phi) * Math.cos(theta),
+        y: target.y + distance * Math.sin(phi),
+        z: target.z + distance * Math.cos(phi) * Math.sin(theta)
+    };
+}
+
+function projectFallbackPoint(point) {
+    if (!fallback3DCtx || !fallback3DCanvas) return null;
+    const cameraPos = getFallbackCameraPosition();
+    const up = { x: 0, y: 1, z: 0 };
+    const target = fallback3DCamera.target;
+
+    const forwardVec = normalizeVector({
+        x: target.x - cameraPos.x,
+        y: target.y - cameraPos.y,
+        z: target.z - cameraPos.z
+    });
+    const rightVec = normalizeVector(crossVector(forwardVec, up));
+    const trueUp = crossVector(rightVec, forwardVec);
+
+    const rel = {
+        x: point.x - cameraPos.x,
+        y: point.y - cameraPos.y,
+        z: point.z - cameraPos.z
+    };
+
+    const viewX = dotVector(rel, rightVec);
+    const viewY = dotVector(rel, trueUp);
+    const viewZ = dotVector(rel, forwardVec);
+
+    const fov = Math.PI / 3;
+    const focal = fallback3DCanvas.height / (2 * Math.tan(fov / 2));
+    const safeZ = Math.max(viewZ, 0.1);
+
+    return {
+        x: fallback3DCanvas.width / 2 + (viewX * focal) / safeZ,
+        y: fallback3DCanvas.height / 2 - (viewY * focal) / safeZ,
+        depth: viewZ
+    };
+}
+
+function normalizeVector(v) {
+    const len = Math.hypot(v.x, v.y, v.z) || 1;
+    return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
+
+function dotVector(a, b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function crossVector(a, b) {
+    return {
+        x: a.y * b.z - a.z * b.y,
+        y: a.z * b.x - a.x * b.z,
+        z: a.x * b.y - a.y * b.x
+    };
+}
+
+function drawFallbackPolygon(points, { fillStyle = null, strokeStyle = null, lineWidth = 1 } = {}) {
+    if (!fallback3DCtx || points.length === 0) return;
+    fallback3DCtx.beginPath();
+    fallback3DCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        fallback3DCtx.lineTo(points[i].x, points[i].y);
+    }
+    fallback3DCtx.closePath();
+    if (fillStyle) {
+        fallback3DCtx.fillStyle = fillStyle;
+        fallback3DCtx.fill();
+    }
+    if (strokeStyle) {
+        fallback3DCtx.strokeStyle = strokeStyle;
+        fallback3DCtx.lineWidth = lineWidth;
+        fallback3DCtx.stroke();
+    }
+}
+
+function drawFallbackGrid() {
+    if (!fallback3DCtx) return;
+    const spacing = toWorldUnits(gridSize || 20);
+    const bounds = getPlanBounds();
+    const extent = Math.max(bounds.width, bounds.depth, spacing * 10);
+    const half = extent * 1.2;
+    const lines = [];
+
+    for (let i = -half; i <= half; i += spacing) {
+        lines.push([
+            { x: i, y: 0, z: -half },
+            { x: i, y: 0, z: half }
+        ]);
+        lines.push([
+            { x: -half, y: 0, z: i },
+            { x: half, y: 0, z: i }
+        ]);
+    }
+
+    fallback3DCtx.lineWidth = 1;
+    lines.forEach(([start, end]) => {
+        const p1 = projectFallbackPoint(start);
+        const p2 = projectFallbackPoint(end);
+        if (!p1 || !p2) return;
+        const alpha = 0.3 + Math.max(0, Math.min(0.4, (p1.depth + p2.depth) * 0.0006));
+        fallback3DCtx.strokeStyle = `rgba(148, 163, 184, ${alpha.toFixed(3)})`;
+        fallback3DCtx.beginPath();
+        fallback3DCtx.moveTo(p1.x, p1.y);
+        fallback3DCtx.lineTo(p2.x, p2.y);
+        fallback3DCtx.stroke();
+    });
+}
+
+function drawFallbackFloors() {
+    if (!Array.isArray(floors)) return;
+    floors.forEach(floor => {
+        const points = getFloorPoints(floor);
+        if (points.length < 3) return;
+        const projected = points.map(p => projectFallbackPoint({ x: toWorldUnits(p.x), y: 0.02, z: toWorldUnits(p.y) }));
+        if (projected.some(p => !p)) return;
+        const fill = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
+        drawFallbackPolygon(projected, { fillStyle: fill, strokeStyle: '#1f2937', lineWidth: 1 });
+    });
+}
+
+function drawFallbackWalls() {
+    if (!Array.isArray(walls)) return;
+    const height = THREE_WALL_HEIGHT_FEET;
+    walls.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) return;
+
+        const p1 = { x: toWorldUnits(n1.x), z: toWorldUnits(n1.y) };
+        const p2 = { x: toWorldUnits(n2.x), z: toWorldUnits(n2.y) };
+        const thickness = toWorldUnits(wall.thicknessPx || scale * 0.5);
+        const dir = normalizeVector({ x: p2.x - p1.x, y: 0, z: p2.z - p1.z });
+        const normal = { x: -dir.z * (thickness / 2), y: 0, z: dir.x * (thickness / 2) };
+
+        const corners = [
+            { x: p1.x + normal.x, y: 0, z: p1.z + normal.z },
+            { x: p2.x + normal.x, y: 0, z: p2.z + normal.z },
+            { x: p2.x - normal.x, y: 0, z: p2.z - normal.z },
+            { x: p1.x - normal.x, y: 0, z: p1.z - normal.z }
+        ];
+
+        const topCorners = corners.map(c => ({ ...c, y: height }));
+        const faces = [
+            [corners[0], corners[1], corners[2], corners[3]],
+            [topCorners[0], topCorners[1], topCorners[2], topCorners[3]],
+            [corners[0], corners[1], topCorners[1], topCorners[0]],
+            [corners[1], corners[2], topCorners[2], topCorners[1]],
+            [corners[2], corners[3], topCorners[3], topCorners[2]],
+            [corners[3], corners[0], topCorners[0], topCorners[3]]
+        ];
+
+        const color = wall.lineColor || DEFAULT_WALL_COLOR;
+        const faceShades = [0.08, 0.14, -0.05, 0.06, -0.08, 0.02];
+
+        const projectedFaces = faces.map((face, index) => {
+            const projected = face.map(pt => projectFallbackPoint(pt));
+            if (projected.some(p => !p)) return null;
+
+            const avgDepth = projected.reduce((sum, p) => sum + (p.depth || 0), 0) / projected.length;
+            return {
+                projected,
+                shade: faceShades[index] ?? 0,
+                depth: avgDepth
+            };
+        }).filter(Boolean);
+
+        projectedFaces
+            .sort((a, b) => (b.depth || 0) - (a.depth || 0))
+            .forEach(({ projected, shade }) => {
+                drawFallbackPolygon(projected, {
+                    fillStyle: shadeColor(color, 0.22 + shade),
+                    strokeStyle: '#0c1220',
+                    lineWidth: 1.2
+                });
+            });
+    });
+}
+
+function shadeColor(hex, amount = 0.1) {
+    const col = hex.replace('#', '');
+    const num = parseInt(col, 16);
+    const clamp = (v) => Math.max(0, Math.min(255, v));
+    const r = clamp((num >> 16) + 255 * amount);
+    const g = clamp(((num >> 8) & 0xff) + 255 * amount);
+    const b = clamp((num & 0xff) + 255 * amount);
+    return `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
+}
+
+function drawFallbackSky() {
+    if (!fallback3DCtx || !fallback3DCanvas) return;
+    const gradient = fallback3DCtx.createLinearGradient(0, 0, 0, fallback3DCanvas.height);
+    gradient.addColorStop(0, '#f8fafc');
+    gradient.addColorStop(1, '#e2e8f0');
+    fallback3DCtx.fillStyle = gradient;
+    fallback3DCtx.fillRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
+}
+
+function renderFallback3DScene() {
+    if (!fallback3DCtx || !fallback3DCanvas) return;
+    fallback3DCtx.clearRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
+    drawFallbackSky();
+
+    drawFallbackGrid();
+    drawFallbackFloors();
+    drawFallbackWalls();
+}
+
+function updateFallbackCameraTarget() {
+    let center;
+    let largest;
+
+    if (typeof THREE !== 'undefined' && typeof THREE.Box3 === 'function') {
+        const orbitBox = buildOrbitBoundingBox();
+        const sphere = orbitBox.getBoundingSphere(new THREE.Sphere());
+        center = sphere.center || new THREE.Vector3(0, THREE_WALL_HEIGHT_FEET * 0.4, 0);
+        largest = Math.max(sphere.radius * 2 || 0, 10);
+    } else {
+        const bounds = getPlanBounds();
+        center = {
+            x: (bounds.minX + bounds.maxX) / 2,
+            y: THREE_WALL_HEIGHT_FEET * 0.4,
+            z: (bounds.minZ + bounds.maxZ) / 2
+        };
+        largest = Math.max(bounds.width, bounds.depth, 10);
+    }
+
+    fallback3DCamera.target = {
+        x: center.x,
+        y: center.y,
+        z: center.z
+    };
+    fallback3DCamera.distance = Math.max(largest * 1.3, 18);
+}
+
+function startFallbackAnimation() {
+    if (fallback3DAnimationId) cancelAnimationFrame(fallback3DAnimationId);
+
+    const animate = () => {
+        renderFallback3DScene();
+        fallback3DAnimationId = requestAnimationFrame(animate);
+    };
+
+    animate();
+}
+
+function stopFallbackAnimation() {
+    if (fallback3DAnimationId) cancelAnimationFrame(fallback3DAnimationId);
+    fallback3DAnimationId = null;
+}
+
+function handleFallbackPointerDown(e) {
+    if (!fallback3DCamera) return;
+    fallback3DCamera.isDragging = true;
+    fallback3DCamera.lastPointer = { x: e.clientX, y: e.clientY };
+    fallback3DCamera.dragMode = (e.button === 2 || e.button === 1 || e.shiftKey) ? 'pan' : 'orbit';
+    fallback3DCamera.autoRotate = false;
+    fallback3DCanvas?.setPointerCapture(e.pointerId);
+}
+
+function handleFallbackPointerMove(e) {
+    if (!fallback3DCamera.isDragging || !fallback3DCamera.lastPointer) return;
+    const dx = e.clientX - fallback3DCamera.lastPointer.x;
+    const dy = e.clientY - fallback3DCamera.lastPointer.y;
+    if (fallback3DCamera.dragMode === 'pan') {
+        const panScale = Math.max(0.0015, fallback3DCamera.distance * 0.002);
+        const theta = fallback3DCamera.theta;
+        const cosTheta = Math.cos(theta);
+        const sinTheta = Math.sin(theta);
+
+        fallback3DCamera.target.x -= (dx * panScale * cosTheta) + (dy * panScale * sinTheta * 0.6);
+        fallback3DCamera.target.z += (dx * panScale * sinTheta) - (dy * panScale * cosTheta * 0.6);
+        fallback3DCamera.target.y += dy * panScale * 0.4;
+    } else {
+        fallback3DCamera.theta -= dx * 0.005;
+        fallback3DCamera.phi = Math.min(Math.PI - 0.1, Math.max(0.12, fallback3DCamera.phi - dy * 0.005));
+    }
+    fallback3DCamera.lastPointer = { x: e.clientX, y: e.clientY };
+    renderFallback3DScene();
+}
+
+function handleFallbackPointerUp(e) {
+    if (!fallback3DCamera.isDragging) return;
+    fallback3DCamera.isDragging = false;
+    fallback3DCamera.dragMode = 'orbit';
+    fallback3DCamera.lastPointer = null;
+    fallback3DCanvas?.releasePointerCapture(e.pointerId);
+}
+
+function handleFallbackWheel(e) {
+    e.preventDefault();
+    const factor = Math.exp(e.deltaY * 0.001);
+    fallback3DCamera.distance = Math.max(5, Math.min(320, fallback3DCamera.distance * factor));
+    renderFallback3DScene();
+}
+
+function handleThreeResize() {
+    if (!is3DView || !threeRenderer || !threeCamera || !threeContainer) return;
+    const { width, height } = getThreeViewportSize();
+    threeCamera.aspect = width / height;
+    threeCamera.updateProjectionMatrix();
+    threeRenderer.setSize(width, height);
+}
+
+function disposeThreeObject(obj) {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+        if (Array.isArray(obj.material)) {
+            obj.material.forEach(m => m.dispose && m.dispose());
+        } else if (obj.material.dispose) {
+            obj.material.dispose();
+        }
+    }
+}
+
+function clearThreeContent() {
+    if (!threeContentGroup) return;
+    while (threeContentGroup.children.length) {
+        const child = threeContentGroup.children.pop();
+        disposeThreeObject(child);
+    }
+    wallMeshes = [];
+    orbitCenterHelper = null;
+}
+
+function toWorldUnits(pxValue) {
+    return pxValue / Math.max(scale || 1, 0.0001);
+}
+
+function generateConcreteTexture(size = 256, accent = '#e2e8f0') {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const textureCtx = canvas.getContext('2d');
+
+    textureCtx.fillStyle = accent;
+    textureCtx.fillRect(0, 0, size, size);
+
+    const noiseDensity = 4200;
+    for (let i = 0; i < noiseDensity; i++) {
+        const x = Math.random() * size;
+        const y = Math.random() * size;
+        const alpha = Math.random() * 0.18 + 0.06;
+        const shade = Math.floor(210 + Math.random() * 25);
+        textureCtx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, ${alpha})`;
+        textureCtx.fillRect(x, y, 1.2, 1.2);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(3, 3);
+    texture.anisotropy = Math.min(8, texture.anisotropy || 4);
+    return texture;
+}
+
+function createConcreteMaterial(color = DEFAULT_3D_WALL_COLOR) {
+    const diffuseTexture = generateConcreteTexture(256, color);
+    const bumpTexture = generateConcreteTexture(256, '#cbd5e1');
+
+    return new THREE.MeshPhysicalMaterial({
+        color,
+        map: diffuseTexture,
+        bumpMap: bumpTexture,
+        bumpScale: 0.08,
+        roughness: 0.9,
+        metalness: 0.06,
+        clearcoat: 0.08,
+        clearcoatRoughness: 0.9,
+        flatShading: false,
+        transparent: false,
+        depthWrite: true,
+        depthTest: true
+    });
+}
+
+function createGroundElements() {
+    const bounds = getPlanBounds();
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+
+    const gridSpacing = Math.max(toWorldUnits(gridSize || 20), 1);
+    const largestPlanSize = Math.max(bounds.width, bounds.depth, 1);
+    const size = Math.max(largestPlanSize + gridSpacing * 4, 40);
+
+    const planeGeometry = new THREE.PlaneGeometry(size, size, 1, 1);
+    planeGeometry.rotateX(-Math.PI / 2);
+    const planeMaterial = new THREE.MeshStandardMaterial({
+        color: '#f8fafc',
+        roughness: 0.95,
+        metalness: 0.02,
+        side: THREE.DoubleSide,
+        transparent: false,
+        opacity: 1
+    });
+    const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+    plane.position.set(centerX, -0.05, centerZ);
+    plane.userData.isGround = true;
+    plane.receiveShadow = true;
+
+    const divisions = Math.max(10, Math.round(size / gridSpacing));
+    const grid = new THREE.GridHelper(size, divisions, 0x94a3b8, 0xcbd5e1);
+    grid.material.depthWrite = false;
+    grid.position.set(centerX, 0.02, centerZ);
+    grid.userData.isGround = true;
+
+    return { plane, grid };
+}
+
+function createPlanOverlay() {
+    if ((!walls || walls.length === 0) && (!floors || floors.length === 0)) return null;
+
+    const group = new THREE.Group();
+    group.position.y = THREE_PLAN_OUTLINE_HEIGHT;
+
+    walls.forEach(wall => {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) return;
+
+        const geometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(toWorldUnits(n1.x), 0, toWorldUnits(n1.y)),
+            new THREE.Vector3(toWorldUnits(n2.x), 0, toWorldUnits(n2.y))
+        ]);
+
+        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: '#94a3b8' }));
+        group.add(line);
+    });
+
+    floors.forEach(floor => {
+        const points = getFloorPoints(floor);
+        if (!points || points.length < 3) return;
+        const loopPoints = points.map(p => new THREE.Vector3(toWorldUnits(p.x), 0, toWorldUnits(p.y)));
+        const geometry = new THREE.BufferGeometry().setFromPoints(loopPoints);
+        const line = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial({ color: '#eab308' }));
+        group.add(line);
+    });
+
+    return group;
+}
+
+function createWallMesh(wall, wallHeight) {
+    const n1 = getNodeById(wall.startNodeId);
+    const n2 = getNodeById(wall.endNodeId);
+    if (!n1 || !n2) return null;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const length = toWorldUnits(Math.hypot(dx, dy)) || 1;
+    const thickness = toWorldUnits(wall.thicknessPx || (0.5 * scale));
+
+    const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
+    const wallColor = (wall.lineColor && wall.lineColor !== DEFAULT_WALL_COLOR)
+        ? wall.lineColor
+        : DEFAULT_3D_WALL_COLOR;
+    const material = createConcreteMaterial(wallColor);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    const midX = toWorldUnits((n1.x + n2.x) / 2);
+    const midY = toWorldUnits((n1.y + n2.y) / 2);
+    mesh.position.set(midX, wallHeight / 2, midY);
+    mesh.rotation.y = -Math.atan2(dy, dx);
+    return mesh;
+}
+
+function createFloorMesh(floor) {
+    const points = getFloorPoints(floor);
+    if (points.length < 3) return null;
+
+    const shape = new THREE.Shape();
+    shape.moveTo(toWorldUnits(points[0].x), toWorldUnits(points[0].y));
+    for (let i = 1; i < points.length; i++) {
+        shape.lineTo(toWorldUnits(points[i].x), toWorldUnits(points[i].y));
+    }
+    shape.closePath();
+
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: THREE_FLOOR_THICKNESS_FEET, bevelEnabled: false });
+    geometry.rotateX(-Math.PI / 2);
+
+    const color = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
+    const material = new THREE.MeshStandardMaterial({
+        color,
+        metalness: 0.05,
+        roughness: 0.8,
+        side: THREE.DoubleSide,
+        transparent: false,
+        opacity: 1
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.y = 0;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+}
+
+function createDoorOrWindowMesh(obj, wallHeight) {
+    const drawWidth = toWorldUnits(obj.width);
+    const drawDepth = toWorldUnits(obj.height);
+    const length = Math.max(drawWidth, 0.1);
+    const depth = Math.max(drawDepth, 0.1);
+    const isWindow = obj.type === 'window';
+    const height = isWindow ? wallHeight * 0.5 : wallHeight * 0.9;
+    const centerY = isWindow ? wallHeight * 0.6 : height / 2;
+
+    const geometry = new THREE.BoxGeometry(length, height, depth);
+    const material = new THREE.MeshStandardMaterial({
+        color: isWindow ? '#b7d8ff' : '#c19a6b',
+        transparent: false,
+        opacity: 1,
+        metalness: 0.1,
+        roughness: 0.5,
+        side: THREE.DoubleSide
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    const centerX = toWorldUnits(obj.x + obj.width / 2);
+    const centerZ = toWorldUnits(obj.y + obj.height / 2);
+    mesh.position.set(centerX, centerY, centerZ);
+
+    if (obj.attachedWallId) {
+        const wall = walls.find(w => w.id === obj.attachedWallId);
+        const n1 = wall && getNodeById(wall.startNodeId);
+        const n2 = wall && getNodeById(wall.endNodeId);
+        if (n1 && n2) {
+            mesh.rotation.y = -Math.atan2(n2.y - n1.y, n2.x - n1.x);
+        }
+    } else {
+        mesh.rotation.y = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
+    }
+    return mesh;
+}
+
+function createHouseShowcaseModel() {
+    if (typeof THREE === 'undefined') return null;
+
+    const group = new THREE.Group();
+    group.userData.isShowcase = true;
+
+    const baseWidth = 32;
+    const baseDepth = 26;
+    const wallHeight = 12;
+
+    const wallMaterial = createConcreteMaterial('#d1d5db');
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(baseWidth, wallHeight, baseDepth), wallMaterial);
+    shell.castShadow = true;
+    shell.receiveShadow = true;
+    shell.position.y = wallHeight / 2;
+    group.add(shell);
+
+    const roofMaterial = new THREE.MeshPhysicalMaterial({
+        color: '#9ca3af',
+        metalness: 0.1,
+        roughness: 0.35,
+        clearcoat: 0.2,
+        clearcoatRoughness: 0.8,
+        side: THREE.FrontSide,
+        transparent: false,
+        opacity: 1
+    });
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(baseWidth + 0.8, 1.2, baseDepth + 0.8), roofMaterial);
+    roof.position.y = wallHeight + 0.6;
+    roof.castShadow = true;
+    roof.receiveShadow = true;
+    group.add(roof);
+
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(baseWidth + 2, 1, baseDepth + 2), createConcreteMaterial('#cbd5e1'));
+    plinth.position.y = 0.5;
+    plinth.castShadow = true;
+    plinth.receiveShadow = true;
+    group.add(plinth);
+
+    const door = new THREE.Mesh(
+        new THREE.BoxGeometry(3, 7, 0.6),
+        new THREE.MeshPhysicalMaterial({
+            color: '#8b5a2b',
+            roughness: 0.7,
+            metalness: 0.05,
+            side: THREE.FrontSide,
+            transparent: false,
+            opacity: 1
+        })
+    );
+    door.position.set(0, 3.5, (baseDepth / 2) - 0.3);
+    door.castShadow = true;
+    door.receiveShadow = true;
+    group.add(door);
+
+    const windowMaterial = new THREE.MeshPhysicalMaterial({
+        color: '#dbeafe',
+        transparent: false,
+        opacity: 1,
+        roughness: 0.1,
+        metalness: 0.25,
+        side: THREE.FrontSide
+    });
+    const windowGeometry = new THREE.BoxGeometry(4, 3, 0.4);
+    const leftWindow = new THREE.Mesh(windowGeometry, windowMaterial);
+    leftWindow.position.set(-(baseWidth / 3), 7, (baseDepth / 2) - 0.5);
+    leftWindow.castShadow = true;
+    leftWindow.receiveShadow = true;
+    group.add(leftWindow);
+
+    const rightWindow = leftWindow.clone();
+    rightWindow.position.x = baseWidth / 3;
+    group.add(rightWindow);
+
+    group.position.set(0, 0, 0);
+    return group;
+}
+
+function rebuild3DScene() {
+    if (useFallback3DRenderer) {
+        ensureFallback3DView();
+        renderFallback3DScene();
+        return;
+    }
+
+    ensureThreeView();
+    if (!threeContentGroup) return;
+
+    clearThreeContent();
+
+    const ground = createGroundElements();
+    if (ground) {
+        threeContentGroup.add(ground.plane);
+        threeContentGroup.add(ground.grid);
+    }
+
+    const planOverlay = createPlanOverlay();
+    if (planOverlay) threeContentGroup.add(planOverlay);
+
+    const wallHeight = THREE_WALL_HEIGHT_FEET;
+
+    floors.forEach(floor => {
+        const mesh = createFloorMesh(floor);
+        if (mesh) threeContentGroup.add(mesh);
+    });
+
+    walls.forEach(wall => {
+        const mesh = createWallMesh(wall, wallHeight);
+        if (mesh) {
+            wallMeshes.push({ id: wall.id, mesh });
+            threeContentGroup.add(mesh);
+        }
+    });
+
+    objects.forEach(obj => {
+        if (!['door', 'window'].includes(obj.type)) return;
+        const mesh = createDoorOrWindowMesh(obj, wallHeight);
+        if (mesh) threeContentGroup.add(mesh);
+    });
+
+    updateOrbitHelper();
+    fitThreeCamera();
+}
+
+function getCameraTargetBoundingBox() {
+    const orbitBox = buildOrbitBoundingBox();
+    const box = orbitBox.clone();
+    let hasSelection = false;
+
+    const isWallIdSelected = (wallId) => {
+        if (!selectedWalls || selectedWalls.size === 0) return false;
+        for (const wall of selectedWalls) {
+            if ((wall && wall.id) === wallId || wall === wallId) return true;
+        }
+        return false;
+    };
+
+    if (selectedWalls && selectedWalls.size) {
+        wallMeshes.forEach(({ id, mesh }) => {
+            if (isWallIdSelected(id)) {
+                hasSelection = true;
+                box.expandByObject(mesh);
+            }
+        });
+    }
+
+    if (!hasSelection) {
+        wallMeshes.forEach(({ mesh }) => box.expandByObject(mesh));
+    }
+
+    if (box.isEmpty() && threeContentGroup) {
+        threeContentGroup.children.forEach(child => {
+            if (!child.userData?.isGround) {
+                box.expandByObject(child);
+            }
+        });
+    }
+
+    return box.isEmpty() ? orbitBox : box;
+}
+
+function fitThreeCamera() {
+    if (!threeContentGroup || !threeCamera) return;
+    const box = getCameraTargetBoundingBox();
+    if (!box || box.isEmpty()) return;
+
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || scale * 10;
+
+    const distance = Math.max(maxDim * 1.4, scale * 6);
+    const direction = new THREE.Vector3(1, 0.8, 1).normalize();
+    const position = center.clone().add(direction.multiplyScalar(distance));
+
+    threeCamera.position.copy(position);
+    threeCamera.near = 0.1;
+    threeCamera.far = Math.max(50000, distance * 8);
+    threeCamera.updateProjectionMatrix();
+
+    if (threeControls) {
+        threeControls.target.copy(center);
+        threeControls.update();
+    } else {
+        threeCamera.lookAt(center);
+    }
+}
+
+function getOrbitCenter() {
+    const orbitBox = buildOrbitBoundingBox();
+    return orbitBox.getCenter(new THREE.Vector3());
+}
+
+function updateOrbitHelper() {
+    if (!threeContentGroup || typeof THREE === 'undefined') return;
+
+    if (orbitCenterHelper && orbitCenterHelper.parent) {
+        orbitCenterHelper.parent.remove(orbitCenterHelper);
+        disposeThreeObject(orbitCenterHelper);
+    }
+
+    const center = getOrbitCenter();
+    const helperSize = Math.max(toWorldUnits(gridSize || 20) * 0.45, 0.35);
+    const geometry = new THREE.SphereGeometry(helperSize, 18, 12);
+    const material = new THREE.MeshStandardMaterial({
+        color: '#f97316',
+        emissive: '#fb923c',
+        emissiveIntensity: 0.8,
+        metalness: 0.1,
+        roughness: 0.3
+    });
+
+    orbitCenterHelper = new THREE.Mesh(geometry, material);
+    orbitCenterHelper.position.copy(center);
+    orbitCenterHelper.userData.isHelper = true;
+    threeContentGroup.add(orbitCenterHelper);
+}
+
+function switchTo3DView() {
+    is3DView = true;
+    if (canvasContainer) {
+        last2DScrollLeft = canvasContainer.scrollLeft;
+        last2DScrollTop = canvasContainer.scrollTop;
+    }
+    if (canvas) canvas.classList.add('hidden');
+    if (threeContainer) threeContainer.classList.remove('hidden');
+    setThreeStatus('');
+    update3DButtonLabel('Show 2D');
+    rebuild3DScene();
+    if (!useFallback3DRenderer) {
+        handleThreeResize();
+    }
+}
+
+function switchTo2DView() {
+    is3DView = false;
+    if (canvas) canvas.classList.remove('hidden');
+    if (threeContainer) threeContainer.classList.add('hidden');
+    if (canvasContainer) {
+        canvasContainer.scrollLeft = last2DScrollLeft;
+        canvasContainer.scrollTop = last2DScrollTop;
+    }
+    stopFallbackAnimation();
+    setThreeStatus('');
+    update3DButtonLabel('Show 3D');
+    redrawCanvas();
+}
+
+function toggleViewMode() {
+    if (is3DView) {
+        switchTo2DView();
+    } else {
+        viewHousePlanIn3D();
+    }
+}
+
+async function viewHousePlanIn3D() {
+    try {
+        const libsReady = await ensureThreeLibraries();
+        if (libsReady === false && !useFallback3DRenderer) {
+            return;
+        }
+    } catch (err) {
+        console.error('3D view unavailable', err);
+        return;
+    }
+
+    if (useFallback3DRenderer) {
+        ensureFallback3DView();
+    } else {
+        ensureThreeView();
+    }
+    switchTo3DView();
+}
+
+function refresh3DView() {
+    if (!is3DView) return;
+    rebuild3DScene();
+}
+
+function update3DButtonLabel(text) {
+    if (!toggle3DViewButton) return;
+    toggle3DViewButton.setAttribute('aria-label', text);
+    const label = toggle3DViewButton.querySelector('.tool-label');
+    const icon = toggle3DViewButton.querySelector('.tool-icon');
+    if (label) label.textContent = text;
+    if (icon) icon.textContent = text === 'Show 3D' ? '3D' : '2D';
+    if (!label && !icon) {
+        toggle3DViewButton.textContent = text;
+    }
 }
 
 // ============================================================
@@ -4567,6 +7080,8 @@ function selectAllEntities() {
     selectedFloorIds = new Set(floors.map(f => f.id));
     isDraggingNode = false;
     selectAllMode = true;
+    expandSelectionWithGroups();
+    groupSelectionElements({ silent: true });
     redrawCanvas();
 }
 
@@ -4589,6 +7104,16 @@ function handleKeyDown(e) {
             case 'v': // Paste
                 e.preventDefault();
                 startPasteMode();
+                return;
+
+            case 'g': // Group / Ungroup selection
+                e.preventDefault();
+                if (e.shiftKey) {
+                    ungroupSelectionElements();
+                } else {
+                    groupSelectionElements();
+                }
+                redrawCanvas();
                 return;
                 
             case 'z': // Undo
@@ -4680,6 +7205,7 @@ function handleKeyDown(e) {
             isSelectionBoxActive = false;
             selectionBoxStart = null;
             selectionBoxEnd = null;
+            ungroupSelectionElements();
             hideContextMenu();
             redrawCanvas();
         }
@@ -4739,12 +7265,7 @@ function handleKeyDown(e) {
         }
         if (key === 'r') {
             const angle = e.shiftKey ? -15 : 15;
-            pushUndoState();
-            if (typeof rotateSelectedObjects === 'function') {
-                rotateSelectedObjects(objects, selectedObjectIndices, angle);
-            }
-            maintainDoorAttachmentForSelection();
-            redrawCanvas();
+            rotateSelection(angle);
             return;
         }
     }
@@ -4840,6 +7361,7 @@ function updateToolInfo() {
         case 'door': name = 'Door'; break;
         case 'window': name = 'Window'; break;
         case 'furniture': name = 'Furniture'; break;
+        case 'staircase': name = 'Staircase'; break;
         case 'floor': name = 'Floor'; break;
         case 'select': name = 'Select'; break;
         case 'erase': name = 'Eraser'; break;
@@ -4852,6 +7374,160 @@ function updateToolInfo() {
     }
 
     toolInfoDisplay.textContent = name;
+}
+
+function describeLayout(layout) {
+    if (!layout) return 'Straight run';
+    switch (layout) {
+        case 'landing': return 'Straight with landing';
+        case 'l-shape': return 'L shape';
+        case 'u-shape': return 'U shape';
+        default: return 'Straight run';
+    }
+}
+
+function getSelectedStaircaseMode() {
+    const activeBtn = Array.from(staircaseModeButtons || []).find(btn => btn.classList.contains('active'));
+    return activeBtn?.dataset?.staircaseMode || staircaseSettings.mode || 'steps';
+}
+
+function getSelectedLandingType() {
+    const checked = Array.from(landingTypeRadios || []).find(radio => radio.checked);
+    return checked?.value || staircaseSettings.landingType || 'rectangular';
+}
+
+function getLandingDimensionsFromInputs() {
+    const landingWidthFeet = parseFloat(landingWidthFeetInput?.value) || staircaseSettings.landingWidthFeet || 0;
+    const landingWidthInches = parseFloat(landingWidthInchesInput?.value) || staircaseSettings.landingWidthInches || 0;
+    const landingLengthFeet = parseFloat(landingLengthFeetInput?.value) || staircaseSettings.landingLengthFeet || 0;
+    const landingLengthInches = parseFloat(landingLengthInchesInput?.value) || staircaseSettings.landingLengthInches || 0;
+
+    return { landingWidthFeet, landingWidthInches, landingLengthFeet, landingLengthInches };
+}
+
+function feetWithInches(feet = 0, inches = 0) {
+    return (parseFloat(feet) || 0) + ((parseFloat(inches) || 0) / 12);
+}
+
+function syncStaircaseModeUI(mode) {
+    if (!mode) return;
+    staircaseModeButtons?.forEach(btn => {
+        const isActive = btn.dataset.staircaseMode === mode;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    if (staircaseStepsSection) {
+        staircaseStepsSection.classList.toggle('hidden', mode !== 'steps');
+    }
+    if (staircaseLandingSection) {
+        staircaseLandingSection.classList.toggle('hidden', mode !== 'landing');
+    }
+}
+
+function syncLandingTypeUI(type) {
+    landingTypeRadios?.forEach(radio => {
+        radio.checked = radio.value === type;
+    });
+    if (squaredLandingHint) {
+        squaredLandingHint.classList.toggle('hidden', type !== 'squared');
+    }
+}
+
+function syncStaircaseInputsFromSettings() {
+    if (staircaseWidthFeetInput) staircaseWidthFeetInput.value = staircaseSettings.widthFeet ?? staircaseWidthFeetInput.value;
+    if (staircaseWidthInchesInput) staircaseWidthInchesInput.value = staircaseSettings.widthInches ?? staircaseWidthInchesInput.value;
+    if (staircaseRunInchesInput) staircaseRunInchesInput.value = staircaseSettings.runInches ?? staircaseSettings.treadDepthInches ?? DEFAULT_TREAD_DEPTH_INCHES;
+    if (staircaseStepsInput) staircaseStepsInput.value = staircaseSettings.steps ?? staircaseStepsInput.value;
+    if (landingWidthFeetInput) landingWidthFeetInput.value = staircaseSettings.landingWidthFeet ?? landingWidthFeetInput.value;
+    if (landingWidthInchesInput) landingWidthInchesInput.value = staircaseSettings.landingWidthInches ?? landingWidthInchesInput.value;
+    if (landingLengthFeetInput) landingLengthFeetInput.value = staircaseSettings.landingLengthFeet ?? landingLengthFeetInput.value;
+    if (landingLengthInchesInput) landingLengthInchesInput.value = staircaseSettings.landingLengthInches ?? landingLengthInchesInput.value;
+}
+
+function updateStaircaseSummary() {
+    if (!staircaseSummary) return;
+    const mode = getSelectedStaircaseMode();
+    const parts = [];
+
+    if (mode === 'landing') {
+        const landingType = getSelectedLandingType();
+        const { landingWidthFeet, landingWidthInches, landingLengthFeet, landingLengthInches } = getLandingDimensionsFromInputs();
+        const widthFeet = feetWithInches(landingWidthFeet, landingWidthInches);
+        const lengthFeet = feetWithInches(landingLengthFeet, landingLengthInches);
+
+        parts.push(`Landing: ${landingType === 'squared' ? 'Squared with diagonal guide' : 'Rectangular'}`);
+        parts.push(`Width: ${widthFeet.toFixed(1)} ft`);
+        parts.push(`Length: ${lengthFeet.toFixed(1)} ft`);
+    } else {
+        const widthFeet = feetWithInches(
+            parseFloat(staircaseWidthFeetInput?.value) || staircaseSettings.widthFeet,
+            parseFloat(staircaseWidthInchesInput?.value) || staircaseSettings.widthInches
+        );
+        const runInches = parseFloat(staircaseRunInchesInput?.value) || staircaseSettings.runInches || DEFAULT_TREAD_DEPTH_INCHES;
+        const steps = parseInt(staircaseStepsInput?.value, 10) || staircaseSettings.steps;
+
+        parts.push('Steps');
+        parts.push(`Width: ${widthFeet.toFixed(1)} ft`);
+        parts.push(`Run: ${runInches.toFixed(1)} in`);
+        parts.push(`Steps: ${steps}`);
+    }
+
+    staircaseSummary.textContent = parts.join(' • ');
+}
+
+function openStaircaseEditorForObject(index) {
+    const target = objects[index];
+    if (!target || target.type !== 'staircase') return;
+    staircaseEditTargetIndex = index;
+    staircaseSettings = { ...staircaseSettings, ...target.staircase };
+    openStaircaseModal();
+}
+
+function applyStaircaseSettings() {
+    staircaseSettings = {
+        ...staircaseSettings,
+        mode: getSelectedStaircaseMode(),
+        widthFeet: parseFloat(staircaseWidthFeetInput?.value) || staircaseSettings.widthFeet,
+        widthInches: parseFloat(staircaseWidthInchesInput?.value) || staircaseSettings.widthInches,
+        runInches: parseFloat(staircaseRunInchesInput?.value) || staircaseSettings.runInches || DEFAULT_TREAD_DEPTH_INCHES,
+        steps: Math.max(3, parseInt(staircaseStepsInput?.value, 10) || staircaseSettings.steps),
+        landingType: getSelectedLandingType(),
+        ...getLandingDimensionsFromInputs(),
+        treadDepthInches: parseFloat(staircaseRunInchesInput?.value) || staircaseSettings.treadDepthInches || DEFAULT_TREAD_DEPTH_INCHES
+    };
+    updateStaircaseSummary();
+    if (staircaseEditTargetIndex !== null) {
+        const target = objects[staircaseEditTargetIndex];
+        if (target) {
+            const center = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+            const size = computeStaircaseSizeFromSettings(staircaseSettings, target.orientation);
+            target.width = size.width;
+            target.height = size.height;
+            target.x = center.x - target.width / 2;
+            target.y = center.y - target.height / 2;
+            target.staircase = { ...staircaseSettings };
+        }
+        staircaseEditTargetIndex = null;
+        redrawCanvas();
+    }
+    closeStaircaseModal();
+}
+
+function openStaircaseModal() {
+    if (!staircaseModal) return;
+    staircaseModal.classList.remove('hidden');
+    staircaseModal.style.display = 'flex';
+    syncStaircaseModeUI(staircaseSettings.mode || 'steps');
+    syncLandingTypeUI(staircaseSettings.landingType || 'rectangular');
+    syncStaircaseInputsFromSettings();
+    updateStaircaseSummary();
+}
+
+function closeStaircaseModal() {
+    if (!staircaseModal) return;
+    staircaseModal.classList.add('hidden');
+    staircaseEditTargetIndex = null;
 }
 
 function openTextModal({ defaultValue = 'New label', confirmLabel = 'Save', onSubmit } = {}) {
@@ -5056,3 +7732,4 @@ function updateGrid() {
 }
 
 window.onload = init;
+

@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js 3D Model Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 1200px;
+            width: 100%;
+            margin: 20px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5rem;
+        }
+        
+        .subtitle {
+            color: #666;
+            font-size: 1.2rem;
+        }
+        
+        .viewer-container {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        
+        @media (min-width: 992px) {
+            .viewer-container {
+                flex-direction: row;
+            }
+        }
+        
+        .model-container {
+            flex: 2;
+            position: relative;
+            overflow: hidden;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            background: #000;
+            height: 500px;
+        }
+        
+        #modelCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            outline: none;
+        }
+        
+        .controls {
+            flex: 1;
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+        }
+        
+        .controls h2 {
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .control-group {
+            margin-bottom: 25px;
+        }
+        
+        .control-group h3 {
+            color: #555;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        button {
+            background-color: #4a6ee0;
+            color: white;
+            border: none;
+            padding: 12px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        button:hover {
+            background-color: #3a5bd0;
+            transform: translateY(-2px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .icon {
+            font-size: 1.2rem;
+        }
+        
+        .slider-container {
+            margin-top: 10px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #4a6ee0;
+            cursor: pointer;
+        }
+        
+        .instructions {
+            background-color: #e8f4fd;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            border-left: 5px solid #4a6ee0;
+        }
+        
+        .instructions h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .instructions ul {
+            padding-left: 20px;
+            color: #555;
+            line-height: 1.6;
+        }
+        
+        .instructions li {
+            margin-bottom: 8px;
+        }
+        
+        .model-info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            color: #777;
+            font-style: italic;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            color: white;
+            padding: 20px;
+        }
+        
+        footer a {
+            color: #ffde59;
+            text-decoration: none;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 1.5rem;
+            z-index: 10;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>3D Model Viewer</h1>
+            <p class="subtitle">Interactive Three.js Model Viewer with Controls</p>
+        </header>
+        
+        <div class="viewer-container">
+            <div class="model-container">
+                <div id="loading" class="loading">
+                    Loading 3D Model...
+                </div>
+                <canvas id="modelCanvas"></canvas>
+            </div>
+            
+            <div class="controls">
+                <h2>Controls</h2>
+                
+                <div class="control-group">
+                    <h3>Camera Views</h3>
+                    <div class="button-group">
+                        <button id="frontView">
+                            <span class="icon">⬆️</span> Front
+                        </button>
+                        <button id="topView">
+                            <span class="icon">📐</span> Top
+                        </button>
+                        <button id="sideView">
+                            <span class="icon">↔️</span> Side
+                        </button>
+                        <button id="resetView">
+                            <span class="icon">🔄</span> Reset
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Rotation</h3>
+                    <div class="slider-container">
+                        <label for="rotationX">X-Axis: <span id="rotationXValue">0°</span></label>
+                        <input type="range" id="rotationX" min="0" max="360" value="0" step="1">
+                    </div>
+                    <div class="slider-container">
+                        <label for="rotationY">Y-Axis: <span id="rotationYValue">0°</span></label>
+                        <input type="range" id="rotationY" min="0" max="360" value="0" step="1">
+                    </div>
+                    <div class="slider-container">
+                        <label for="rotationZ">Z-Axis: <span id="rotationZValue">0°</span></label>
+                        <input type="range" id="rotationZ" min="0" max="360" value="0" step="1">
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Scale</h3>
+                    <div class="slider-container">
+                        <label for="scale">Size: <span id="scaleValue">1.0</span></label>
+                        <input type="range" id="scale" min="0.1" max="3" value="1" step="0.1">
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>Material Presets</h3>
+                    <div class="button-group">
+                        <button id="sketchupMaterial">
+                            <span class="icon">🧱</span> SketchUp Style
+                        </button>
+                        <button id="phongMaterial">
+                            <span class="icon">✨</span> Glossy Phong
+                        </button>
+                    </div>
+                    <p class="subtitle" style="font-size: 0.95rem; margin-top: 8px; color: #666;">
+                        Toggle between a SketchUp-style flat color (double-sided) and a shiny front-face material.
+                    </p>
+                </div>
+                
+                <div class="instructions">
+                    <h3>How to Use</h3>
+                    <ul>
+                        <li><strong>Mouse:</strong> Drag to rotate, scroll to zoom</li>
+                        <li><strong>Touch:</strong> Use one finger to rotate, pinch to zoom</li>
+                        <li>Use the control panel to adjust specific parameters</li>
+                        <li>Click on the camera view buttons to switch perspectives</li>
+                    </ul>
+                </div>
+                
+                <div class="model-info">
+                    <div>Demo Model: Geometric Sculpture</div>
+                    <div>Vertices: ~2,500</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <footer>
+        <p>Created with <a href="https://threejs.org/" target="_blank">Three.js</a> • Try loading your own 3D model!</p>
+    </footer>
+
+    <!-- Three.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls for camera interaction -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    
+    <script>
+        // Main Three.js application
+        class ModelViewer {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.model = null;
+                this.controls = null;
+                this.currentMaterialPreset = 'phong';
+                
+                this.init();
+                this.createDemoModel();
+                this.setMaterialPreset(this.currentMaterialPreset);
+                this.setupControls();
+                this.animate();
+            }
+            
+            init() {
+                // Get canvas element
+                const canvas = document.getElementById('modelCanvas');
+                
+                // Create scene
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x1a1a2e);
+                
+                // Add ambient light
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+                this.scene.add(ambientLight);
+                
+                // Add directional light
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 10, 7);
+                this.scene.add(directionalLight);
+                
+                // Add point light
+                const pointLight = new THREE.PointLight(0xffffff, 0.8, 100);
+                pointLight.position.set(-5, 5, 5);
+                this.scene.add(pointLight);
+                
+                // Create camera
+                this.camera = new THREE.PerspectiveCamera(
+                    45, // Field of view
+                    canvas.clientWidth / canvas.clientHeight, // Aspect ratio
+                    0.1, // Near clipping plane
+                    1000 // Far clipping plane
+                );
+                this.camera.position.set(8, 5, 8);
+                
+                // Create renderer
+                this.renderer = new THREE.WebGLRenderer({ 
+                    canvas: canvas,
+                    antialias: true,
+                    alpha: false
+                });
+                this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                
+                // Add OrbitControls
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.05;
+                this.controls.screenSpacePanning = false;
+                this.controls.minDistance = 2;
+                this.controls.maxDistance = 50;
+                this.controls.maxPolarAngle = Math.PI;
+                
+                // Handle window resize
+                window.addEventListener('resize', () => this.onWindowResize());
+                
+                // Hide loading indicator
+                document.getElementById('loading').classList.add('hidden');
+            }
+            
+            createDemoModel() {
+                // Create a group to hold our model
+                this.model = new THREE.Group();
+
+                // Create a central sphere
+                const sphereGeometry = new THREE.SphereGeometry(1, 32, 32);
+                const sphereMaterial = new THREE.MeshPhongMaterial({
+                    color: 0x4a6ee0,
+                    shininess: 100,
+                    specular: 0x222222,
+                    transparent: false,
+                    opacity: 1,
+                    side: THREE.DoubleSide,
+                    depthWrite: true,
+                    depthTest: true
+                });
+                const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                sphere.castShadow = true;
+                sphere.receiveShadow = true;
+                sphere.userData.baseColor = sphereMaterial.color.getHex();
+                this.model.add(sphere);
+
+                // Create surrounding rings
+                const ringGeometry = new THREE.TorusGeometry(2, 0.2, 16, 100);
+                ringGeometry.computeVertexNormals();
+                const ringMaterial = new THREE.MeshPhongMaterial({
+                    color: 0xff6b6b,
+                    shininess: 50,
+                    transparent: false,
+                    opacity: 1,
+                    side: THREE.DoubleSide,
+                    depthWrite: true,
+                    depthTest: true
+                });
+
+                // Create rings in different orientations
+                for (let i = 0; i < 3; i++) {
+                    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                    ring.rotation.x = i * Math.PI / 3;
+                    ring.rotation.y = i * Math.PI / 4;
+                    ring.castShadow = true;
+                    ring.userData.baseColor = ringMaterial.color.getHex();
+                    this.model.add(ring);
+                }
+
+                // Create floating cubes around the sphere
+                const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                cubeGeometry.computeVertexNormals();
+                const cubeMaterial = new THREE.MeshPhongMaterial({
+                    color: 0x6bff91,
+                    shininess: 80,
+                    transparent: false,
+                    opacity: 1,
+                    side: THREE.DoubleSide,
+                    depthWrite: true,
+                    depthTest: true
+                });
+
+                for (let i = 0; i < 8; i++) {
+                    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+                    const angle = (i / 8) * Math.PI * 2;
+                    const radius = 3;
+
+                    cube.position.x = Math.cos(angle) * radius;
+                    cube.position.z = Math.sin(angle) * radius;
+                    cube.position.y = Math.sin(angle * 2) * 1.5;
+
+                    cube.castShadow = true;
+                    cube.receiveShadow = true;
+                    cube.userData.baseColor = cubeMaterial.color.getHex();
+                    this.model.add(cube);
+                }
+
+                // Add the model to the scene
+                this.scene.add(this.model);
+                
+                // Add a subtle animation
+                this.model.userData.animation = {
+                    rotationSpeed: 0.005,
+                    time: 0
+                };
+            }
+            
+            setupControls() {
+                // Camera view buttons
+                document.getElementById('frontView').addEventListener('click', () => {
+                    this.camera.position.set(0, 0, 10);
+                    this.camera.lookAt(0, 0, 0);
+                    this.controls.update();
+                });
+                
+                document.getElementById('topView').addEventListener('click', () => {
+                    this.camera.position.set(0, 10, 0);
+                    this.camera.lookAt(0, 0, 0);
+                    this.controls.update();
+                });
+                
+                document.getElementById('sideView').addEventListener('click', () => {
+                    this.camera.position.set(10, 0, 0);
+                    this.camera.lookAt(0, 0, 0);
+                    this.controls.update();
+                });
+                
+                document.getElementById('resetView').addEventListener('click', () => {
+                    this.camera.position.set(8, 5, 8);
+                    this.camera.lookAt(0, 0, 0);
+                    this.controls.reset();
+                });
+                
+                // Rotation sliders
+                const rotationX = document.getElementById('rotationX');
+                const rotationY = document.getElementById('rotationY');
+                const rotationZ = document.getElementById('rotationZ');
+                const rotationXValue = document.getElementById('rotationXValue');
+                const rotationYValue = document.getElementById('rotationYValue');
+                const rotationZValue = document.getElementById('rotationZValue');
+                
+                rotationX.addEventListener('input', (e) => {
+                    const value = e.target.value;
+                    rotationXValue.textContent = `${value}°`;
+                    this.model.rotation.x = THREE.MathUtils.degToRad(value);
+                });
+                
+                rotationY.addEventListener('input', (e) => {
+                    const value = e.target.value;
+                    rotationYValue.textContent = `${value}°`;
+                    this.model.rotation.y = THREE.MathUtils.degToRad(value);
+                });
+                
+                rotationZ.addEventListener('input', (e) => {
+                    const value = e.target.value;
+                    rotationZValue.textContent = `${value}°`;
+                    this.model.rotation.z = THREE.MathUtils.degToRad(value);
+                });
+                
+                // Scale slider
+                const scale = document.getElementById('scale');
+                const scaleValue = document.getElementById('scaleValue');
+
+                scale.addEventListener('input', (e) => {
+                    const value = parseFloat(e.target.value);
+                    scaleValue.textContent = value.toFixed(1);
+                    this.model.scale.set(value, value, value);
+                });
+
+                // Material presets
+                document.getElementById('sketchupMaterial').addEventListener('click', () => {
+                    this.setMaterialPreset('sketchup');
+                });
+
+                document.getElementById('phongMaterial').addEventListener('click', () => {
+                    this.setMaterialPreset('phong');
+                });
+            }
+
+            setMaterialPreset(preset) {
+                const presets = {
+                    sketchup: (color) => new THREE.MeshStandardMaterial({
+                        color,
+                        transparent: false,
+                        opacity: 1,
+                        side: THREE.DoubleSide,
+                        depthWrite: true,
+                        depthTest: true,
+                        metalness: 0.1,
+                        roughness: 0.7
+                    }),
+                    phong: (color) => new THREE.MeshPhongMaterial({
+                        color,
+                        shininess: 50,
+                        transparent: false,
+                        opacity: 1,
+                        side: THREE.DoubleSide,
+                        depthWrite: true,
+                        depthTest: true
+                    })
+                };
+
+                const materialFactory = presets[preset];
+                if (!materialFactory) return;
+
+                this.model.traverse((child) => {
+                    if (!child.isMesh) return;
+
+                    const baseColor = child.userData.baseColor
+                        ?? (child.material && child.material.color && child.material.color.getHex())
+                        ?? 0x00ff00;
+
+                    // Ensure smooth shading on any imported geometry
+                    if (child.geometry && child.geometry.attributes) {
+                        child.geometry.computeVertexNormals();
+                    }
+
+                    child.material = materialFactory(baseColor);
+                });
+
+                this.currentMaterialPreset = preset;
+            }
+            
+            onWindowResize() {
+                const canvas = document.getElementById('modelCanvas');
+                
+                this.camera.aspect = canvas.clientWidth / canvas.clientHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                // Update model animation
+                if (this.model && this.model.userData.animation) {
+                    this.model.userData.animation.time += 0.01;
+                    
+                    // Subtle floating animation for cubes
+                    this.model.children.forEach((child, index) => {
+                        if (child.geometry && child.geometry.type === 'BoxGeometry') {
+                            child.position.y = Math.sin(this.model.userData.animation.time + index) * 1.5;
+                            child.rotation.y += 0.01;
+                        }
+                    });
+                    
+                    // Slow rotation of the entire model
+                    this.model.rotation.y += this.model.userData.animation.rotationSpeed;
+                    
+                    // Update slider values to match rotation
+                    document.getElementById('rotationY').value = 
+                        (THREE.MathUtils.radToDeg(this.model.rotation.y) % 360).toFixed(0);
+                    document.getElementById('rotationYValue').textContent = 
+                        `${(THREE.MathUtils.radToDeg(this.model.rotation.y) % 360).toFixed(0)}°`;
+                }
+                
+                // Update controls
+                this.controls.update();
+                
+                // Render scene
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+        
+        // Initialize the viewer when the page loads
+        window.addEventListener('DOMContentLoaded', () => {
+            const viewer = new ModelViewer();
+            
+            // Expose viewer globally for debugging
+            window.viewer = viewer;
+        });
+    </script>
+</body>
+</html>

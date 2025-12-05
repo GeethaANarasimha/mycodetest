@@ -52,9 +52,9 @@ function rotateSelectedObjects(objects, selectedIndices, angleDeg) {
         if (typeof obj.rotation !== "number") obj.rotation = 0;
 
         // add rotation and clamp to 0–360
-        obj.rotation = (obj.rotation + angleDeg) % 360;
+        obj.rotation = ((obj.rotation + angleDeg) % 360 + 360) % 360;
 
-        // normalize negative angles
-        if (obj.rotation < 0) obj.rotation += 360;
+        // snap to the nearest 5 degrees to keep orientations tidy
+        obj.rotation = Math.round(obj.rotation / 5) * 5;
     });
 }

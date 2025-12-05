@@ -5,6 +5,7 @@ html, body {
 body {
     margin: 0;
     font-family: Arial;
+    font-size: 13px;
     background: #fafafa;
     display: flex;
     flex-direction: column;
@@ -15,6 +16,7 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    height: 100vh;
     overflow: hidden;
 }
 
@@ -24,26 +26,30 @@ body {
 
 .toolbar {
     display: flex;
-    gap: 8px;
-    padding: 10px;
+    gap: 6px;
+    padding: 6px 8px;
     background: linear-gradient(135deg, #0f172a, #1f2937);
     flex-wrap: wrap;
     align-items: center;
     flex-shrink: 0;
 }
+.toolbar-spacer {
+    flex: 1;
+}
 .tool-btn {
     background: #2d3a4d;
     color: #fff;
-    padding: 8px;
+    padding: 6px;
     border: none;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
     position: relative;
-    border-radius: 8px;
+    border-radius: 6px;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    font-size: 13px;
 }
 .tool-btn.active {
     background: #14b8a6;
@@ -54,20 +60,20 @@ body {
 }
 
 .tool-icon {
-    width: 20px;
-    height: 20px;
+    width: 16px;
+    height: 16px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     pointer-events: none;
     background: #e3ebff;
-    padding: 4px;
-    border-radius: 6px;
+    padding: 3px;
+    border-radius: 5px;
     box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.35);
 }
 
 .text-icon {
-    font-size: 18px;
+    font-size: 14px;
     font-weight: bold;
     line-height: 1;
 }
@@ -83,7 +89,7 @@ body {
     padding: 4px 8px;
     border-radius: 4px;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 11px;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
     z-index: 10;
 }
@@ -98,7 +104,7 @@ body {
     gap: 6px;
     align-items: center;
     background: rgba(255, 255, 255, 0.08);
-    padding: 4px 8px;
+    padding: 4px 6px;
     border-radius: 4px;
 }
 
@@ -107,7 +113,7 @@ body {
     gap: 6px;
     align-items: center;
     background: rgba(255, 255, 255, 0.08);
-    padding: 4px 8px;
+    padding: 4px 6px;
     border-radius: 4px;
 }
 
@@ -116,58 +122,79 @@ body {
     gap: 6px;
     align-items: center;
     background: rgba(255, 255, 255, 0.08);
-    padding: 4px 8px;
+    padding: 4px 6px;
     border-radius: 4px;
 }
 
 .transform-title {
     color: #fff;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: bold;
 }
 
 #doorType {
-    padding: 6px 8px;
-    font-size: 14px;
+    padding: 3px 6px;
+    font-size: 12px;
+    height: 26px;
 }
 
 input[type="number"],
 input[type="text"] {
-    width: 4ch;
+    width: 3.5ch;
+}
+
+.properties input[type="number"],
+.properties input[type="text"],
+.properties input[type="color"],
+.properties select {
+    padding: 3px 6px;
+    height: 24px;
+    font-size: 12px;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield;
 }
 
 .properties {
     background: #eee;
-    padding: 10px;
+    padding: 6px 8px;
     display: flex;
-    gap: 15px;
+    gap: 10px;
     align-items: center;
     flex-wrap: wrap;
     flex-shrink: 0;
+    font-size: 12px;
 }
 
 .property-group {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
 }
 
 .property-group.inline {
     flex-direction: row;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
 }
 
 .property-group.button-row {
     flex-direction: row;
-    gap: 10px;
+    gap: 8px;
 }
 
 .property-input-row {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
 }
 
 .property-group.hidden {
@@ -187,11 +214,11 @@ input[type="text"] {
     background: #2d3a4d;
     color: #fff;
     border: none;
-    padding: 6px 10px;
+    padding: 5px 8px;
     border-radius: 6px;
     cursor: pointer;
     font-weight: bold;
-    min-width: 42px;
+    min-width: 38px;
 }
 
 .pill-btn.active {
@@ -207,8 +234,8 @@ input[type="text"] {
     width: 100%;
     max-width: none;
     height: auto;
-    min-width: 1200px;
-    min-height: 900px;
+    min-width: 1000px;
+    min-height: 750px;
 }
 
 .canvas-shell {
@@ -221,10 +248,73 @@ input[type="text"] {
 .canvas-container {
     flex: 1;
     overflow: auto;
-    padding: 10px;
+    padding: 0px 14px 14px 28px;
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     align-items: flex-start;
+    position: relative;
+    min-height: 750px;
+}
+
+.ruler {
+    position: absolute;
+    background: linear-gradient(180deg, #f9fafb, #eceff1);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+    pointer-events: none;
+    z-index: 40;
+    opacity: 0.95;
+}
+
+.ruler-horizontal {
+    height: 18px;
+    left: 0;
+    right: 0;
+    top: 0;
+}
+
+.ruler-vertical {
+    width: 18px;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.12);
+}
+
+.three-container {
+    position: absolute;
+    inset: 10px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0b1220;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    min-height: 740px;
+}
+
+.fallback-3d-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    outline: none;
+}
+
+.three-status {
+    position: absolute;
+    inset: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.9);
+    color: #e5e7eb;
+    font-weight: 600;
+    border-radius: 8px;
+    text-align: center;
+    padding: 18px;
+    z-index: 2;
+}
+
+.three-status.error {
+    color: #fecdd3;
+    background: rgba(127, 29, 29, 0.9);
 }
 
 # lineColorPreview,
@@ -237,8 +327,8 @@ input[type="text"] {
 
 .coordinates {
     text-align: center;
-    font-size: 14px;
-    padding: 6px 0;
+    font-size: 12px;
+    padding: 4px 0;
     background: #f3f3f3;
     flex-shrink: 0;
 }
@@ -304,6 +394,7 @@ input[type="text"] {
     gap: 6px;
 }
 
+
 .modal-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -311,11 +402,75 @@ input[type="text"] {
     margin-top: 10px;
 }
 
+.staircase-mode-toggle {
+    display: flex;
+    gap: 8px;
+    margin: 10px 0;
+}
+
+.staircase-section {
+    margin-top: 4px;
+}
+
+.landing-type-row {
+    display: flex;
+    gap: 10px;
+    margin: 8px 0 4px;
+    flex-wrap: wrap;
+}
+
+.landing-card {
+    flex: 1 1 180px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    background: #f9fafb;
+}
+
+.landing-card input[type="radio"] {
+    margin-top: 4px;
+}
+
+.landing-card-title {
+    font-weight: bold;
+    margin: 0;
+}
+
+.landing-card-text {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: #4b5563;
+}
+
+.landing-hint {
+    margin-top: 8px;
+    background: #f3f4f6;
+    padding: 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #1f2937;
+    border: 1px dashed #cbd5e1;
+}
+
 .modal-actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
     margin-top: 14px;
+}
+
+.staircase-summary {
+    margin: 12px 0;
+    padding: 10px;
+    border-radius: 8px;
+    background: #f3f4f6;
+    color: #111827;
+    font-size: 13px;
+    line-height: 1.4;
 }
 
 .preview-row {

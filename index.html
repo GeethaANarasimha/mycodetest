@@ -38,6 +38,10 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_0a3b507cf3fc427eaab066301a920e5c.svg" alt="">
         <span class="tool-label">Window</span>
     </button>
+    <button class="tool-btn" data-tool="staircase" aria-label="Staircase">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_0f8bb41d89fe42488e1352df56340e45.svg" alt="">
+        <span class="tool-label">Staircase</span>
+    </button>
     <button class="tool-btn" data-tool="furniture" aria-label="Furniture">
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_7ad998836ddb4a5ead990a30f61fda01.svg" alt="">
         <span class="tool-label">Furniture</span>
@@ -102,6 +106,12 @@
         <input id="projectFileInput" class="hidden" type="file" accept=".paz" aria-label="Upload .paz project file">
     </div>
 
+    <div class="toolbar-spacer"></div>
+    <button id="toggle3DView" class="tool-btn secondary-btn" type="button" aria-label="Toggle 3D View">
+        <span class="tool-icon text-icon">3D</span>
+        <span class="tool-label">Toggle 3D View</span>
+    </button>
+
 </div>
 
 <div class="properties">
@@ -113,15 +123,15 @@
         </div>
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,furniture,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,select,erase,pan">
         <label>Line Width</label>
         <input id="lineWidth" type="number" value="2">
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,furniture,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,select,erase,pan">
         <label>Line Color</label>
         <div class="property-input-row">
-            <input id="lineColor" type="color" value="#2c3e50">
+            <input id="lineColor" type="color" value="#000000">
             <span id="lineColorPreview"></span>
         </div>
     </div>
@@ -157,17 +167,17 @@
         </div>
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
         <label>Grid Size</label>
         <input id="gridSize" type="number" value="20">
     </div>
 
-    <div class="property-group inline" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group inline" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
         <label class="checkbox"><input type="checkbox" id="snapToGrid" checked> Snap to Grid</label>
         <label class="checkbox"><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
     </div>
 
-    <div class="property-group button-row" data-contexts="wall,door,window,furniture,floor,dimension,select,erase,pan">
+    <div class="property-group button-row" data-contexts="wall,door,window,staircase,furniture,floor,dimension,select,erase,pan">
         <button id="toggleGrid">Toggle Grid</button>
         <button id="toggleBackgroundImage" class="hidden">Hide Background Image</button>
     </div>
@@ -175,7 +185,11 @@
 
 <div class="canvas-shell">
     <div class="canvas-container">
+        <canvas id="horizontalRuler" class="ruler ruler-horizontal" aria-hidden="true"></canvas>
+        <canvas id="verticalRuler" class="ruler ruler-vertical" aria-hidden="true"></canvas>
         <canvas id="drawingCanvas" width="1800" height="1200"></canvas>
+        <div id="threeContainer" class="three-container hidden"></div>
+        <div id="threeStatus" class="three-status hidden" role="status" aria-live="polite"></div>
     </div>
 </div>
 
@@ -190,6 +204,91 @@
         <div class="modal-actions">
             <button id="textModalConfirm" class="tool-btn" type="button">Add Text</button>
             <button id="textModalCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="staircaseModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Staircase Settings</h3>
+        <p class="modal-subtitle">Pick what you want to place, then enter the matching measurements.</p>
+
+        <div class="staircase-mode-toggle" role="tablist" aria-label="Staircase options">
+            <button class="pill-btn staircase-mode-btn active" type="button" data-staircase-mode="steps" role="tab" aria-selected="true">Steps</button>
+            <button class="pill-btn staircase-mode-btn" type="button" data-staircase-mode="landing" role="tab" aria-selected="false">Landing</button>
+        </div>
+
+        <div id="staircaseStepsSection" class="staircase-section">
+            <div class="modal-grid">
+                <div>
+                    <label class="modal-label">Stair width</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="staircaseWidthFeet" min="1" value="3"> ft
+                        <input type="number" id="staircaseWidthInches" min="0" max="11" value="0"> in
+                    </div>
+                </div>
+                <div>
+                    <label class="modal-label">Run size</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="staircaseRunInches" min="1" max="16" value="10"> in
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-grid">
+                <div>
+                    <label class="modal-label" for="staircaseSteps">Number of steps</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="staircaseSteps" min="3" value="10">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="staircaseLandingSection" class="staircase-section hidden">
+            <label class="modal-label">Landing type</label>
+            <div class="landing-type-row">
+                <label class="landing-card">
+                    <input type="radio" name="landingType" value="rectangular" checked>
+                    <div class="landing-card-body">
+                        <div class="landing-card-title">Rectangular</div>
+                        <p class="landing-card-text">Simple landing with width and length.</p>
+                    </div>
+                </label>
+                <label class="landing-card">
+                    <input type="radio" name="landingType" value="squared">
+                    <div class="landing-card-body">
+                        <div class="landing-card-title">Squared shape</div>
+                        <p class="landing-card-text">Squared landing with a diagonal guide across the layout.</p>
+                    </div>
+                </label>
+            </div>
+
+            <div class="modal-grid">
+                <div>
+                    <label class="modal-label">Landing width</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="landingWidthFeet" min="1" value="4"> ft
+                        <input type="number" id="landingWidthInches" min="0" max="11" value="0"> in
+                    </div>
+                </div>
+                <div>
+                    <label class="modal-label">Landing length</label>
+                    <div class="modal-input-row">
+                        <input type="number" id="landingLengthFeet" min="1" value="4"> ft
+                        <input type="number" id="landingLengthInches" min="0" max="11" value="0"> in
+                    </div>
+                </div>
+            </div>
+
+            <div id="squaredLandingHint" class="landing-hint hidden">Square layout with a diagonal helper line for alignment.</div>
+        </div>
+
+        <div class="staircase-summary" id="staircaseSummary"></div>
+
+        <div class="modal-actions">
+            <button id="staircaseApply" class="tool-btn" type="button">Apply</button>
+            <button id="staircaseCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
         </div>
     </div>
 </div>
