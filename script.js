@@ -4867,6 +4867,9 @@ function drawGrid() {
 }
 
 function drawWalls() {
+    const selectedToHighlight = [];
+
+    // First draw all walls so selection handles aren't hidden behind joints
     for (const w of walls) {
         const n1 = getNodeById(w.startNodeId);
         const n2 = getNodeById(w.endNodeId);
@@ -4883,13 +4886,17 @@ function drawWalls() {
         ctx.restore();
 
         if (showDimensions) drawWallDimension(n1.x, n1.y, n2.x, n2.y, w.thicknessPx);
-        
-        // Draw selection highlight for selected walls
+
         if (selectedWalls.has(w)) {
-            drawWallSelectionHighlight(n1, n2, w);
+            selectedToHighlight.push({ n1, n2, wall: w });
         }
     }
-    
+
+    // Draw selection highlight for selected walls after all walls are rendered
+    for (const { n1, n2, wall } of selectedToHighlight) {
+        drawWallSelectionHighlight(n1, n2, wall);
+    }
+
     // Draw paste preview if in paste mode and paste point is set
     if (isPasteMode && pasteTargetX !== null && pasteTargetY !== null) {
         drawPastePreview();
@@ -5034,11 +5041,28 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const tx = midX + nx * offset;
     const ty = midY + ny * offset;
 
+    const angle = Math.atan2(dy, dx);
+    let renderAngle = angle;
+    if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
+        renderAngle += Math.PI;
+    }
+
     withViewTransform(() => {
         ctx.save();
+        ctx.translate(tx, ty);
+        ctx.rotate(renderAngle);
         ctx.fillStyle = '#e74c3c';
         ctx.font = `${measurementFontSize}px Arial`;
-        ctx.fillText(text, tx - ctx.measureText(text).width / 2, ty - 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const textWidth = ctx.measureText(text).width;
+        const textHeight = measurementFontSize * 1.2;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillText(text, 0, 0);
         ctx.restore();
     });
 }
