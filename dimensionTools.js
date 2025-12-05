@@ -211,7 +211,8 @@ window.createWallDimension = function(wallData, options = {}) {
         length: length,
         isAuto: true,
         orientation: orientation,
-        wallId: wallData.wall.id
+        wallId: wallData.wall.id,
+        offsetSign: offsetSign
     };
     
     dimensions.push(dimension);
@@ -624,6 +625,7 @@ window.drawDimensions = function() {
             const nx = -dy / len;
             const ny = dx / len;
             const offset = 6;
+            const side = dim.offsetSign || 1;
             
             // Extension lines
             ctx.beginPath();
@@ -646,8 +648,8 @@ window.drawDimensions = function() {
             
             const midX = (dim.startX + dim.endX) / 2;
             const midY = (dim.startY + dim.endY) / 2;
-            const textX = midX + nx * 8;
-            const textY = midY + ny * 8;
+            const textX = midX + nx * 8 * side;
+            const textY = midY + ny * 8 * side;
             
             // Text background
             const textWidth = ctx.measureText(dim.text).width;

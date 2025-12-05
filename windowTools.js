@@ -70,7 +70,8 @@ function findWindowSnapTarget(windowObj, walls, maxDistance = 30) {
 
     return {
         ...best,
-        orientation: horizontal ? 'horizontal' : 'vertical'
+        orientation: horizontal ? 'horizontal' : 'vertical',
+        angle: Math.atan2(dy, dx)
     };
 }
 
@@ -82,20 +83,14 @@ function sizeWindowToWall(windowObj, snapTarget, defaultScale = 20) {
     const depthPx = Math.max(thickness * WINDOW_DEPTH_RATIO, defaultScale * 0.4);
 
     windowObj.orientation = snapTarget.orientation;
+    windowObj.attachedWallAngle = snapTarget.angle;
     windowObj.attachedWallId = snapTarget.wall.id;
     windowObj.lengthPx = lengthPx;
 
-    if (windowObj.orientation === 'horizontal') {
-        windowObj.width = lengthPx;
-        windowObj.height = depthPx;
-        windowObj.x = snapTarget.projection.x - windowObj.width / 2;
-        windowObj.y = snapTarget.projection.y - windowObj.height / 2;
-    } else {
-        windowObj.width = depthPx;
-        windowObj.height = lengthPx;
-        windowObj.x = snapTarget.projection.x - windowObj.width / 2;
-        windowObj.y = snapTarget.projection.y - windowObj.height / 2;
-    }
+    windowObj.width = lengthPx;
+    windowObj.height = depthPx;
+    windowObj.x = snapTarget.projection.x - windowObj.width / 2;
+    windowObj.y = snapTarget.projection.y - windowObj.height / 2;
 }
 
 function snapWindowToNearestWall(windowObj, walls, defaultScale = 20) {
