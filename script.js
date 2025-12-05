@@ -3594,8 +3594,7 @@ function maintainDoorAttachmentForSelection() {
         }
 
         // Keep the door's rotation aligned with the wall direction so it doesn't double-rotate
-        const wallAngleDeg = (Math.atan2(n2.y - n1.y, n2.x - n1.x) * 180) / Math.PI;
-        obj.rotation = snapRotation(wallAngleDeg);
+        obj.rotation = orientation === 'horizontal' ? 0 : 90;
     });
 }
 
@@ -5252,6 +5251,32 @@ function getObjectTransformInfo(obj) {
 }
 
 function getObjectTransformedCorners(obj) {
+    // Text renders around its top-left corner (to keep glyphs readable when flipped),
+    // so we mirror that logic here to keep the selection border aligned with the drawn text.
+    if (obj.type === 'text') {
+        const { cx, cy, angle, sx, sy, drawWidth, drawHeight } = getObjectTransformInfo(obj);
+        const localX = -drawWidth / 2;
+        const localY = -drawHeight / 2;
+        const flippedLocalX = localX * sx;
+        const flippedLocalY = localY * sy;
+
+        const rotX = flippedLocalX * Math.cos(angle) - flippedLocalY * Math.sin(angle);
+        const rotY = flippedLocalX * Math.sin(angle) + flippedLocalY * Math.cos(angle);
+        const anchor = { x: cx + rotX, y: cy + rotY };
+
+        const rotatePoint = (px, py) => ({
+            x: anchor.x + px * Math.cos(angle) - py * Math.sin(angle),
+            y: anchor.y + px * Math.sin(angle) + py * Math.cos(angle)
+        });
+
+        return [
+            anchor,
+            rotatePoint(drawWidth, 0),
+            rotatePoint(drawWidth, drawHeight),
+            rotatePoint(0, drawHeight)
+        ];
+    }
+
     const { cx, cy, angle, sx, sy, drawWidth, drawHeight } = getObjectTransformInfo(obj);
     const halfW = drawWidth / 2;
     const halfH = drawHeight / 2;
