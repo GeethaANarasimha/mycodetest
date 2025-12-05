@@ -4920,7 +4920,7 @@ function handleMouseMove(e) {
 
             ({ x: ex, y: ey } = snapPointToInch(ex, ey));
 
-            const tol = 8;
+            const tol = Math.max(scale / 12, 2); // ~1 inch tolerance, minimum 2px
             alignmentHints = [];
 
             let snappedNode = null;
