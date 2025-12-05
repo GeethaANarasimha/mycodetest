@@ -55,6 +55,10 @@ body {
     background: #14b8a6;
 }
 
+.tool-btn.danger {
+    background: #b91c1c;
+}
+
 .secondary-btn {
     background: #34465f;
 }
@@ -221,9 +225,25 @@ input[type="number"] {
     min-width: 38px;
 }
 
+.pill-btn.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .pill-btn.active {
     background: #14b8a6;
     color: #0f172a;
+}
+
+.pill-btn.danger {
+    background: #b91c1c;
+}
+
+.inline-icon {
+    width: 16px;
+    height: 16px;
+    display: inline-block;
 }
 
 #drawingCanvas {
@@ -461,6 +481,33 @@ input[type="number"] {
     justify-content: flex-end;
     gap: 8px;
     margin-top: 14px;
+}
+
+.layer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.layer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #f8fafc;
+}
+
+.layer-row__name {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.layer-row__actions {
+    display: flex;
+    gap: 6px;
 }
 
 .staircase-summary {

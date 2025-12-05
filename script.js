@@ -119,6 +119,7 @@ const DEFAULT_STAIR_FILL = '#e5e7eb';
 const MIN_VIEW_SCALE = 0.5;
 const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
+const WALL_ANGLE_SNAP_DEGREES = 15;
 const SAVE_FILE_EXTENSION = '.paz';
 const SAVE_SECRET = 'apzok-project-key';
 const DEFAULT_TREAD_DEPTH_INCHES = 10;
@@ -148,6 +149,8 @@ let nextWallId = 1;
 let floors = [];
 let nextFloorId = 1;
 let nextStairGroupId = 1;
+let selectedDimensionIndex = null;
+let dimensionDrag = null;
 
 let objects = [];
 
@@ -164,6 +167,16 @@ let staircaseSettings = {
     landingLengthInches: 0,
     treadDepthInches: DEFAULT_TREAD_DEPTH_INCHES
 };
+
+function setSelectedDimension(index) {
+    selectedDimensionIndex = index;
+    window.selectedDimensionIndex = index;
+}
+
+function clearDimensionSelection() {
+    setSelectedDimension(null);
+    dimensionDrag = null;
+}
 
 // Background image + measurement
 let backgroundImageData = null; // committed image { image, x, y, width, height }
@@ -197,6 +210,12 @@ let selectionBoxAdditive = false;
 function snapRotation(angle, step = 5) {
     const normalized = ((angle % 360) + 360) % 360;
     return (Math.round(normalized / step) * step) % 360;
+}
+
+function snapAngleRadians(angle, stepDegrees = WALL_ANGLE_SNAP_DEGREES) {
+    const angleDegrees = (angle * 180) / Math.PI;
+    const snappedDegrees = snapRotation(angleDegrees, stepDegrees);
+    return (snappedDegrees * Math.PI) / 180;
 }
 
 // WALL CHAINING
@@ -292,6 +311,192 @@ let isPasteMode = false;
 let pasteTargetX = null;
 let pasteTargetY = null;
 let lastPropertyContext = null;
+
+// Layered drawings
+let layerSnapshots = {};
+let isProjectLoading = false;
+
+function currentLayerId() {
+    return typeof getActiveLayerId === 'function' ? getActiveLayerId() : 'default-layer';
+}
+
+function createEmptyLayerSnapshot() {
+    return {
+        nodes: [],
+        walls: [],
+        objects: [],
+        floors: [],
+        dimensions: [],
+        clipboard: {
+            walls: [],
+            objects: [],
+            floors: [],
+            nodes: [],
+            referenceX: 0,
+            referenceY: 0
+        },
+        ids: {
+            nextNodeId: 1,
+            nextWallId: 1,
+            nextFloorId: 1,
+            nextStairGroupId: 1
+        },
+        undoStack: [],
+        redoStack: []
+    };
+}
+
+function ensureLayerSnapshot(layerId) {
+    if (!layerSnapshots[layerId]) {
+        layerSnapshots[layerId] = createEmptyLayerSnapshot();
+    }
+    return layerSnapshots[layerId];
+}
+
+function cloneLayerStatePayload() {
+    return {
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        walls: JSON.parse(JSON.stringify(walls)),
+        objects: JSON.parse(JSON.stringify(objects)),
+        floors: JSON.parse(JSON.stringify(floors)),
+        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
+        clipboard: JSON.parse(JSON.stringify(clipboard)),
+        ids: {
+            nextNodeId,
+            nextWallId,
+            nextFloorId,
+            nextStairGroupId
+        },
+        undoStack: JSON.parse(JSON.stringify(undoStack)),
+        redoStack: JSON.parse(JSON.stringify(redoStack))
+    };
+}
+
+function captureLayerSnapshot(layerId = currentLayerId()) {
+    layerSnapshots[layerId] = cloneLayerStatePayload();
+}
+
+function resetTransientState() {
+    selectedWalls.clear();
+    rightClickedWall = null;
+    selectedNode = null;
+    isDraggingNode = false;
+    dragDir = null;
+    dragOriginNodePos = null;
+    dragOriginMousePos = null;
+    isWallDrawing = false;
+    wallChain = [];
+    wallPreviewX = null;
+    wallPreviewY = null;
+    alignmentHints = [];
+    ignoreNextClick = false;
+    selectedFloorIds.clear();
+    selectedObjectIndices.clear();
+    selectAllMode = false;
+    resetFloorLasso();
+    clearDimensionSelection();
+
+    if (typeof window.resetDimensionTool === 'function') {
+        window.resetDimensionTool();
+    }
+}
+
+function loadLayerSnapshot(layerId = currentLayerId()) {
+    const snapshot = ensureLayerSnapshot(layerId);
+    nodes = JSON.parse(JSON.stringify(snapshot.nodes));
+    walls = JSON.parse(JSON.stringify(snapshot.walls));
+    objects = JSON.parse(JSON.stringify(snapshot.objects));
+    floors = JSON.parse(JSON.stringify(snapshot.floors));
+
+    if (snapshot.dimensions) {
+        window.dimensions = JSON.parse(JSON.stringify(snapshot.dimensions));
+        window.nextDimensionId = snapshot.dimensions.length > 0 ? Math.max(...snapshot.dimensions.map(d => d.id)) + 1 : 1;
+    }
+
+    clipboard = JSON.parse(JSON.stringify(snapshot.clipboard || clipboard));
+
+    nextNodeId = snapshot.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
+    nextWallId = snapshot.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
+    nextFloorId = snapshot.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
+    nextStairGroupId = snapshot.ids?.nextStairGroupId ?? nextStairGroupId;
+
+    undoStack = JSON.parse(JSON.stringify(snapshot.undoStack || []));
+    redoStack = JSON.parse(JSON.stringify(snapshot.redoStack || []));
+
+    isPasteMode = false;
+    pasteTargetX = null;
+    pasteTargetY = null;
+
+    resetTransientState();
+    redrawCanvas();
+}
+
+function exportLayerDrawings() {
+    captureLayerSnapshot();
+    const exported = {};
+    Object.entries(layerSnapshots).forEach(([layerId, snapshot]) => {
+        exported[layerId] = {
+            nodes: JSON.parse(JSON.stringify(snapshot.nodes)),
+            walls: JSON.parse(JSON.stringify(snapshot.walls)),
+            objects: JSON.parse(JSON.stringify(snapshot.objects)),
+            floors: JSON.parse(JSON.stringify(snapshot.floors)),
+            dimensions: JSON.parse(JSON.stringify(snapshot.dimensions || [])),
+            ids: JSON.parse(JSON.stringify(snapshot.ids || {}))
+        };
+    });
+    return exported;
+}
+
+function importLayerDrawings(layerData) {
+    layerSnapshots = {};
+    if (!layerData || typeof layerData !== 'object') return;
+    Object.entries(layerData).forEach(([layerId, snapshot]) => {
+        layerSnapshots[layerId] = {
+            ...createEmptyLayerSnapshot(),
+            ...snapshot,
+            undoStack: [],
+            redoStack: []
+        };
+    });
+}
+
+function handleLayerChange(nextLayerId, previousLayerId) {
+    if (!nextLayerId) return;
+    if (!isProjectLoading && previousLayerId) {
+        captureLayerSnapshot(previousLayerId);
+    }
+    loadLayerSnapshot(nextLayerId);
+}
+
+function handleLayerStructureChange(change) {
+    if (!change) return;
+    if (change.type === 'add' && change.layer?.id) {
+        ensureLayerSnapshot(change.layer.id);
+        return;
+    }
+
+    if (change.type === 'delete' && change.layerId) {
+        delete layerSnapshots[change.layerId];
+        if (change.nextActiveLayerId) {
+            loadLayerSnapshot(change.nextActiveLayerId);
+        }
+        return;
+    }
+}
+
+function setupLayering() {
+    const activeLayerId = currentLayerId();
+    ensureLayerSnapshot(activeLayerId);
+    captureLayerSnapshot(activeLayerId);
+
+    if (typeof onLayerChange === 'function') {
+        onLayerChange(handleLayerChange);
+    }
+
+    if (typeof window.onLayerStructureChange === 'function') {
+        window.onLayerStructureChange(handleLayerStructureChange);
+    }
+}
 
 // View helpers
 function getCanvasPixelScale() {
@@ -1812,8 +2017,32 @@ function deleteSelection() {
             floors = floors.filter(f => !selectedFloorIds.has(f.id));
             selectedFloorIds.clear();
         }
+
+        cleanupOrphanNodes();
+        alignmentHints = [];
         redrawCanvas();
     }
+}
+
+function cleanupOrphanNodes() {
+    const usedNodeIds = new Set();
+
+    walls.forEach(wall => {
+        usedNodeIds.add(wall.startNodeId);
+        usedNodeIds.add(wall.endNodeId);
+    });
+
+    wallChain.forEach(node => {
+        if (node?.id) usedNodeIds.add(node.id);
+    });
+
+    nodes = nodes.filter(node => usedNodeIds.has(node.id));
+
+    if (selectedNode && !usedNodeIds.has(selectedNode.id)) {
+        selectedNode = null;
+    }
+
+    alignmentHints = [];
 }
 
 function splitWallAtCenter(wall) {
@@ -1917,6 +2146,8 @@ function jointSelectedWalls() {
 
     // Clear selection
     selectedWalls.clear();
+
+    cleanupOrphanNodes();
 
     redrawCanvas();
 }
@@ -2695,6 +2926,13 @@ function buildProjectState() {
         floors: (floors || []).map(stripFloorPattern),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
+        layerState: typeof getLayerState === 'function' ? getLayerState() : null,
+        layerDrawings: exportLayerDrawings(),
+        objects: JSON.parse(JSON.stringify(objects)),
+        floors: (floors || []).map(stripFloorPattern),
+        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
+        clipboard: JSON.parse(JSON.stringify(clipboard)),
+        layerState: typeof getLayerState === 'function' ? getLayerState() : null,
         settings: {
             scale,
             gridSize,
@@ -2741,81 +2979,102 @@ function hydrateBackgroundFromState(background) {
 }
 
 function applyProjectState(state) {
-    nodes = JSON.parse(JSON.stringify(state.nodes || []));
-    walls = JSON.parse(JSON.stringify(state.walls || []));
-    objects = JSON.parse(JSON.stringify(state.objects || []));
-    floors = (state.floors || []).map(stripFloorPattern);
+     isProjectLoading = true;
 
-    if (state.dimensions) {
-        window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
-        window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
-    }
+     importLayerDrawings(state.layerDrawings);
 
-    clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
-    isPasteMode = false;
-    pasteTargetX = null;
-    pasteTargetY = null;
+     const hasLayerDrawings = state.layerDrawings && Object.keys(state.layerDrawings).length > 0;
 
-    const settings = state.settings || {};
-    scale = settings.scale ?? scale;
-    gridSize = settings.gridSize ?? gridSize;
-    snapToGrid = settings.snapToGrid ?? snapToGrid;
-    showGrid = settings.showGrid ?? showGrid;
-    showDimensions = settings.showDimensions ?? showDimensions;
-    measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
-    textFontSize = settings.textFontSize ?? textFontSize;
-    textIsBold = settings.textIsBold ?? textIsBold;
-    textIsItalic = settings.textIsItalic ?? textIsItalic;
-    measurementDistanceFeet = state.measurementDistanceFeet ?? measurementDistanceFeet;
-    isBackgroundImageVisible = state.backgroundImageVisible ?? isBackgroundImageVisible;
+     if (hasLayerDrawings && typeof applyLayerState === 'function') {
+         applyLayerState(state.layerState);
+         loadLayerSnapshot(currentLayerId());
+     } else {
+         nodes = JSON.parse(JSON.stringify(state.nodes || []));
+         walls = JSON.parse(JSON.stringify(state.walls || []));
+         objects = JSON.parse(JSON.stringify(state.objects || []));
+         floors = (state.floors || []).map(stripFloorPattern);
 
-    viewScale = state.view?.scale ?? viewScale;
-    viewOffsetX = state.view?.offsetX ?? viewOffsetX;
-    viewOffsetY = state.view?.offsetY ?? viewOffsetY;
-    ensureDefaultViewIfMissing(state);
+         if (state.dimensions) {
+             window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
+             window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
+         }
 
-    nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
-    nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
-    nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
-    const existingGroupMax = objects.length ? Math.max(...objects.map(o => o?.stairGroupId || 0)) : 0;
-    nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
+         clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
+         isPasteMode = false;
+         pasteTargetX = null;
+         pasteTargetY = null;
 
-    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
-    if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
-    if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
-    if (lineWidthInput && Number.isFinite(settings.lineWidth)) lineWidthInput.value = settings.lineWidth;
-    if (lineColorInput && settings.lineColor) lineColorInput.value = settings.lineColor;
-    if (fillColorInput && settings.fillColor) fillColorInput.value = settings.fillColor;
+         if (typeof applyLayerState === 'function') {
+             applyLayerState(state.layerState);
+         }
 
-    selectedWalls.clear();
-    rightClickedWall = null;
-    selectedNode = null;
-    isDraggingNode = false;
-    dragDir = null;
-    dragOriginNodePos = null;
-    dragOriginMousePos = null;
-    isWallDrawing = false;
-    wallChain = [];
-    wallPreviewX = null;
-    wallPreviewY = null;
-    alignmentHints = [];
-    ignoreNextClick = false;
-    selectedFloorIds.clear();
-    selectedObjectIndices.clear();
-    selectAllMode = false;
-    resetFloorLasso();
+         captureLayerSnapshot();
+     }
 
-    hydrateBackgroundFromState(state.background);
-    floors.forEach(ensureFloorPattern);
+     const settings = state.settings || {};
+     scale = settings.scale ?? scale;
+     gridSize = settings.gridSize ?? gridSize;
+     snapToGrid = settings.snapToGrid ?? snapToGrid;
+     showGrid = settings.showGrid ?? showGrid;
+     showDimensions = settings.showDimensions ?? showDimensions;
+     measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
+     textFontSize = settings.textFontSize ?? textFontSize;
+     textIsBold = settings.textIsBold ?? textIsBold;
+     textIsItalic = settings.textIsItalic ?? textIsItalic;
+     measurementDistanceFeet = state.measurementDistanceFeet ?? measurementDistanceFeet;
+     isBackgroundImageVisible = state.backgroundImageVisible ?? isBackgroundImageVisible;
 
-    updateGrid();
-    syncCanvasScrollArea();
-    updateTextStyleButtons();
-    updateMeasurementPreview();
-    updateToolInfo();
-    updatePropertiesPanel();
-    redrawCanvas();
-}
+     viewScale = state.view?.scale ?? viewScale;
+     viewOffsetX = state.view?.offsetX ?? viewOffsetX;
+     viewOffsetY = state.view?.offsetY ?? viewOffsetY;
+     ensureDefaultViewIfMissing(state);
+
+     if (!hasLayerDrawings) {
+         nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
+         nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
+         nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
+         const existingGroupMax = objects.length ? Math.max(...objects.map(o => o?.stairGroupId || 0)) : 0;
+         nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
+     }
+
+     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+     if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
+     if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
+     if (lineWidthInput && Number.isFinite(settings.lineWidth)) lineWidthInput.value = settings.lineWidth;
+     if (lineColorInput && settings.lineColor) lineColorInput.value = settings.lineColor;
+     if (fillColorInput && settings.fillColor) fillColorInput.value = settings.fillColor;
+
+     selectedWalls.clear();
+     rightClickedWall = null;
+     selectedNode = null;
+     isDraggingNode = false;
+     dragDir = null;
+     dragOriginNodePos = null;
+     dragOriginMousePos = null;
+     isWallDrawing = false;
+     wallChain = [];
+     wallPreviewX = null;
+     wallPreviewY = null;
+     alignmentHints = [];
+     ignoreNextClick = false;
+     selectedFloorIds.clear();
+     selectedObjectIndices.clear();
+     selectAllMode = false;
+     resetFloorLasso();
+
+     hydrateBackgroundFromState(state.background);
+     floors.forEach(ensureFloorPattern);
+
+     updateGrid();
+     syncCanvasScrollArea();
+     updateTextStyleButtons();
+     updateMeasurementPreview();
+     updateToolInfo();
+     updatePropertiesPanel();
+     redrawCanvas();
+
+     isProjectLoading = false;
+ }
 
 function saveProjectToFile() {
     try {
@@ -2880,6 +3139,12 @@ function init() {
 
     document.getElementById('lineColorPreview').style.backgroundColor = lineColorInput.value || DEFAULT_WALL_COLOR;
     document.getElementById('fillColorPreview').style.backgroundColor = fillColorInput.value || '#d9d9d9';
+
+    if (typeof initLayerTools === 'function') {
+        initLayerTools();
+    }
+
+    setupLayering();
 
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {
@@ -3434,6 +3699,29 @@ function moveSelectedWalls(dx, dy, { skipUndo = false } = {}) {
         node.x = x;
         node.y = y;
     });
+
+    redrawCanvas();
+}
+
+function moveSelectedDimension(dx, dy, { skipUndo = false } = {}) {
+    if (selectedDimensionIndex === null) return;
+
+    const dimension = window.dimensions?.[selectedDimensionIndex];
+    if (!dimension) return;
+
+    if (!skipUndo) pushUndoState();
+
+    const start = snapPointToInch(dimension.startX + dx, dimension.startY + dy);
+    const end = snapPointToInch(dimension.endX + dx, dimension.endY + dy);
+
+    dimension.startX = start.x;
+    dimension.startY = start.y;
+    dimension.endX = end.x;
+    dimension.endY = end.y;
+
+    if (typeof window.updateDimensionMeasurement === 'function') {
+        window.updateDimensionMeasurement(dimension);
+    }
 
     redrawCanvas();
 }
@@ -4155,6 +4443,23 @@ function handleMouseDown(e) {
             return;
         }
 
+        const dimensionHit = getDimensionHandleHit(x, y);
+        if (dimensionHit) {
+            selectAllMode = false;
+            selectedWalls.clear();
+            selectedObjectIndices.clear();
+            selectedFloorIds.clear();
+            selectedNode = null;
+            setSelectedDimension(dimensionHit.index);
+
+            if (dimensionHit.handle) {
+                startDimensionDrag(dimensionHit.index, dimensionHit.handle, x, y);
+            }
+
+            redrawCanvas();
+            return;
+        }
+
         // Check for node handles of selected walls
         for (const wall of selectedWalls) {
             const n1 = getNodeById(wall.startNodeId);
@@ -4173,6 +4478,7 @@ function handleMouseDown(e) {
         // Check for any node
         const node = getNodeAt(x, y);
         if (node) {
+            clearDimensionSelection();
             startNodeDrag(node, x, y);
             selectedFloorIds.clear();
             redrawCanvas();
@@ -4182,6 +4488,7 @@ function handleMouseDown(e) {
         // Check for object
         const objIndex = getObjectAt(x, y, true);
         if (objIndex !== -1) {
+            clearDimensionSelection();
             selectAllMode = false;
             if (e.shiftKey) {
                 if (selectedObjectIndices.has(objIndex)) {
@@ -4207,6 +4514,7 @@ function handleMouseDown(e) {
         // Check for wall
         const wall = getWallAt(x, y);
         if (wall) {
+            clearDimensionSelection();
             if (e.shiftKey) {
                 // MULTIPLE SELECTION with Shift key
                 if (selectedWalls.has(wall)) {
@@ -4231,6 +4539,7 @@ function handleMouseDown(e) {
 
         const floorHit = getFloorAt(x, y);
         if (floorHit) {
+            clearDimensionSelection();
             if (e.shiftKey) {
                 if (selectedFloorIds.has(floorHit.id)) {
                     selectedFloorIds.delete(floorHit.id);
@@ -4263,6 +4572,7 @@ function handleMouseDown(e) {
             selectedFloorIds.clear();
             selectAllMode = false;
             ungroupSelectionElements();
+            clearDimensionSelection();
         }
 
         redrawCanvas();
@@ -4279,6 +4589,9 @@ function handleMouseDown(e) {
             const dimIndex = getDimensionAt(x, y);
             if (dimIndex !== -1) {
                 pushUndoState();
+                if (selectedDimensionIndex === dimIndex) {
+                    clearDimensionSelection();
+                }
                 window.dimensions.splice(dimIndex, 1);
                 redrawCanvas();
                 return;
@@ -4294,6 +4607,7 @@ function handleMouseDown(e) {
             if (wall) {
                 walls = walls.filter(w => w !== wall);
                 selectedWalls.delete(wall);
+                cleanupOrphanNodes();
             }
             if (objIndex !== -1) {
                 objects.splice(objIndex, 1);
@@ -4444,6 +4758,11 @@ function handleMouseMove(e) {
         coordinatesDisplay.textContent = `Select box: ${Math.abs(selectionBoxEnd.x - selectionBoxStart.x).toFixed(1)} x ${Math.abs(selectionBoxEnd.y - selectionBoxStart.y).toFixed(1)}`;
         redrawCanvas();
         drawSelectionBoxOverlay();
+        return;
+    }
+
+    if (dimensionDrag) {
+        applyDimensionDrag(x, y);
         return;
     }
 
@@ -4682,24 +5001,17 @@ function handleMouseMove(e) {
             wallPreviewY = sy;
             alignmentHints = [];
         } else {
-            const angle = Math.atan2(dy, dx);
-            const snapStep = Math.PI / 4;
-            const snappedAngle = Math.round(angle / snapStep) * snapStep;
-            const length = Math.hypot(dx, dy);
-
-            let ex = sx + length * Math.cos(snappedAngle);
-            let ey = sy + length * Math.sin(snappedAngle);
+            let ex = x;
+            let ey = y;
 
             ({ x: ex, y: ey } = snapPointToInch(ex, ey));
 
-            const tol = 8;
+            // Use a tighter tolerance so 1" length changes still render before snapping
+            // to nearby nodes or alignment guides.
+            const tol = Math.max(scale / 24, 1); // ~0.5 inch tolerance, minimum 1px
             alignmentHints = [];
 
             let snappedNode = null;
-            let closestVertical = null;
-            let closestVerticalDelta = tol + 1;
-            let closestHorizontal = null;
-            let closestHorizontalDelta = tol + 1;
 
             for (const node of nodes) {
                 if (node.id === lastNode.id) continue;
@@ -4710,45 +5022,62 @@ function handleMouseMove(e) {
                     continue;
                 }
 
-                const dxToNode = Math.abs(ex - node.x);
-                const dyToNode = Math.abs(ey - node.y);
-
-                if (dxToNode <= tol && dxToNode < closestVerticalDelta) {
-                    closestVertical = node;
-                    closestVerticalDelta = dxToNode;
-                }
-
-                if (dyToNode <= tol && dyToNode < closestHorizontalDelta) {
-                    closestHorizontal = node;
-                    closestHorizontalDelta = dyToNode;
-                }
             }
 
             if (snappedNode) {
                 ex = snappedNode.x;
                 ey = snappedNode.y;
             } else {
-                if (closestVertical) ex = closestVertical.x;
-                if (closestHorizontal) ey = closestHorizontal.y;
+                const len = Math.hypot(ex - sx, ey - sy);
+                if (len > 0) {
+                    const snappedAngle = snapAngleRadians(Math.atan2(ey - sy, ex - sx));
+                    const snappedEx = sx + Math.cos(snappedAngle) * len;
+                    const snappedEy = sy + Math.sin(snappedAngle) * len;
+
+                    alignmentHints.push({ type: 'angle', ax: sx, ay: sy, ex: snappedEx, ey: snappedEy });
+
+                    ex = snappedEx;
+                    ey = snappedEy;
+                }
             }
+
+            // Track best alignment candidates so we can snap precisely when near reference lines
+            let bestAlignX = null;
+            let bestAlignY = null;
 
             for (const node of nodes) {
                 if (node.id === lastNode.id) continue;
 
                 const close = Math.hypot(ex - node.x, ey - node.y) <= tol;
-                const alignedX = Math.abs(ex - node.x) <= tol;
-                const alignedY = Math.abs(ey - node.y) <= tol;
+                const dxToNode = Math.abs(ex - node.x);
+                const dyToNode = Math.abs(ey - node.y);
+                const alignedX = dxToNode <= tol;
+                const alignedY = dyToNode <= tol;
 
                 if (close) {
                     alignmentHints.push({ type: 'close', ax: node.x, ay: node.y, ex, ey });
                 } else {
                     if (alignedX) {
                         alignmentHints.push({ type: 'vertical', ax: node.x, ay: node.y, ex, ey });
+                        if (bestAlignX === null || dxToNode < bestAlignX.delta) {
+                            bestAlignX = { value: node.x, delta: dxToNode };
+                        }
                     }
                     if (alignedY) {
                         alignmentHints.push({ type: 'horizontal', ax: node.x, ay: node.y, ex, ey });
+                        if (bestAlignY === null || dyToNode < bestAlignY.delta) {
+                            bestAlignY = { value: node.y, delta: dyToNode };
+                        }
                     }
                 }
+            }
+
+            // Snap to the nearest alignment guide so reference lines represent exact alignment
+            if (bestAlignX) {
+                ex = bestAlignX.value;
+            }
+            if (bestAlignY) {
+                ey = bestAlignY.value;
             }
 
             wallPreviewX = ex;
@@ -4783,6 +5112,12 @@ function handleMouseUp() {
 
     if (isBackgroundMeasurementActive) {
         finalizeMeasurementDragOnPreview();
+        return;
+    }
+
+    if (dimensionDrag) {
+        dimensionDrag = null;
+        redrawCanvas();
         return;
     }
 
@@ -4955,6 +5290,92 @@ function handleCanvasClick(e) {
     wallPreviewX = wallPreviewY = null;
     alignmentHints = [];
     redrawCanvas();
+}
+
+function getDimensionHandleHit(x, y) {
+    if (!window.dimensions || window.dimensions.length === 0) return null;
+
+    const handleRadius = 8;
+
+    for (let i = window.dimensions.length - 1; i >= 0; i--) {
+        const dim = window.dimensions[i];
+
+        if (Math.hypot(x - dim.startX, y - dim.startY) <= handleRadius) {
+            return { index: i, handle: 'start' };
+        }
+
+        if (Math.hypot(x - dim.endX, y - dim.endY) <= handleRadius) {
+            return { index: i, handle: 'end' };
+        }
+
+        const distance = distanceToSegment(x, y, dim.startX, dim.startY, dim.endX, dim.endY);
+        if (distance <= handleRadius) {
+            return { index: i, handle: 'line' };
+        }
+    }
+
+    return null;
+}
+
+function startDimensionDrag(index, handle, x, y) {
+    const dimension = window.dimensions?.[index];
+    if (!dimension) return;
+
+    dimensionDrag = {
+        index,
+        handle,
+        startMouse: { x, y },
+        initial: {
+            startX: dimension.startX,
+            startY: dimension.startY,
+            endX: dimension.endX,
+            endY: dimension.endY
+        },
+        undoApplied: false
+    };
+}
+
+function applyDimensionDrag(x, y) {
+    if (!dimensionDrag) return false;
+
+    const dimension = window.dimensions?.[dimensionDrag.index];
+    if (!dimension) return false;
+
+    if (!dimensionDrag.undoApplied) {
+        pushUndoState();
+        dimensionDrag.undoApplied = true;
+    }
+
+    const dx = x - dimensionDrag.startMouse.x;
+    const dy = y - dimensionDrag.startMouse.y;
+    const { initial } = dimensionDrag;
+
+    let newStart = { x: initial.startX, y: initial.startY };
+    let newEnd = { x: initial.endX, y: initial.endY };
+
+    if (dimensionDrag.handle === 'start') {
+        newStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
+    } else if (dimensionDrag.handle === 'end') {
+        newEnd = snapPointToInch(initial.endX + dx, initial.endY + dy);
+    } else if (dimensionDrag.handle === 'line') {
+        const snappedStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
+        const offsetX = snappedStart.x - initial.startX;
+        const offsetY = snappedStart.y - initial.startY;
+        newStart = { x: initial.startX + offsetX, y: initial.startY + offsetY };
+        newEnd = { x: initial.endX + offsetX, y: initial.endY + offsetY };
+    }
+
+    dimension.startX = newStart.x;
+    dimension.startY = newStart.y;
+    dimension.endX = newEnd.x;
+    dimension.endY = newEnd.y;
+
+    if (typeof window.updateDimensionMeasurement === 'function') {
+        window.updateDimensionMeasurement(dimension);
+    }
+
+    redrawCanvas();
+    return true;
 }
 
 function handleCanvasDoubleClick(e) {
@@ -7078,6 +7499,7 @@ function selectAllEntities() {
     selectedWalls = new Set(walls);
     selectedNode = null;
     selectedFloorIds = new Set(floors.map(f => f.id));
+    clearDimensionSelection();
     isDraggingNode = false;
     selectAllMode = true;
     expandSelectionWithGroups();
@@ -7160,13 +7582,18 @@ function handleKeyDown(e) {
         }
 
         if (dx !== 0 || dy !== 0) {
-            const hasSelection = selectedObjectIndices.size > 0 || selectedWalls.size > 0 || selectedFloorIds.size > 0;
+            const hasSelection =
+                selectedObjectIndices.size > 0 ||
+                selectedWalls.size > 0 ||
+                selectedFloorIds.size > 0 ||
+                selectedDimensionIndex !== null;
             if (hasSelection) {
                 e.preventDefault();
                 pushUndoState();
                 moveSelectedObjects(dx, dy, { skipUndo: true });
                 moveSelectedWalls(dx, dy, { skipUndo: true });
                 moveSelectedFloors(dx, dy, { skipUndo: true });
+                moveSelectedDimension(dx, dy, { skipUndo: true });
                 maintainDoorAttachmentForSelection();
                 redrawCanvas();
                 return;
@@ -7230,9 +7657,15 @@ function handleKeyDown(e) {
         } else {
             const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
             const hasDimensions = window.dimensions && window.dimensions.length > 0;
+            const hasSelectedDimension = selectedDimensionIndex !== null;
 
             if (hasSelection) {
                 deleteSelection();
+            } else if (hasSelectedDimension && window.dimensions?.[selectedDimensionIndex]) {
+                pushUndoState();
+                window.dimensions.splice(selectedDimensionIndex, 1);
+                clearDimensionSelection();
+                redrawCanvas();
             } else if (hasDimensions) {
                 pushUndoState();
                 window.dimensions = [];

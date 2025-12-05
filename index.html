@@ -115,6 +115,13 @@
 </div>
 
 <div class="properties">
+    <div class="property-group">
+        <label for="layerSelect">Layers</label>
+        <select id="layerSelect"></select>
+        <button id="addLayerButton" type="button">+ Floor</button>
+        <button id="editLayersButton" type="button">Edit</button>
+    </div>
+
     <div class="property-group" data-contexts="wall">
         <label>Wall Thickness</label>
         <div class="property-input-row">
@@ -204,6 +211,41 @@
         <div class="modal-actions">
             <button id="textModalConfirm" class="tool-btn" type="button">Add Text</button>
             <button id="textModalCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="layerManagerModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Manage Floors</h3>
+        <p class="modal-subtitle">Rename or delete floors. Deleting a floor removes all drawings on it.</p>
+        <div id="layerList" class="layer-list"></div>
+        <div class="modal-actions">
+            <button id="closeLayerManager" class="tool-btn secondary-btn" type="button">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="layerRenameModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Rename Floor</h3>
+        <p class="modal-subtitle">Give this floor a clear name to keep plans organized.</p>
+        <label class="modal-label" for="layerRenameInput">Floor name</label>
+        <input id="layerRenameInput" type="text" aria-label="Floor name">
+        <div class="modal-actions">
+            <button id="confirmLayerRename" class="tool-btn" type="button">Save</button>
+            <button id="cancelLayerRename" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="layerDeleteModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Delete Floor</h3>
+        <p id="layerDeleteMessage" class="modal-subtitle"></p>
+        <div class="modal-actions">
+            <button id="confirmLayerDelete" class="tool-btn danger" type="button">Delete</button>
+            <button id="cancelLayerDelete" class="tool-btn secondary-btn" type="button">Cancel</button>
         </div>
     </div>
 </div>
@@ -373,6 +415,7 @@
 
 <script src="transformTools.js"></script>
 <script src="script.js"></script>
+<script src="layerTools.js"></script>
 <script src="doorTools.js"></script>
 <script src="windowTools.js"></script>
 <script src="panTools.js"></script>
