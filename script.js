@@ -1977,8 +1977,32 @@ function deleteSelection() {
             floors = floors.filter(f => !selectedFloorIds.has(f.id));
             selectedFloorIds.clear();
         }
+
+        cleanupOrphanNodes();
+        alignmentHints = [];
         redrawCanvas();
     }
+}
+
+function cleanupOrphanNodes() {
+    const usedNodeIds = new Set();
+
+    walls.forEach(wall => {
+        usedNodeIds.add(wall.startNodeId);
+        usedNodeIds.add(wall.endNodeId);
+    });
+
+    wallChain.forEach(node => {
+        if (node?.id) usedNodeIds.add(node.id);
+    });
+
+    nodes = nodes.filter(node => usedNodeIds.has(node.id));
+
+    if (selectedNode && !usedNodeIds.has(selectedNode.id)) {
+        selectedNode = null;
+    }
+
+    alignmentHints = [];
 }
 
 function splitWallAtCenter(wall) {
@@ -2082,6 +2106,8 @@ function jointSelectedWalls() {
 
     // Clear selection
     selectedWalls.clear();
+
+    cleanupOrphanNodes();
 
     redrawCanvas();
 }
@@ -4493,6 +4519,7 @@ function handleMouseDown(e) {
             if (wall) {
                 walls = walls.filter(w => w !== wall);
                 selectedWalls.delete(wall);
+                cleanupOrphanNodes();
             }
             if (objIndex !== -1) {
                 objects.splice(objIndex, 1);
@@ -4895,10 +4922,6 @@ function handleMouseMove(e) {
             alignmentHints = [];
 
             let snappedNode = null;
-            let closestVertical = null;
-            let closestVerticalDelta = tol + 1;
-            let closestHorizontal = null;
-            let closestHorizontalDelta = tol + 1;
 
             for (const node of nodes) {
                 if (node.id === lastNode.id) continue;
@@ -4909,26 +4932,11 @@ function handleMouseMove(e) {
                     continue;
                 }
 
-                const dxToNode = Math.abs(ex - node.x);
-                const dyToNode = Math.abs(ey - node.y);
-
-                if (dxToNode <= tol && dxToNode < closestVerticalDelta) {
-                    closestVertical = node;
-                    closestVerticalDelta = dxToNode;
-                }
-
-                if (dyToNode <= tol && dyToNode < closestHorizontalDelta) {
-                    closestHorizontal = node;
-                    closestHorizontalDelta = dyToNode;
-                }
             }
 
             if (snappedNode) {
                 ex = snappedNode.x;
                 ey = snappedNode.y;
-            } else {
-                if (closestVertical) ex = closestVertical.x;
-                if (closestHorizontal) ey = closestHorizontal.y;
             }
 
             for (const node of nodes) {
