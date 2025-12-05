@@ -5726,7 +5726,9 @@ function handleCanvasDoubleClick(e) {
 
     if (currentTool === 'directline' && isDirectLineDrawing) {
         ({ x, y } = snapPointToInch(x, y));
-        directLinePoints.push({ x, y });
+        if (directLinePoints.length > 0) {
+            directLinePoints[directLinePoints.length - 1] = { x, y };
+        }
         ignoreNextClick = true;
         finalizeDirectLine();
         return;
@@ -6740,7 +6742,7 @@ function drawFloorLassoOverlay() {
 function drawDirectLineArrow(start, end) {
     if (!start || !end) return;
     if (start.x === end.x && start.y === end.y) return;
-    const angle = Math.atan2(end.y - start.y, end.x - start.x);
+    const angle = Math.atan2(start.y - end.y, start.x - end.x);
     const size = 18;
 
     ctx.save();
