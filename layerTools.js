@@ -70,12 +70,15 @@
 
     function setActiveLayer(id) {
         if (!layers.some(layer => layer.id === id)) return;
-        const prev = activeLayerId;
+        const previous = activeLayerId;
         activeLayerId = id;
-        notifyLayerChange(prev, activeLayerId);
-    function setActiveLayer(id) {
-        if (!layers.some(layer => layer.id === id)) return;
-        activeLayerId = id;
+        ensureActiveLayer();
+
+        if (layerSelect) {
+            layerSelect.value = activeLayerId;
+        }
+
+        notifyLayerChange(previous, activeLayerId);
     }
 
     function addLayer(name) {
@@ -86,8 +89,8 @@
             name: trimmed
         };
         layers.push(newLayer);
-        setActiveLayer(newLayer.id);
         renderLayerOptions();
+        setActiveLayer(newLayer.id);
         return true;
     }
 
@@ -146,5 +149,4 @@
     window.applyLayerState = applyLayerState;
     window.getActiveLayerId = getActiveLayerId;
     window.onLayerChange = onLayerChange;
-}
 })();
