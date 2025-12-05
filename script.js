@@ -127,6 +127,8 @@ const STAIRCASE_MAGNET_THRESHOLD = 12;
 const RULER_SIZE = 28;
 const DEFAULT_VIEW_MARGIN_FEET = 3;
 const DIRECT_LINE_ARROW_SRC = 'https://static.wixstatic.com/shapes/602ad4_407956fc7daf45d3803b4db9869a74e2.svg';
+const DIRECT_LINE_HANDLE_RADIUS = 8;
+const DIRECT_LINE_HIT_TOLERANCE = 8;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -206,6 +208,9 @@ let directLinePoints = [];
 let directLinePreview = null;
 const directLineArrowImage = new Image();
 directLineArrowImage.src = DIRECT_LINE_ARROW_SRC;
+let selectedDirectLineIndices = new Set();
+let directLinePointSelection = null;
+let directLineDrag = null;
 
 let selectedWalls = new Set(); // MULTIPLE wall selection
 let rightClickedWall = null;
@@ -2041,7 +2046,7 @@ function drawPastePreview() {
 }
 
 function deleteSelection() {
-    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0) {
+    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0 || selectedDirectLineIndices.size > 0) {
         pushUndoState();
         if (selectedWalls.size > 0) {
             walls = walls.filter(w => !selectedWalls.has(w));
@@ -2054,6 +2059,11 @@ function deleteSelection() {
         if (selectedFloorIds.size > 0) {
             floors = floors.filter(f => !selectedFloorIds.has(f.id));
             selectedFloorIds.clear();
+        }
+        if (selectedDirectLineIndices.size > 0) {
+            directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
+            selectedDirectLineIndices.clear();
+            directLinePointSelection = null;
         }
 
         cleanupOrphanNodes();
@@ -2917,6 +2927,9 @@ function restoreState(state) {
     ignoreNextClick = false;
     selectedFloorIds.clear();
     selectedObjectIndices.clear();
+    selectedDirectLineIndices.clear();
+    directLinePointSelection = null;
+    directLineDrag = null;
     selectAllMode = false;
     resetFloorLasso();
 
@@ -4211,6 +4224,8 @@ function finalizeSelectionBox() {
         selectedObjectIndices.clear();
         selectedNode = null;
         selectAllMode = false;
+        selectedDirectLineIndices.clear();
+        directLinePointSelection = null;
     }
 
     walls.forEach(wall => {
@@ -4226,6 +4241,18 @@ function finalizeSelectionBox() {
         const objRect = { x: obj.x, y: obj.y, width: obj.width, height: obj.height };
         if (rectsOverlap(rect, objRect)) {
             selectedObjectIndices.add(index);
+        }
+    });
+
+    directLines.forEach((line, index) => {
+        const pts = line?.points || [];
+        for (let i = 1; i < pts.length; i++) {
+            const p1 = pts[i - 1];
+            const p2 = pts[i];
+            if (rectIntersectsSegment(rect, p1.x, p1.y, p2.x, p2.y)) {
+                selectedDirectLineIndices.add(index);
+                break;
+            }
         }
     });
 
@@ -4512,6 +4539,33 @@ function handleMouseDown(e) {
         return;
     }
 
+    if (currentTool === 'select') {
+        const pointHit = findDirectLinePointHit(x, y, DIRECT_LINE_HANDLE_RADIUS + 2);
+        if (pointHit) {
+            if (!selectedDirectLineIndices.has(pointHit.lineIndex)) {
+                selectedDirectLineIndices.clear();
+            }
+            selectedDirectLineIndices.add(pointHit.lineIndex);
+            directLinePointSelection = pointHit;
+            startDirectLineDrag(pointHit.lineIndex, pointHit.pointIndex, 'point', x, y);
+            redrawCanvas();
+            return;
+        }
+
+        const lineHit = findDirectLineHit(x, y, DIRECT_LINE_HIT_TOLERANCE * 1.5);
+        if (lineHit) {
+            if (!e.shiftKey) {
+                selectedDirectLineIndices.clear();
+                directLinePointSelection = null;
+            }
+            selectedDirectLineIndices.add(lineHit.lineIndex);
+            directLinePointSelection = null;
+            startDirectLineDrag(lineHit.lineIndex, null, 'line', x, y);
+            redrawCanvas();
+            return;
+        }
+    }
+
     if (currentTool === 'directline') {
         ({ x, y } = snapPointToInch(x, y));
         if (!isDirectLineDrawing) {
@@ -4658,6 +4712,7 @@ function handleMouseDown(e) {
         const node = getNodeAt(x, y);
         if (node) {
             clearDimensionSelection();
+            clearDirectLineSelection();
             const floorsWithNode = getFloorsUsingNode(node.id);
             if (floorsWithNode.length > 0) {
                 if (e.shiftKey) {
@@ -4677,6 +4732,7 @@ function handleMouseDown(e) {
         const objIndex = getObjectAt(x, y, true);
         if (objIndex !== -1) {
             clearDimensionSelection();
+            clearDirectLineSelection();
             selectAllMode = false;
             if (e.shiftKey) {
                 if (selectedObjectIndices.has(objIndex)) {
@@ -4703,6 +4759,7 @@ function handleMouseDown(e) {
         const wall = getWallAt(x, y);
         if (wall) {
             clearDimensionSelection();
+            clearDirectLineSelection();
             if (e.shiftKey) {
                 // MULTIPLE SELECTION with Shift key
                 if (selectedWalls.has(wall)) {
@@ -4939,6 +4996,33 @@ function handleMouseMove(e) {
         viewOffsetX = panStartOffset.x + (e.clientX - panOrigin.x) / pixelScale.x;
         viewOffsetY = panStartOffset.y + (e.clientY - panOrigin.y) / pixelScale.y;
         redrawCanvas();
+        return;
+    }
+
+    if (directLineDrag) {
+        const { lineIndex, pointIndex, mode, startMouse, originalPoints } = directLineDrag;
+        const line = directLines[lineIndex];
+        if (line) {
+            if (!directLineDrag.undoApplied) {
+                pushUndoState();
+                directLineDrag.undoApplied = true;
+            }
+
+            const dx = x - startMouse.x;
+            const dy = y - startMouse.y;
+
+            if (mode === 'point' && pointIndex !== null && pointIndex !== undefined) {
+                const original = originalPoints[pointIndex];
+                const snapped = snapPointToInch(original.x + dx, original.y + dy);
+                line.points[pointIndex] = { x: snapped.x, y: snapped.y };
+            } else {
+                line.points = originalPoints.map(pt => {
+                    const snapped = snapPointToInch(pt.x + dx, pt.y + dy);
+                    return { x: snapped.x, y: snapped.y };
+                });
+            }
+            redrawCanvas();
+        }
         return;
     }
 
@@ -5355,6 +5439,12 @@ function handleMouseUp() {
 
     if (windowHandleDrag) {
         windowHandleDrag = null;
+        redrawCanvas();
+        return;
+    }
+
+    if (directLineDrag) {
+        directLineDrag = null;
         redrawCanvas();
         return;
     }
@@ -6622,6 +6712,7 @@ function drawFloorLassoOverlay() {
 
 function drawDirectLineArrow(start, end) {
     if (!start || !end) return;
+    if (start.x === end.x && start.y === end.y) return;
     const angle = Math.atan2(end.y - start.y, end.x - start.x);
     const size = 18;
 
@@ -6660,7 +6751,14 @@ function drawDirectLinePath(points, options = {}) {
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    drawDirectLineArrow(points[points.length - 2], points[points.length - 1]);
+    for (let i = points.length - 1; i > 0; i--) {
+        const start = points[i - 1];
+        const end = points[i];
+        if (!start || !end) continue;
+        if (start.x === end.x && start.y === end.y) continue;
+        drawDirectLineArrow(start, end);
+        break;
+    }
     ctx.restore();
 }
 
@@ -6688,6 +6786,37 @@ function drawDirectLines() {
         });
         ctx.restore();
     }
+
+    selectedDirectLineIndices.forEach(index => {
+        const line = directLines[index];
+        if (!line) return;
+
+        ctx.save();
+        ctx.strokeStyle = '#3498db';
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = Math.max(2, (line.lineWidth || 2) / 2);
+        ctx.beginPath();
+        ctx.moveTo(line.points[0].x, line.points[0].y);
+        for (let i = 1; i < line.points.length; i++) {
+            ctx.lineTo(line.points[i].x, line.points[i].y);
+        }
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        line.points.forEach((pt, idx) => {
+            ctx.beginPath();
+            const isSelectedPoint = directLinePointSelection &&
+                directLinePointSelection.lineIndex === index &&
+                directLinePointSelection.pointIndex === idx;
+            ctx.fillStyle = isSelectedPoint ? '#1f78d1' : 'rgba(52, 152, 219, 0.35)';
+            ctx.strokeStyle = '#2980b9';
+            ctx.lineWidth = 1.5;
+            ctx.arc(pt.x, pt.y, DIRECT_LINE_HANDLE_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+        ctx.restore();
+    });
 }
 
 function resetDirectLineDrawing() {
@@ -6711,6 +6840,84 @@ function finalizeDirectLine() {
     });
 
     resetDirectLineDrawing();
+    redrawCanvas();
+}
+
+function clearDirectLineSelection() {
+    selectedDirectLineIndices.clear();
+    directLinePointSelection = null;
+    directLineDrag = null;
+}
+
+function findDirectLinePointHit(x, y, radius = NODE_HIT_RADIUS) {
+    for (let i = directLines.length - 1; i >= 0; i--) {
+        const line = directLines[i];
+        if (!line?.points) continue;
+        for (let j = 0; j < line.points.length; j++) {
+            const pt = line.points[j];
+            if (Math.hypot(x - pt.x, y - pt.y) <= radius) {
+                return { lineIndex: i, pointIndex: j };
+            }
+        }
+    }
+    return null;
+}
+
+function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+    const ax = px - x1;
+    const ay = py - y1;
+    const bx = x2 - x1;
+    const by = y2 - y1;
+    const lenSq = bx * bx + by * by;
+    if (lenSq === 0) return Math.hypot(ax, ay);
+    const t = Math.max(0, Math.min(1, (ax * bx + ay * by) / lenSq));
+    const projX = x1 + t * bx;
+    const projY = y1 + t * by;
+    return Math.hypot(px - projX, py - projY);
+}
+
+function findDirectLineHit(x, y, tolerance = DIRECT_LINE_HIT_TOLERANCE) {
+    for (let i = directLines.length - 1; i >= 0; i--) {
+        const line = directLines[i];
+        const pts = line?.points || [];
+        for (let j = 1; j < pts.length; j++) {
+            const p1 = pts[j - 1];
+            const p2 = pts[j];
+            const dist = pointToSegmentDistance(x, y, p1.x, p1.y, p2.x, p2.y);
+            if (dist <= tolerance) {
+                return { lineIndex: i };
+            }
+        }
+    }
+    return null;
+}
+
+function startDirectLineDrag(lineIndex, pointIndex, mode, startX, startY) {
+    const line = directLines[lineIndex];
+    if (!line) return;
+    directLineDrag = {
+        lineIndex,
+        pointIndex,
+        mode,
+        startMouse: { x: startX, y: startY },
+        originalPoints: JSON.parse(JSON.stringify(line.points)),
+        undoApplied: false
+    };
+}
+
+function moveSelectedDirectLines(dx, dy, { skipUndo = false } = {}) {
+    if (selectedDirectLineIndices.size === 0) return;
+    if (!skipUndo) pushUndoState();
+
+    selectedDirectLineIndices.forEach(index => {
+        const line = directLines[index];
+        if (!line?.points) return;
+        line.points = line.points.map(pt => {
+            const snapped = snapPointToInch(pt.x + dx, pt.y + dy);
+            return { x: snapped.x, y: snapped.y };
+        });
+    });
+
     redrawCanvas();
 }
 
@@ -7844,6 +8051,7 @@ function selectAllEntities() {
     selectedWalls = new Set(walls);
     selectedNode = null;
     selectedFloorIds = new Set(floors.map(f => f.id));
+    selectedDirectLineIndices = new Set(directLines.map((_, i) => i));
     clearDimensionSelection();
     isDraggingNode = false;
     selectAllMode = true;
@@ -7931,6 +8139,7 @@ function handleKeyDown(e) {
                 selectedObjectIndices.size > 0 ||
                 selectedWalls.size > 0 ||
                 selectedFloorIds.size > 0 ||
+                selectedDirectLineIndices.size > 0 ||
                 selectedDimensionIndex !== null;
             if (hasSelection) {
                 e.preventDefault();
@@ -7938,6 +8147,7 @@ function handleKeyDown(e) {
                 moveSelectedObjects(dx, dy, { skipUndo: true });
                 moveSelectedWalls(dx, dy, { skipUndo: true });
                 moveSelectedFloors(dx, dy, { skipUndo: true });
+                moveSelectedDirectLines(dx, dy, { skipUndo: true });
                 moveSelectedDimension(dx, dy, { skipUndo: true });
                 maintainDoorAttachmentForSelection();
                 redrawCanvas();
@@ -7973,6 +8183,7 @@ function handleKeyDown(e) {
             isDraggingNode = false;
             selectedObjectIndices.clear();
             selectedFloorIds.clear();
+            clearDirectLineSelection();
             selectAllMode = false;
             isSelectionBoxActive = false;
             selectionBoxStart = null;
@@ -8004,7 +8215,8 @@ function handleKeyDown(e) {
             const hasSelection =
                 selectedWalls.size > 0 ||
                 selectedObjectIndices.size > 0 ||
-                selectedFloorIds.size > 0;
+                selectedFloorIds.size > 0 ||
+                selectedDirectLineIndices.size > 0;
             const hasDimensions = window.dimensions && window.dimensions.length > 0;
             const hasSelectedDimension = selectedDimensionIndex !== null;
 
@@ -8071,6 +8283,8 @@ function getActivePropertyContext() {
         }
         return 'mixed';
     }
+
+    if (selectedDirectLineIndices.size > 0) return 'directline';
 
     if (selectedFloorIds.size > 0) return 'floor';
     if (selectedWalls.size > 0) return 'wall';
