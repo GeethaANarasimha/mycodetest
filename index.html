@@ -226,6 +226,30 @@
     </div>
 </div>
 
+<div id="layerRenameModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Rename Floor</h3>
+        <p class="modal-subtitle">Give this floor a clear name to keep plans organized.</p>
+        <label class="modal-label" for="layerRenameInput">Floor name</label>
+        <input id="layerRenameInput" type="text" aria-label="Floor name">
+        <div class="modal-actions">
+            <button id="confirmLayerRename" class="tool-btn" type="button">Save</button>
+            <button id="cancelLayerRename" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="layerDeleteModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Delete Floor</h3>
+        <p id="layerDeleteMessage" class="modal-subtitle"></p>
+        <div class="modal-actions">
+            <button id="confirmLayerDelete" class="tool-btn danger" type="button">Delete</button>
+            <button id="cancelLayerDelete" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <div id="staircaseModal" class="modal hidden">
     <div class="modal-content">
         <h3>Staircase Settings</h3>

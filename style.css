@@ -55,6 +55,10 @@ body {
     background: #14b8a6;
 }
 
+.tool-btn.danger {
+    background: #b91c1c;
+}
+
 .secondary-btn {
     background: #34465f;
 }
@@ -221,6 +225,12 @@ input[type="number"] {
     min-width: 38px;
 }
 
+.pill-btn.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .pill-btn.active {
     background: #14b8a6;
     color: #0f172a;
@@ -228,6 +238,12 @@ input[type="number"] {
 
 .pill-btn.danger {
     background: #b91c1c;
+}
+
+.inline-icon {
+    width: 16px;
+    height: 16px;
+    display: inline-block;
 }
 
 #drawingCanvas {
