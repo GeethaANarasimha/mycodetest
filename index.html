@@ -119,6 +119,7 @@
         <label for="layerSelect">Layers</label>
         <select id="layerSelect"></select>
         <button id="addLayerButton" type="button">+ Floor</button>
+        <button id="editLayersButton" type="button">Edit</button>
     </div>
 
     <div class="property-group" data-contexts="wall">
@@ -210,6 +211,17 @@
         <div class="modal-actions">
             <button id="textModalConfirm" class="tool-btn" type="button">Add Text</button>
             <button id="textModalCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="layerManagerModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Manage Floors</h3>
+        <p class="modal-subtitle">Rename or delete floors. Deleting a floor removes all drawings on it.</p>
+        <div id="layerList" class="layer-list"></div>
+        <div class="modal-actions">
+            <button id="closeLayerManager" class="tool-btn secondary-btn" type="button">Close</button>
         </div>
     </div>
 </div>
