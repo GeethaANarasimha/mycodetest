@@ -2695,6 +2695,7 @@ function buildProjectState() {
         floors: (floors || []).map(stripFloorPattern),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
+        layerState: typeof getLayerState === 'function' ? getLayerState() : null,
         settings: {
             scale,
             gridSize,
@@ -2755,6 +2756,10 @@ function applyProjectState(state) {
     isPasteMode = false;
     pasteTargetX = null;
     pasteTargetY = null;
+
+    if (typeof applyLayerState === 'function') {
+        applyLayerState(state.layerState);
+    }
 
     const settings = state.settings || {};
     scale = settings.scale ?? scale;
@@ -2880,6 +2885,10 @@ function init() {
 
     document.getElementById('lineColorPreview').style.backgroundColor = lineColorInput.value || DEFAULT_WALL_COLOR;
     document.getElementById('fillColorPreview').style.backgroundColor = fillColorInput.value || '#d9d9d9';
+
+    if (typeof initLayerTools === 'function') {
+        initLayerTools();
+    }
 
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {
