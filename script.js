@@ -392,6 +392,11 @@ function syncCanvasScrollArea() {
     canvas.style.minHeight = `${BASE_CANVAS_HEIGHT}px`;
 }
 
+function resetViewToOrigin() {
+    viewOffsetX = 0;
+    viewOffsetY = 0;
+}
+
 function drawRulerBackground(ctx, width, height, isVertical = false) {
     ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, 0, width, height);
@@ -3164,6 +3169,7 @@ function init() {
         btn.classList.toggle('active', btn.getAttribute('data-tool') === currentTool);
     });
 
+    resetViewToOrigin();
     syncCanvasScrollArea();
     drawGrid();
     syncBackgroundControls();
