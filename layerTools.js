@@ -13,6 +13,16 @@
     let layerManagerModal = null;
     let layerListContainer = null;
     let closeLayerManagerButton = null;
+    let layerRenameModal = null;
+    let layerRenameInput = null;
+    let confirmLayerRenameButton = null;
+    let cancelLayerRenameButton = null;
+    let layerDeleteModal = null;
+    let layerDeleteMessage = null;
+    let confirmLayerDeleteButton = null;
+    let cancelLayerDeleteButton = null;
+    let pendingRenameLayerId = null;
+    let pendingDeleteLayerId = null;
     const layerChangeCallbacks = [];
     const layerStructureChangeCallbacks = [];
 
@@ -113,15 +123,11 @@
 
     function deleteLayer(layerId) {
         if (layers.length <= 1) {
-            window.alert('At least one floor must remain.');
-            return;
+            return false;
         }
 
         const layer = layers.find(l => l.id === layerId);
-        if (!layer) return;
-
-        const confirmed = window.confirm(`Delete "${layer.name}"? This will remove everything on that floor.`);
-        if (!confirmed) return;
+        if (!layer) return false;
 
         const wasActive = activeLayerId === layerId;
         layers = layers.filter(l => l.id !== layerId);
@@ -131,6 +137,7 @@
         renderLayerOptions();
         setActiveLayer(nextActiveId);
         notifyLayerStructureChange({ type: 'delete', layerId, nextActiveLayerId: activeLayerId });
+        return true;
     }
 
     function renameLayer(layerId, nextName) {
@@ -142,6 +149,76 @@
         renderLayerOptions();
         notifyLayerStructureChange({ type: 'rename', layerId, name: trimmed });
         return true;
+    }
+
+    function openRenameModal(layerId) {
+        if (!layerRenameModal || !layerRenameInput) return;
+        const layer = layers.find(l => l.id === layerId);
+        if (!layer) return;
+        pendingRenameLayerId = layerId;
+        layerRenameInput.value = layer.name;
+        layerRenameModal.classList.remove('hidden');
+        layerRenameInput.focus();
+        layerRenameInput.select();
+    }
+
+    function closeRenameModal() {
+        pendingRenameLayerId = null;
+        if (layerRenameInput) {
+            layerRenameInput.value = '';
+        }
+        if (layerRenameModal) {
+            layerRenameModal.classList.add('hidden');
+        }
+    }
+
+    function handleRenameConfirm() {
+        if (!pendingRenameLayerId) {
+            closeRenameModal();
+            return;
+        }
+
+        const nextName = layerRenameInput ? layerRenameInput.value : '';
+        const renamed = renameLayer(pendingRenameLayerId, nextName);
+        if (renamed) {
+            renderLayerList();
+            closeRenameModal();
+        }
+    }
+
+    function openDeleteModal(layerId) {
+        if (!layerDeleteModal || !layerDeleteMessage || !confirmLayerDeleteButton) return;
+        const layer = layers.find(l => l.id === layerId);
+        if (!layer) return;
+        pendingDeleteLayerId = layerId;
+        const isOnlyLayer = layers.length <= 1;
+        confirmLayerDeleteButton.disabled = isOnlyLayer;
+        layerDeleteMessage.textContent = isOnlyLayer
+            ? 'At least one floor must remain. Add another floor before deleting this one.'
+            : `Delete "${layer.name}"? This will remove everything on that floor.`;
+        layerDeleteModal.classList.remove('hidden');
+    }
+
+    function closeDeleteModal() {
+        pendingDeleteLayerId = null;
+        if (layerDeleteModal) {
+            layerDeleteModal.classList.add('hidden');
+        }
+        if (confirmLayerDeleteButton) {
+            confirmLayerDeleteButton.disabled = false;
+        }
+    }
+
+    function handleDeleteConfirm() {
+        if (!pendingDeleteLayerId) {
+            closeDeleteModal();
+            return;
+        }
+        const deleted = deleteLayer(pendingDeleteLayerId);
+        if (deleted) {
+            renderLayerList();
+        }
+        closeDeleteModal();
     }
 
     function handleAddLayerClick() {
@@ -156,17 +233,13 @@
         if (!(target instanceof HTMLElement)) return;
         const row = target.closest('[data-layer-id]');
         if (!row) return;
+        const actionTarget = target.closest('[data-action]');
+        if (!actionTarget) return;
         const layerId = row.getAttribute('data-layer-id');
-        if (target.matches('[data-action="delete-layer"]')) {
-            deleteLayer(layerId);
-            renderLayerList();
-        } else if (target.matches('[data-action="rename-layer"]')) {
-            const currentName = layers.find(l => l.id === layerId)?.name || '';
-            const nextName = window.prompt('Rename floor', currentName);
-            if (nextName) {
-                renameLayer(layerId, nextName);
-                renderLayerList();
-            }
+        if (actionTarget.matches('[data-action="delete-layer"]')) {
+            openDeleteModal(layerId);
+        } else if (actionTarget.matches('[data-action="rename-layer"]')) {
+            openRenameModal(layerId);
         }
     }
 
@@ -195,8 +268,8 @@
 
             const deleteBtn = document.createElement('button');
             deleteBtn.type = 'button';
-            deleteBtn.textContent = 'Delete';
-            deleteBtn.className = 'pill-btn danger';
+            deleteBtn.className = 'pill-btn danger icon-btn';
+            deleteBtn.innerHTML = `<img class="inline-icon" src="https://static.wixstatic.com/shapes/602ad4_e9f15f1981cc43afbf920fdbc9bda6ba.svg" alt=""> Delete`;
             deleteBtn.dataset.action = 'delete-layer';
             actions.appendChild(deleteBtn);
 
@@ -223,6 +296,14 @@
         layerManagerModal = document.getElementById('layerManagerModal');
         layerListContainer = document.getElementById('layerList');
         closeLayerManagerButton = document.getElementById('closeLayerManager');
+        layerRenameModal = document.getElementById('layerRenameModal');
+        layerRenameInput = document.getElementById('layerRenameInput');
+        confirmLayerRenameButton = document.getElementById('confirmLayerRename');
+        cancelLayerRenameButton = document.getElementById('cancelLayerRename');
+        layerDeleteModal = document.getElementById('layerDeleteModal');
+        layerDeleteMessage = document.getElementById('layerDeleteMessage');
+        confirmLayerDeleteButton = document.getElementById('confirmLayerDelete');
+        cancelLayerDeleteButton = document.getElementById('cancelLayerDelete');
 
         if (!layerSelect || !addLayerButton) return;
 
@@ -242,12 +323,54 @@
             });
         }
 
+        if (layerRenameModal) {
+            layerRenameModal.addEventListener('click', (event) => {
+                if (event.target === layerRenameModal) {
+                    closeRenameModal();
+                }
+            });
+        }
+
+        if (layerDeleteModal) {
+            layerDeleteModal.addEventListener('click', (event) => {
+                if (event.target === layerDeleteModal) {
+                    closeDeleteModal();
+                }
+            });
+        }
+
         if (layerListContainer) {
             layerListContainer.addEventListener('click', handleLayerListClick);
         }
 
         if (closeLayerManagerButton) {
             closeLayerManagerButton.addEventListener('click', closeLayerManager);
+        }
+
+        if (confirmLayerRenameButton) {
+            confirmLayerRenameButton.addEventListener('click', handleRenameConfirm);
+        }
+
+        if (cancelLayerRenameButton) {
+            cancelLayerRenameButton.addEventListener('click', closeRenameModal);
+        }
+
+        if (layerRenameInput) {
+            layerRenameInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    handleRenameConfirm();
+                } else if (event.key === 'Escape') {
+                    closeRenameModal();
+                }
+            });
+        }
+
+        if (confirmLayerDeleteButton) {
+            confirmLayerDeleteButton.addEventListener('click', handleDeleteConfirm);
+        }
+
+        if (cancelLayerDeleteButton) {
+            cancelLayerDeleteButton.addEventListener('click', closeDeleteModal);
         }
     }
 
