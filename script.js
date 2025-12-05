@@ -2913,119 +2913,102 @@ function hydrateBackgroundFromState(background) {
 }
 
 function applyProjectState(state) {
-    isProjectLoading = true;
+     isProjectLoading = true;
 
-    importLayerDrawings(state.layerDrawings);
+     importLayerDrawings(state.layerDrawings);
 
-    const hasLayerDrawings = state.layerDrawings && Object.keys(state.layerDrawings).length > 0;
+     const hasLayerDrawings = state.layerDrawings && Object.keys(state.layerDrawings).length > 0;
 
-    if (hasLayerDrawings && typeof applyLayerState === 'function') {
-        applyLayerState(state.layerState);
-        loadLayerSnapshot(currentLayerId());
-    } else {
-        nodes = JSON.parse(JSON.stringify(state.nodes || []));
-        walls = JSON.parse(JSON.stringify(state.walls || []));
-        objects = JSON.parse(JSON.stringify(state.objects || []));
-        floors = (state.floors || []).map(stripFloorPattern);
+     if (hasLayerDrawings && typeof applyLayerState === 'function') {
+         applyLayerState(state.layerState);
+         loadLayerSnapshot(currentLayerId());
+     } else {
+         nodes = JSON.parse(JSON.stringify(state.nodes || []));
+         walls = JSON.parse(JSON.stringify(state.walls || []));
+         objects = JSON.parse(JSON.stringify(state.objects || []));
+         floors = (state.floors || []).map(stripFloorPattern);
 
-        if (state.dimensions) {
-            window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
-            window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
-        }
+         if (state.dimensions) {
+             window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
+             window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
+         }
 
-        clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
+         clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
+         isPasteMode = false;
+         pasteTargetX = null;
+         pasteTargetY = null;
 
-        if (typeof applyLayerState === 'function') {
-            applyLayerState(state.layerState);
-        }
+         if (typeof applyLayerState === 'function') {
+             applyLayerState(state.layerState);
+         }
 
-        captureLayerSnapshot();
-    }
+         captureLayerSnapshot();
+     }
 
-function applyProjectState(state) {
-    nodes = JSON.parse(JSON.stringify(state.nodes || []));
-    walls = JSON.parse(JSON.stringify(state.walls || []));
-    objects = JSON.parse(JSON.stringify(state.objects || []));
-    floors = (state.floors || []).map(stripFloorPattern);
+     const settings = state.settings || {};
+     scale = settings.scale ?? scale;
+     gridSize = settings.gridSize ?? gridSize;
+     snapToGrid = settings.snapToGrid ?? snapToGrid;
+     showGrid = settings.showGrid ?? showGrid;
+     showDimensions = settings.showDimensions ?? showDimensions;
+     measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
+     textFontSize = settings.textFontSize ?? textFontSize;
+     textIsBold = settings.textIsBold ?? textIsBold;
+     textIsItalic = settings.textIsItalic ?? textIsItalic;
+     measurementDistanceFeet = state.measurementDistanceFeet ?? measurementDistanceFeet;
+     isBackgroundImageVisible = state.backgroundImageVisible ?? isBackgroundImageVisible;
 
-    if (state.dimensions) {
-        window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
-        window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
-    }
+     viewScale = state.view?.scale ?? viewScale;
+     viewOffsetX = state.view?.offsetX ?? viewOffsetX;
+     viewOffsetY = state.view?.offsetY ?? viewOffsetY;
+     ensureDefaultViewIfMissing(state);
 
-    clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
-    isPasteMode = false;
-    pasteTargetX = null;
-    pasteTargetY = null;
+     if (!hasLayerDrawings) {
+         nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
+         nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
+         nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
+         const existingGroupMax = objects.length ? Math.max(...objects.map(o => o?.stairGroupId || 0)) : 0;
+         nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
+     }
 
-    if (typeof applyLayerState === 'function') {
-        applyLayerState(state.layerState);
-    }
+     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+     if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
+     if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
+     if (lineWidthInput && Number.isFinite(settings.lineWidth)) lineWidthInput.value = settings.lineWidth;
+     if (lineColorInput && settings.lineColor) lineColorInput.value = settings.lineColor;
+     if (fillColorInput && settings.fillColor) fillColorInput.value = settings.fillColor;
 
-    const settings = state.settings || {};
-    scale = settings.scale ?? scale;
-    gridSize = settings.gridSize ?? gridSize;
-    snapToGrid = settings.snapToGrid ?? snapToGrid;
-    showGrid = settings.showGrid ?? showGrid;
-    showDimensions = settings.showDimensions ?? showDimensions;
-    measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
-    textFontSize = settings.textFontSize ?? textFontSize;
-    textIsBold = settings.textIsBold ?? textIsBold;
-    textIsItalic = settings.textIsItalic ?? textIsItalic;
-    measurementDistanceFeet = state.measurementDistanceFeet ?? measurementDistanceFeet;
-    isBackgroundImageVisible = state.backgroundImageVisible ?? isBackgroundImageVisible;
+     selectedWalls.clear();
+     rightClickedWall = null;
+     selectedNode = null;
+     isDraggingNode = false;
+     dragDir = null;
+     dragOriginNodePos = null;
+     dragOriginMousePos = null;
+     isWallDrawing = false;
+     wallChain = [];
+     wallPreviewX = null;
+     wallPreviewY = null;
+     alignmentHints = [];
+     ignoreNextClick = false;
+     selectedFloorIds.clear();
+     selectedObjectIndices.clear();
+     selectAllMode = false;
+     resetFloorLasso();
 
-    viewScale = state.view?.scale ?? viewScale;
-    viewOffsetX = state.view?.offsetX ?? viewOffsetX;
-    viewOffsetY = state.view?.offsetY ?? viewOffsetY;
-    ensureDefaultViewIfMissing(state);
+     hydrateBackgroundFromState(state.background);
+     floors.forEach(ensureFloorPattern);
 
-    if (!hasLayerDrawings) {
-        nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
-        nextWallId = state.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
-        nextFloorId = state.ids?.nextFloorId ?? (floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1);
-        const existingGroupMax = objects.length ? Math.max(...objects.map(o => o?.stairGroupId || 0)) : 0;
-        nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
-    }
+     updateGrid();
+     syncCanvasScrollArea();
+     updateTextStyleButtons();
+     updateMeasurementPreview();
+     updateToolInfo();
+     updatePropertiesPanel();
+     redrawCanvas();
 
-    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
-    if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
-    if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
-    if (lineWidthInput && Number.isFinite(settings.lineWidth)) lineWidthInput.value = settings.lineWidth;
-    if (lineColorInput && settings.lineColor) lineColorInput.value = settings.lineColor;
-    if (fillColorInput && settings.fillColor) fillColorInput.value = settings.fillColor;
-
-    selectedWalls.clear();
-    rightClickedWall = null;
-    selectedNode = null;
-    isDraggingNode = false;
-    dragDir = null;
-    dragOriginNodePos = null;
-    dragOriginMousePos = null;
-    isWallDrawing = false;
-    wallChain = [];
-    wallPreviewX = null;
-    wallPreviewY = null;
-    alignmentHints = [];
-    ignoreNextClick = false;
-    selectedFloorIds.clear();
-    selectedObjectIndices.clear();
-    selectAllMode = false;
-    resetFloorLasso();
-
-    hydrateBackgroundFromState(state.background);
-    floors.forEach(ensureFloorPattern);
-
-    updateGrid();
-    syncCanvasScrollArea();
-    updateTextStyleButtons();
-    updateMeasurementPreview();
-    updateToolInfo();
-    updatePropertiesPanel();
-    redrawCanvas();
-
-    isProjectLoading = false;
-}
+     isProjectLoading = false;
+ }
 
 function saveProjectToFile() {
     try {
