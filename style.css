@@ -248,9 +248,9 @@ input[type="number"] {
 .canvas-container {
     flex: 1;
     overflow: auto;
-    padding: 22px 14px 14px 28px;
+    padding: 0px 14px 14px 28px;
     display: flex;
-    justify-content: flex-start;
+    justify-content: center;
     align-items: flex-start;
     position: relative;
     min-height: 750px;
@@ -393,6 +393,7 @@ input[type="number"] {
     align-items: center;
     gap: 6px;
 }
+
 
 .modal-grid {
     display: grid;
