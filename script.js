@@ -3391,7 +3391,8 @@ async function downloadPlanAsPDF(options = {}) {
             const imageX = margins.left + (availableWidth - renderWidth) / 2;
             const imageY = margins.top;
 
-            pdf.addImage(dataUrl, 'PNG', imageX, imageY, renderWidth, renderHeight);
+            // Use lossless compression to preserve maximum quality in the generated PDF.
+            pdf.addImage(dataUrl, 'PNG', imageX, imageY, renderWidth, renderHeight, undefined, 'NONE');
 
             pdf.setFontSize(textFontSize);
 
