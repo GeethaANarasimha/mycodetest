@@ -881,9 +881,13 @@ window.drawDimensions = function() {
 
     // Draw hover preview first
     if (currentTool === 'dimension' && !isDimensionDrawing) {
+        const hoveredWallId = hoveredWall?.wall?.id;
+        const hasAutoWallDimension = hoveredWallId != null
+            && dimensions.some(dim => dim.isAuto && !dim.isSpace && dim.wallId === hoveredWallId);
+
         if (hoveredSpaceSegment) {
             drawHoverSpaceDimension(hoveredSpaceSegment);
-        } else if (hoveredWall) {
+        } else if (hoveredWall && !hasAutoWallDimension) {
             drawHoverWallDimension(hoveredWall);
         }
     }
