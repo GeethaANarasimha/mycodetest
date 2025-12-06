@@ -46,6 +46,57 @@ function areWallsColinearAtNode(wallA, wallB, nodeId) {
 }
 
 /**
+ * Calculate the offset position of a dimension endpoint when the wall meets another at an angle.
+ * This uses the angle bisector of the current wall direction (pointing outward from the node)
+ * and the connected wall direction to produce the expected 45° chamfer at joints.
+ */
+function getDimensionEndpointWithJoint(node, wall, isStart) {
+    const startNode = getNodeById(wall.startNodeId);
+    const endNode = getNodeById(wall.endNodeId);
+
+    if (!startNode || !endNode || !node) {
+        return node || { x: 0, y: 0 };
+    }
+
+    const baseDx = endNode.x - startNode.x;
+    const baseDy = endNode.y - startNode.y;
+    const baseLen = Math.hypot(baseDx, baseDy) || 1;
+    const baseDir = { x: baseDx / baseLen, y: baseDy / baseLen };
+    const dirSign = isStart ? -1 : 1;
+
+    const needsExtension = hasAngledConnection(node.id, wall);
+    const extension = needsExtension ? getWallThicknessPx(wall) / 2 : 0;
+
+    // Default direction is simply along the wall (outward from the node)
+    let offsetDir = { x: baseDir.x * dirSign, y: baseDir.y * dirSign };
+
+    if (needsExtension && typeof getWallsConnectedToNode === 'function') {
+        const connected = getWallsConnectedToNode(node.id).filter(w => w.id !== wall.id);
+
+        for (const candidate of connected) {
+            if (areWallsColinearAtNode(wall, candidate, node.id)) continue;
+            const candidateDir = getWallDirectionFromNode(candidate, node.id);
+            if (!candidateDir) continue;
+
+            // Angle bisector between the outward wall direction and the connected wall direction
+            const combinedX = offsetDir.x + candidateDir.x;
+            const combinedY = offsetDir.y + candidateDir.y;
+            const combinedLen = Math.hypot(combinedX, combinedY);
+
+            if (combinedLen > 0.0001) {
+                offsetDir = { x: combinedX / combinedLen, y: combinedY / combinedLen };
+                break;
+            }
+        }
+    }
+
+    return {
+        x: node.x + offsetDir.x * extension,
+        y: node.y + offsetDir.y * extension
+    };
+}
+
+/**
  * Get normalized direction vector for a wall originating from a specific node
  */
 function getWallDirectionFromNode(wall, nodeId) {
@@ -241,32 +292,16 @@ window.createWallDimension = function(wallData, options = {}) {
         ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
         : 1;
 
-    let startX, startY, endX, endY;
-    const startExtension = hasAngledConnection(n1.id, wallData.wall) ? getWallThicknessPx(wallData.wall) / 2 : 0;
-    const endExtension = hasAngledConnection(n2.id, wallData.wall) ? getWallThicknessPx(wallData.wall) / 2 : 0;
+    const startBase = getDimensionEndpointWithJoint(n1, wallData.wall, true);
+    const endBase = getDimensionEndpointWithJoint(n2, wallData.wall, false);
 
-    if (orientation === 'horizontal') {
-        const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
-        startX = n1.x - dirX * startExtension;
-        startY = yPos;
-        endX = n2.x + dirX * endExtension;
-        endY = yPos;
-    } else if (orientation === 'vertical') {
-        const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
-        startX = xPos - dirX * startExtension;
-        startY = n1.y;
-        endX = xPos + dirX * endExtension;
-        endY = n2.y;
-    } else {
-        // Diagonal wall - use center with small offset
-        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
-        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+    const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
+    const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
 
-        startX = n1.x + offsetX - dirX * startExtension;
-        startY = n1.y + offsetY - dirY * startExtension;
-        endX = n2.x + offsetX + dirX * endExtension;
-        endY = n2.y + offsetY + dirY * endExtension;
-    }
+    const startX = startBase.x + offsetX;
+    const startY = startBase.y + offsetY;
+    const endX = endBase.x + offsetX;
+    const endY = endBase.y + offsetY;
 
     const adjustedLength = Math.hypot(endX - startX, endY - startY);
     const totalInches = Math.round((adjustedLength / scale) * 12);
@@ -385,7 +420,6 @@ window.drawHoverWallDimension = function(wallData) {
     if (!wallData) return;
 
     const { n1, n2 } = wallData;
-    const orientation = getWallOrientation(n1, n2);
     const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
     const totalInches = Math.round((length / scale) * 12);
     const feet = Math.floor(totalInches / 12);
@@ -409,130 +443,66 @@ window.drawHoverWallDimension = function(wallData) {
         offsetSign = dot >= 0 ? 1 : -1;
     }
 
+    const startBase = getDimensionEndpointWithJoint(n1, wallData.wall, true);
+    const endBase = getDimensionEndpointWithJoint(n2, wallData.wall, false);
+
+    const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
+    const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+
+    const startX = startBase.x + offsetX;
+    const startY = startBase.y + offsetY;
+    const endX = endBase.x + offsetX;
+    const endY = endBase.y + offsetY;
+
     ctx.save();
     ctx.strokeStyle = 'rgba(41, 128, 185, 0.7)'; // Semi-transparent blue
     ctx.lineWidth = 2;
     ctx.setLineDash([2, 2]);
 
-    if (orientation === 'horizontal') {
-        const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
 
-        ctx.beginPath();
-        ctx.moveTo(n1.x, yPos);
-        ctx.lineTo(n2.x, yPos);
-        ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(n1.x, n1.y);
+    ctx.lineTo(startX, startY);
+    ctx.stroke();
 
-        ctx.beginPath();
-        ctx.moveTo(n1.x, n1.y);
-        ctx.lineTo(n1.x, yPos);
-        ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(n2.x, n2.y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
 
-        ctx.beginPath();
-        ctx.moveTo(n2.x, n2.y);
-        ctx.lineTo(n2.x, yPos);
-        ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
+    const fontPx = measurementFontSize || 12;
+    ctx.font = `${fontPx}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
-        const midX = (n1.x + n2.x) / 2;
-        ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        const fontPx = measurementFontSize || 12;
-        ctx.font = `${fontPx}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+    const textAngle = (() => {
+        const angle = Math.atan2(dy, dx);
+        if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+            return angle + Math.PI;
+        }
+        return angle;
+    })();
 
-        const textWidth = ctx.measureText(text).width;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(midX - textWidth/2 - 2, yPos - 8, textWidth + 4, 16);
+    const textWidth = ctx.measureText(text).width;
+    const textHeight = fontPx * 1.2;
 
-        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.fillText(text, midX, yPos);
+    ctx.save();
+    ctx.translate((startX + endX) / 2, (startY + endY) / 2);
+    ctx.rotate(textAngle);
 
-    } else if (orientation === 'vertical') {
-        const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
-        ctx.beginPath();
-        ctx.moveTo(xPos, n1.y);
-        ctx.lineTo(xPos, n2.y);
-        ctx.stroke();
+    ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
+    ctx.fillText(text, 0, 0);
 
-        ctx.beginPath();
-        ctx.moveTo(n1.x, n1.y);
-        ctx.lineTo(xPos, n1.y);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(n2.x, n2.y);
-        ctx.lineTo(xPos, n2.y);
-        ctx.stroke();
-
-        const midY = (n1.y + n2.y) / 2;
-        ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        const textWidth = ctx.measureText(text).width;
-        const textHeight = 12 * 1.2;
-
-        ctx.save();
-        ctx.translate(xPos, midY);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
-
-        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.fillText(text, 0, 0);
-        ctx.restore();
-    } else {
-        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
-        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
-
-        ctx.beginPath();
-        ctx.moveTo(n1.x + offsetX, n1.y + offsetY);
-        ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(n1.x, n1.y);
-        ctx.lineTo(n1.x + offsetX, n1.y + offsetY);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(n2.x, n2.y);
-        ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
-        ctx.stroke();
-
-        ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        const fontPx = measurementFontSize || 12;
-        ctx.font = `${fontPx}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        const textAngle = (() => {
-            const angle = Math.atan2(dy, dx);
-            if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
-                return angle + Math.PI;
-            }
-            return angle;
-        })();
-
-        const textWidth = ctx.measureText(text).width;
-        const textHeight = fontPx * 1.2;
-
-        ctx.save();
-        ctx.translate(midX + offsetX, midY + offsetY);
-        ctx.rotate(textAngle);
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
-
-        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-        ctx.fillText(text, 0, 0);
-
-        ctx.restore();
-    }
+    ctx.restore();
 
     ctx.restore();
 };
