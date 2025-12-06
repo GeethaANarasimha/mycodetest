@@ -454,8 +454,11 @@ window.handleDimensionMouseMove = function(e) {
     let x = rawX;
     let y = rawY;
     
-    // Update hovered wall
-    window.hoveredWall = findNearestWall(x, y, 20);
+    // Update hovered wall only when the cursor is directly on the wall (no near/auto snapping)
+    const hoverWall = findNearestWall(x, y, 20);
+    const isTouchingWall = hoverWall?.distance != null && hoverWall.distance <= 1;
+    window.hoveredWall = isTouchingWall ? hoverWall : null;
+
     if (window.hoveredWall) {
         window.hoveredWall.hoverX = x;
         window.hoveredWall.hoverY = y;
