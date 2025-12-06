@@ -355,14 +355,6 @@ function createEmptyLayerSnapshot() {
         objects: [],
         floors: [],
         dimensions: [],
-        clipboard: {
-            walls: [],
-            objects: [],
-            floors: [],
-            nodes: [],
-            referenceX: 0,
-            referenceY: 0
-        },
         ids: {
             nextNodeId: 1,
             nextWallId: 1,
@@ -389,7 +381,6 @@ function cloneLayerStatePayload() {
         directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
-        clipboard: JSON.parse(JSON.stringify(clipboard)),
         ids: {
             nextNodeId,
             nextWallId,
@@ -435,6 +426,7 @@ function resetTransientState() {
 
 function loadLayerSnapshot(layerId = currentLayerId()) {
     const snapshot = ensureLayerSnapshot(layerId);
+    const preservedClipboard = JSON.parse(JSON.stringify(clipboard));
     nodes = JSON.parse(JSON.stringify(snapshot.nodes));
     walls = JSON.parse(JSON.stringify(snapshot.walls));
     objects = JSON.parse(JSON.stringify(snapshot.objects));
@@ -445,7 +437,7 @@ function loadLayerSnapshot(layerId = currentLayerId()) {
         window.nextDimensionId = snapshot.dimensions.length > 0 ? Math.max(...snapshot.dimensions.map(d => d.id)) + 1 : 1;
     }
 
-    clipboard = JSON.parse(JSON.stringify(snapshot.clipboard || clipboard));
+    clipboard = preservedClipboard;
 
     nextNodeId = snapshot.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
     nextWallId = snapshot.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
