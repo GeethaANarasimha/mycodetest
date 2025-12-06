@@ -19,6 +19,7 @@ window.selectedDimensionIndex = null;
 // Dimension colors
 const DIMENSION_COLOR = '#3498db';
 const MANUAL_DIMENSION_COLOR = '#e74c3c';
+const MANUAL_DIMENSION_LABEL_COLOR = '#3498db';
 const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
@@ -666,7 +667,7 @@ window.drawDimensionPreview = function() {
             const textY = midY + ny * 15;
 
             ctx.setLineDash([]);
-            ctx.fillStyle = MANUAL_DIMENSION_COLOR;
+            ctx.fillStyle = MANUAL_DIMENSION_LABEL_COLOR;
             const fontPx = measurementFontSize || 12;
             ctx.font = `${fontPx}px Arial`;
             ctx.textAlign = 'center';
@@ -683,14 +684,14 @@ window.drawDimensionPreview = function() {
                 ctx.translate(textX, textY);
                 ctx.rotate(-Math.PI / 2);
                 ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
-                ctx.fillStyle = MANUAL_DIMENSION_COLOR;
+                ctx.fillStyle = MANUAL_DIMENSION_LABEL_COLOR;
                 ctx.fillText(text, 0, 0);
                 ctx.restore();
             } else {
                 ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
 
                 // Text
-                ctx.fillStyle = MANUAL_DIMENSION_COLOR;
+                ctx.fillStyle = MANUAL_DIMENSION_LABEL_COLOR;
                 ctx.fillText(text, textX, textY);
             }
         }
@@ -759,7 +760,8 @@ window.drawDimensions = function() {
             
             // Dimension text
             ctx.setLineDash([]);
-            ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : MANUAL_DIMENSION_COLOR;
+            const labelColor = dim.isAuto ? WALL_DIMENSION_COLOR : MANUAL_DIMENSION_LABEL_COLOR;
+            ctx.fillStyle = labelColor;
             const fontPx = measurementFontSize || 12;
             ctx.font = `${fontPx}px Arial`;
             ctx.textAlign = 'center';
@@ -788,7 +790,7 @@ window.drawDimensions = function() {
                 ctx.fillRect(-textWidth/2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
                 // Text
-                ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : MANUAL_DIMENSION_COLOR;
+                ctx.fillStyle = labelColor;
                 ctx.fillText(dim.text, 0, 0);
                 ctx.restore();
             };

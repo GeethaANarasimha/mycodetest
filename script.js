@@ -6461,33 +6461,38 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const nx = -dy / len;
     const ny = dx / len;
     const offset = thicknessPx / 2 + 14;
-    const tx = midX + nx * offset;
-    const ty = midY + ny * offset;
-
     const angle = Math.atan2(dy, dx);
     let renderAngle = angle;
     if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
         renderAngle += Math.PI;
     }
 
-    withViewTransform(() => {
-        ctx.save();
-        ctx.translate(tx, ty);
-        ctx.rotate(renderAngle);
-        ctx.fillStyle = '#e74c3c';
-        ctx.font = `${measurementFontSize}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+    const drawLabel = (side) => {
+        const tx = midX + nx * offset * side;
+        const ty = midY + ny * offset * side;
 
-        const textWidth = ctx.measureText(text).width;
-        const textHeight = measurementFontSize * 1.2;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+        withViewTransform(() => {
+            ctx.save();
+            ctx.translate(tx, ty);
+            ctx.rotate(renderAngle);
+            ctx.fillStyle = '#e74c3c';
+            ctx.font = `${measurementFontSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
 
-        ctx.fillStyle = '#e74c3c';
-        ctx.fillText(text, 0, 0);
-        ctx.restore();
-    });
+            const textWidth = ctx.measureText(text).width;
+            const textHeight = measurementFontSize * 1.2;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillText(text, 0, 0);
+            ctx.restore();
+        });
+    };
+
+    drawLabel(1);
+    drawLabel(-1);
 }
 
 // ============================================================
