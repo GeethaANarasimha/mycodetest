@@ -6222,6 +6222,7 @@ function applyDimensionDrag(x, y) {
     }
 
     updateWallFromDimension(dimension);
+    applyMiterCorners(walls);
 
     redrawCanvas();
     return true;
@@ -6391,6 +6392,118 @@ function drawGrid() {
     ctx.restore();
 }
 
+// --------------------------------------------------
+// WALL CORNER / MITER SYSTEM
+// --------------------------------------------------
+
+function offsetPoint(x, y, nx, ny, d) {
+    return { x: x + nx * d, y: y + ny * d };
+}
+
+function getWallOutline(wall) {
+    const thickness = (wall.thicknessInches || wall.thickness || ((wall.thicknessPx / scale) * 12) || 8); // inches
+    const t = (thickness / 12) * scale; // convert to feet → pixel
+
+    const dx = wall.x2 - wall.x1;
+    const dy = wall.y2 - wall.y1;
+    const L = Math.hypot(dx, dy);
+    if (L === 0) return null;
+
+    const ux = dx / L;
+    const uy = dy / L;
+
+    // perpendicular normal
+    const nx = -uy;
+    const ny = ux;
+
+    // left side
+    const A1 = offsetPoint(wall.x1, wall.y1, nx, ny, +t);
+    const B1 = offsetPoint(wall.x2, wall.y2, nx, ny, +t);
+
+    // right side
+    const A2 = offsetPoint(wall.x1, wall.y1, nx, ny, -t);
+    const B2 = offsetPoint(wall.x2, wall.y2, nx, ny, -t);
+
+    return { A1, B1, A2, B2 };
+}
+
+function intersectLines(p1, p2, p3, p4) {
+    const x1 = p1.x, y1 = p1.y;
+    const x2 = p2.x, y2 = p2.y;
+    const x3 = p3.x, y3 = p3.y;
+    const x4 = p4.x, y4 = p4.y;
+
+    const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (den === 0) return null;
+
+    const px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / den;
+    const py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / den;
+
+    return { x: px, y: py };
+}
+
+function applyMiterCorners(walls) {
+    // compute outlines first
+    walls.forEach(w => {
+        const n1 = getNodeById(w.startNodeId);
+        const n2 = getNodeById(w.endNodeId);
+
+        if (n1 && n2) {
+            w.x1 = n1.x;
+            w.y1 = n1.y;
+            w.x2 = n2.x;
+            w.y2 = n2.y;
+            w._outline = getWallOutline(w);
+        } else {
+            w._outline = null;
+        }
+    });
+
+    // find touching walls and miter the corners
+    for (let i = 0; i < walls.length; i++) {
+        for (let j = i + 1; j < walls.length; j++) {
+            const w1 = walls[i];
+            const w2 = walls[j];
+
+            // check shared endpoint
+            const shared =
+                (w1.x1 === w2.x1 && w1.y1 === w2.y1) ||
+                (w1.x2 === w2.x2 && w1.y2 === w2.y2) ||
+                (w1.x1 === w2.x2 && w1.y1 === w2.y2) ||
+                (w1.x2 === w2.x1 && w1.y2 === w2.y1);
+
+            if (!shared) continue;
+
+            const c1 = w1._outline;
+            const c2 = w2._outline;
+            if (!c1 || !c2) continue;
+
+            const mA = intersectLines(c1.A1, c1.B1, c2.A1, c2.B1);
+            const mB = intersectLines(c1.A2, c1.B2, c2.A2, c2.B2);
+
+            if (mA && mB) {
+                // assign to touching ends
+                if (w1.x1 === w2.x1 && w1.y1 === w2.y1) {
+                    c1.A1 = mA; c1.A2 = mB;
+                    c2.A1 = mA; c2.A2 = mB;
+                }
+                if (w1.x2 === w2.x2 && w1.y2 === w2.y2) {
+                    c1.B1 = mA; c1.B2 = mB;
+                    c2.B1 = mA; c2.B2 = mB;
+                }
+                if (w1.x1 === w2.x2 && w1.y1 === w2.y2) {
+                    c1.A1 = mA; c1.A2 = mB;
+                    c2.B1 = mA; c2.B2 = mB;
+                }
+                if (w1.x2 === w2.x1 && w1.y2 === w2.y1) {
+                    c1.B1 = mA; c1.B2 = mB;
+                    c2.A1 = mA; c2.A2 = mB;
+                }
+            }
+        }
+    }
+}
+
 function getWallOutlineCorners(start, end, thicknessPx) {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
@@ -6410,24 +6523,30 @@ function getWallOutlineCorners(start, end, thicknessPx) {
 function drawWalls() {
     const selectedToHighlight = [];
 
+    applyMiterCorners(walls);
+
     // First draw all walls so selection handles aren't hidden behind joints
     for (const w of walls) {
         const n1 = getNodeById(w.startNodeId);
         const n2 = getNodeById(w.endNodeId);
         if (!n1 || !n2) continue;
 
-        const corners = getWallOutlineCorners(n1, n2, w.thicknessPx);
+        const o = w._outline;
+        if (!o) continue;
 
         ctx.save();
         ctx.lineWidth = Math.max(1, 2 / viewScale);
         ctx.strokeStyle = w.lineColor;
         ctx.lineJoin = 'miter';
         ctx.beginPath();
-        ctx.moveTo(corners[0].x, corners[0].y);
-        for (let i = 1; i < corners.length; i++) {
-            ctx.lineTo(corners[i].x, corners[i].y);
-        }
+        ctx.moveTo(o.A1.x, o.A1.y);
+        ctx.lineTo(o.B1.x, o.B1.y);
+        ctx.lineTo(o.B2.x, o.B2.y);
+        ctx.lineTo(o.A2.x, o.A2.y);
         ctx.closePath();
+
+        ctx.fillStyle = w.isDemolition ? '#ffaaaa' : DEFAULT_WALL_COLOR;
+        ctx.fill();
         ctx.stroke();
         ctx.restore();
 
