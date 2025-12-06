@@ -65,9 +65,13 @@ const pdfOptionsModal = document.getElementById('pdfOptionsModal');
 const pdfBusinessNameInput = document.getElementById('pdfBusinessName');
 const pdfDesignerNameInput = document.getElementById('pdfDesignerName');
 const pdfMobileNumberInput = document.getElementById('pdfMobileNumber');
+const pdfClientNameInput = document.getElementById('pdfClientName');
+const pdfClientAddressInput = document.getElementById('pdfClientAddress');
+const pdfClientMobileInput = document.getElementById('pdfClientMobile');
 const pdfHeaderInput = document.getElementById('pdfHeader');
 const pdfFooterInput = document.getElementById('pdfFooter');
 const pdfFormatSelect = document.getElementById('pdfFormat');
+const pdfOrientationSelect = document.getElementById('pdfOrientation');
 const pdfDownloadConfirmButton = document.getElementById('pdfDownloadConfirm');
 const pdfDownloadCancelButton = document.getElementById('pdfDownloadCancel');
 const staircaseModal = document.getElementById('staircaseModal');
@@ -3296,9 +3300,13 @@ async function downloadPlanAsPDF(options = {}) {
         businessName = '',
         designerName = '',
         mobileNumber = '',
+        clientName = '',
+        clientAddress = '',
+        clientMobile = '',
         headerText = '',
         footerText = '',
-        pageFormat = 'a4'
+        pageFormat = 'a4',
+        pageOrientation = 'auto'
     } = options;
 
     const jsPDFConstructor = await ensureJsPDF();
@@ -3354,7 +3362,10 @@ async function downloadPlanAsPDF(options = {}) {
             redrawCanvas();
 
             const dataUrl = canvas.toDataURL('image/png');
-            const orientation = exportWidth >= exportHeight ? 'landscape' : 'portrait';
+            const inferredOrientation = exportWidth >= exportHeight ? 'landscape' : 'portrait';
+            const orientation = pageOrientation && pageOrientation !== 'auto'
+                ? pageOrientation
+                : inferredOrientation;
 
             if (!pdf) {
                 pdf = new jsPDFConstructor({
@@ -3392,7 +3403,10 @@ async function downloadPlanAsPDF(options = {}) {
             const infoLines = [
                 businessName ? `Business: ${businessName}` : '',
                 designerName ? `Designer: ${designerName}` : '',
-                mobileNumber ? `Mobile: ${mobileNumber}` : ''
+                mobileNumber ? `Mobile: ${mobileNumber}` : '',
+                clientName ? `Client: ${clientName}` : '',
+                clientAddress ? `Address: ${clientAddress}` : '',
+                clientMobile ? `Client Mobile: ${clientMobile}` : ''
             ].filter(Boolean);
 
             let infoY = pageHeight - margins.bottom + 10;
@@ -4494,6 +4508,7 @@ function finalizeSelectionBox() {
         selectAllMode = false;
         selectedDirectLineIndices.clear();
         directLinePointSelection = null;
+        selectedFloorIds.clear();
     }
 
     walls.forEach(wall => {
@@ -4502,6 +4517,24 @@ function finalizeSelectionBox() {
         if (!n1 || !n2) return;
         if (rectIntersectsSegment(rect, n1.x, n1.y, n2.x, n2.y)) {
             selectedWalls.add(wall);
+        }
+    });
+
+    floors.forEach(floor => {
+        const floorNodes = (floor.nodeIds || []).map(getNodeById).filter(Boolean);
+        if (floorNodes.length < 3) return;
+
+        const xs = floorNodes.map(n => n.x);
+        const ys = floorNodes.map(n => n.y);
+        const floorRect = {
+            x: Math.min(...xs),
+            y: Math.min(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys)
+        };
+
+        if (rectsOverlap(rect, floorRect)) {
+            selectedFloorIds.add(floor.id);
         }
     });
 
@@ -5302,6 +5335,7 @@ function handleMouseMove(e) {
         const dy = selectionBoxEnd.y - selectionBoxStart.y;
         if (Math.hypot(dx, dy) > 3) {
             isSelectionBoxActive = true;
+            selectionBoxPending = false;
         }
     }
 
@@ -5739,16 +5773,16 @@ function handleMouseUp() {
         return;
     }
 
+    if (isSelectionBoxActive) {
+        finalizeSelectionBox();
+        return;
+    }
+
     if (selectionBoxPending) {
         selectionBoxPending = false;
         selectionBoxStart = null;
         selectionBoxEnd = null;
         redrawCanvas();
-        return;
-    }
-
-    if (isSelectionBoxActive) {
-        finalizeSelectionBox();
         return;
     }
 
@@ -8856,9 +8890,13 @@ function submitPdfOptions() {
         businessName: pdfBusinessNameInput?.value?.trim() || '',
         designerName: pdfDesignerNameInput?.value?.trim() || '',
         mobileNumber: pdfMobileNumberInput?.value?.trim() || '',
+        clientName: pdfClientNameInput?.value?.trim() || '',
+        clientAddress: pdfClientAddressInput?.value?.trim() || '',
+        clientMobile: pdfClientMobileInput?.value?.trim() || '',
         headerText: pdfHeaderInput?.value?.trim() || '',
         footerText: pdfFooterInput?.value?.trim() || '',
-        pageFormat: pdfFormatSelect?.value || 'a4'
+        pageFormat: pdfFormatSelect?.value || 'a4',
+        pageOrientation: pdfOrientationSelect?.value || 'auto'
     };
 
     closePdfOptionsModal();
