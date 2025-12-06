@@ -544,7 +544,9 @@ window.createWallDimension = function(wallData, options = {}) {
         isAuto: true,
         orientation: orientation,
         wallId: wallData.wall.id,
-        offsetSign: offsetSign
+        offsetSign: offsetSign,
+        p1: { x: startBase.x, y: startBase.y },
+        p2: { x: endBase.x, y: endBase.y }
     };
     
     dimensions.push(dimension);
@@ -591,6 +593,7 @@ window.refreshDimensionAttachments = function() {
         if (startPos) {
             dim.startX = startPos.x;
             dim.startY = startPos.y;
+            dim.p1 = { x: startPos.x, y: startPos.y };
             changed = true;
         } else if (dim.startAttachment) {
             dim.startAttachment = null;
@@ -600,6 +603,7 @@ window.refreshDimensionAttachments = function() {
         if (endPos) {
             dim.endX = endPos.x;
             dim.endY = endPos.y;
+            dim.p2 = { x: endPos.x, y: endPos.y };
             changed = true;
         } else if (dim.endAttachment) {
             dim.endAttachment = null;
@@ -627,7 +631,9 @@ window.createManualDimension = function(startX, startY, endX, endY, options = {}
         lineWidth: 2,
         isAuto: false,
         startAttachment,
-        endAttachment
+        endAttachment,
+        p1: { x: startX, y: startY },
+        p2: { x: endX, y: endY }
     };
 
     window.updateDimensionMeasurement(dimension);

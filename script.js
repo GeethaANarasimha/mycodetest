@@ -6121,10 +6121,39 @@ function startDimensionDrag(index, handle, x, y) {
             startX: dimension.startX,
             startY: dimension.startY,
             endX: dimension.endX,
-            endY: dimension.endY
+            endY: dimension.endY,
+            p1: dimension.p1 ? { x: dimension.p1.x, y: dimension.p1.y } : null,
+            p2: dimension.p2 ? { x: dimension.p2.x, y: dimension.p2.y } : null
         },
         undoApplied: false
     };
+}
+
+function updateWallFromDimension(dim) {
+    if (!dim || !dim.wallId) return;
+
+    const wall = walls.find(w => w.id === dim.wallId);
+    if (!wall) return;
+
+    const p1 = dim.p1 || { x: dim.startX, y: dim.startY };
+    const p2 = dim.p2 || { x: dim.endX, y: dim.endY };
+
+    wall.x1 = p1.x;
+    wall.y1 = p1.y;
+    wall.x2 = p2.x;
+    wall.y2 = p2.y;
+
+    const n1 = getNodeById(wall.startNodeId);
+    const n2 = getNodeById(wall.endNodeId);
+
+    if (n1) {
+        n1.x = p1.x;
+        n1.y = p1.y;
+    }
+    if (n2) {
+        n2.x = p2.x;
+        n2.y = p2.y;
+    }
 }
 
 function applyDimensionDrag(x, y) {
@@ -6141,30 +6170,58 @@ function applyDimensionDrag(x, y) {
     const dx = x - dimensionDrag.startMouse.x;
     const dy = y - dimensionDrag.startMouse.y;
     const { initial } = dimensionDrag;
+    const initialP1 = initial.p1;
+    const initialP2 = initial.p2;
 
     let newStart = { x: initial.startX, y: initial.startY };
     let newEnd = { x: initial.endX, y: initial.endY };
+    let newP1 = initialP1 ? { x: initialP1.x, y: initialP1.y } : null;
+    let newP2 = initialP2 ? { x: initialP2.x, y: initialP2.y } : null;
 
     if (dimensionDrag.handle === 'start') {
         newStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
+        if (initialP1) {
+            const deltaX = newStart.x - initial.startX;
+            const deltaY = newStart.y - initial.startY;
+            newP1 = { x: initialP1.x + deltaX, y: initialP1.y + deltaY };
+        }
     } else if (dimensionDrag.handle === 'end') {
         newEnd = snapPointToInch(initial.endX + dx, initial.endY + dy);
+        if (initialP2) {
+            const deltaX = newEnd.x - initial.endX;
+            const deltaY = newEnd.y - initial.endY;
+            newP2 = { x: initialP2.x + deltaX, y: initialP2.y + deltaY };
+        }
     } else if (dimensionDrag.handle === 'line') {
         const snappedStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
         const offsetX = snappedStart.x - initial.startX;
         const offsetY = snappedStart.y - initial.startY;
         newStart = { x: initial.startX + offsetX, y: initial.startY + offsetY };
         newEnd = { x: initial.endX + offsetX, y: initial.endY + offsetY };
+        if (initialP1) {
+            newP1 = { x: initialP1.x + offsetX, y: initialP1.y + offsetY };
+        }
+        if (initialP2) {
+            newP2 = { x: initialP2.x + offsetX, y: initialP2.y + offsetY };
+        }
     }
 
     dimension.startX = newStart.x;
     dimension.startY = newStart.y;
     dimension.endX = newEnd.x;
     dimension.endY = newEnd.y;
+    if (newP1) {
+        dimension.p1 = newP1;
+    }
+    if (newP2) {
+        dimension.p2 = newP2;
+    }
 
     if (typeof window.updateDimensionMeasurement === 'function') {
         window.updateDimensionMeasurement(dimension);
     }
+
+    updateWallFromDimension(dimension);
 
     redrawCanvas();
     return true;
