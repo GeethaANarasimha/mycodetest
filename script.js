@@ -3340,6 +3340,10 @@ async function downloadPlanAsPDF(options = {}) {
     const originalShowGrid = showGrid;
     showGrid = false;
 
+    // Hide the canvas while resizing for export to avoid on-screen flicker.
+    const previousCanvasVisibility = canvas.style.visibility;
+    canvas.style.visibility = 'hidden';
+
     const prevWidth = canvas.width;
     const prevHeight = canvas.height;
     const prevStyleWidth = canvas.style.width;
@@ -3460,6 +3464,7 @@ async function downloadPlanAsPDF(options = {}) {
         canvas.height = prevHeight;
         canvas.style.width = prevStyleWidth;
         canvas.style.height = prevStyleHeight;
+        canvas.style.visibility = previousCanvasVisibility;
         viewScale = prevViewScale;
         viewOffsetX = prevOffsetX;
         viewOffsetY = prevOffsetY;
