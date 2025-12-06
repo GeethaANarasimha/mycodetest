@@ -757,28 +757,39 @@ window.drawDimensions = function() {
 
             const midX = (dim.startX + dim.endX) / 2;
             const midY = (dim.startY + dim.endY) / 2;
-            const textX = midX + nx * 8 * side;
-            const textY = midY + ny * 8 * side;
 
             let textAngle = Math.atan2(dy, dx);
             if (textAngle > Math.PI / 2 || textAngle < -Math.PI / 2) {
                 textAngle += Math.PI;
             }
 
-            ctx.save();
-            ctx.translate(textX, textY);
-            ctx.rotate(textAngle);
+            const drawDimensionLabel = (sideMultiplier) => {
+                const textX = midX + nx * 8 * sideMultiplier;
+                const textY = midY + ny * 8 * sideMultiplier;
 
-            // Text background
-            const textWidth = ctx.measureText(dim.text).width;
-            const textHeight = fontPx * 1.2;
-            ctx.fillStyle = DIMENSION_TEXT_BG;
-            ctx.fillRect(-textWidth/2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+                ctx.save();
+                ctx.translate(textX, textY);
+                ctx.rotate(textAngle);
 
-            // Text
-            ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
-            ctx.fillText(dim.text, 0, 0);
-            ctx.restore();
+                // Text background
+                const textWidth = ctx.measureText(dim.text).width;
+                const textHeight = fontPx * 1.2;
+                ctx.fillStyle = DIMENSION_TEXT_BG;
+                ctx.fillRect(-textWidth/2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+
+                // Text
+                ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
+                ctx.fillText(dim.text, 0, 0);
+                ctx.restore();
+            };
+
+            // Always draw the primary label
+            drawDimensionLabel(side);
+
+            // For vertical and horizontal walls, mirror the label on the opposite side
+            if (dim.isAuto && (dim.orientation === 'vertical' || dim.orientation === 'horizontal')) {
+                drawDimensionLabel(-side);
+            }
         }
 
         if (isSelected) {
