@@ -491,18 +491,28 @@ window.drawHoverWallDimension = function(wallData) {
 
     const textWidth = ctx.measureText(text).width;
     const textHeight = fontPx * 1.2;
+    const normalOffset = 8;
 
-    ctx.save();
-    ctx.translate((startX + endX) / 2, (startY + endY) / 2);
-    ctx.rotate(textAngle);
+    const drawPreviewLabel = (sideMultiplier) => {
+        const labelX = (startX + endX) / 2 + nx * normalOffset * sideMultiplier;
+        const labelY = (startY + endY) / 2 + ny * normalOffset * sideMultiplier;
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+        ctx.save();
+        ctx.translate(labelX, labelY);
+        ctx.rotate(textAngle);
 
-    ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
-    ctx.fillText(text, 0, 0);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
-    ctx.restore();
+        ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
+        ctx.fillText(text, 0, 0);
+
+        ctx.restore();
+    };
+
+    // Show the same preview text on both sides of the wall dimension
+    drawPreviewLabel(offsetSign);
+    drawPreviewLabel(-offsetSign);
 
     ctx.restore();
 };
