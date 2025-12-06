@@ -3330,6 +3330,10 @@ function expandRect(bounds, x, y, width, height) {
 function getContentBounds() {
     const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
+    if (typeof window.refreshDimensionAttachments === 'function') {
+        window.refreshDimensionAttachments();
+    }
+
     (nodes || []).forEach(node => expandBounds(bounds, node.x, node.y));
 
     (floors || []).forEach(floor => {
@@ -4232,6 +4236,9 @@ function moveSelectedDimension(dx, dy, { skipUndo = false } = {}) {
     if (!dimension) return;
 
     if (!skipUndo) pushUndoState();
+
+    dimension.startAttachment = null;
+    dimension.endAttachment = null;
 
     const start = snapPointToInch(dimension.startX + dx, dimension.startY + dy);
     const end = snapPointToInch(dimension.endX + dx, dimension.endY + dy);
@@ -6084,6 +6091,15 @@ function getDimensionHandleHit(x, y) {
 function startDimensionDrag(index, handle, x, y) {
     const dimension = window.dimensions?.[index];
     if (!dimension) return;
+
+    if (handle === 'start') {
+        dimension.startAttachment = null;
+    } else if (handle === 'end') {
+        dimension.endAttachment = null;
+    } else if (handle === 'line') {
+        dimension.startAttachment = null;
+        dimension.endAttachment = null;
+    }
 
     dimensionDrag = {
         index,
