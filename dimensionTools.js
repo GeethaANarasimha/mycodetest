@@ -23,6 +23,8 @@ const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
 const DEFAULT_WALL_FACE_OFFSET = 6; // distance from wall face for manual dimensions
+const MANUAL_DIMENSION_EXTENSION = 12; // half-length of the end caps on manual dimensions
+const MANUAL_DIMENSION_PREVIEW_EXTENSION = 14; // preview end-cap half-length for better visibility
 
 function computeWallAnchorData(wall, startX, startY, endX, endY) {
     if (!wall) return null;
@@ -814,7 +816,7 @@ window.drawDimensionPreview = function() {
         if (len > 0) {
             const nx = -dy / len;
             const ny = dx / len;
-            const offset = 10;
+            const offset = MANUAL_DIMENSION_PREVIEW_EXTENSION;
 
             ctx.beginPath();
             ctx.moveTo(previewStart.x + nx * offset, previewStart.y + ny * offset);
@@ -917,7 +919,7 @@ window.drawDimensions = function() {
         if (len > 0) {
             const nx = -dy / len;
             const ny = dx / len;
-            const offset = 6;
+            const offset = dim.isAuto ? 6 : MANUAL_DIMENSION_EXTENSION;
             const side = dim.offsetSign || 1;
             
             // Extension lines
