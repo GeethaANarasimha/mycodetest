@@ -22,7 +22,7 @@ const DIMENSION_COLOR = '#3498db';
 const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
-const WALL_HOVER_CONTACT_DISTANCE = 8; // allow hover within 2px of the wall face
+const WALL_HOVER_CONTACT_DISTANCE = 7; // allow hover within 2px of the wall face
 const DEFAULT_WALL_FACE_OFFSET = 6; // distance from wall face for manual dimensions
 const MANUAL_DIMENSION_EXTENSION = 12; // half-length of the end caps on manual dimensions
 const MANUAL_DIMENSION_PREVIEW_EXTENSION = 14; // preview end-cap half-length for better visibility
@@ -1293,4 +1293,5 @@ if (typeof window.hoveredWall === 'undefined') {
 
 
 console.log('Dimension Tools loaded - Single-click wall dimensions & manual mode enabled');
+
 
