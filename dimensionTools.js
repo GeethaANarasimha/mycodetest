@@ -30,6 +30,65 @@ const WALL_JOIN_COLINEAR_DOT = 0.999; // Treat walls as colinear when their dot 
 const CORNER_REFERENCE_RADIUS = 12;
 const CORNER_MARKER_SIZE = 8;
 
+// Get intersection point of two lines
+function getCornerPoint(lineA, lineB) {
+    const x1 = lineA.x1, y1 = lineA.y1;
+    const x2 = lineA.x2, y2 = lineA.y2;
+
+    const x3 = lineB.x1, y3 = lineB.y1;
+    const x4 = lineB.x2, y4 = lineB.y2;
+
+    const denom = (x1 - x2) * (y3 - y4) -
+                  (y1 - y2) * (x3 - x4);
+
+    if (denom === 0) return null; // parallel lines
+
+    const px = (
+        (x1 * y2 - y1 * x2) * (x3 - x4) -
+        (x1 - x2) * (x3 * y4 - y3 * x4)
+    ) / denom;
+
+    const py = (
+        (x1 * y2 - y1 * x2) * (y3 - y4) -
+        (y1 - y2) * (x3 * y4 - y3 * x4)
+    ) / denom;
+
+    return { x: px, y: py };
+}
+
+function makeMiterCorner(p, wallA, wallB, thickness) {
+
+    // Unit vectors for both walls
+    const uxA = (wallA.x2 - wallA.x1);
+    const uyA = (wallA.y2 - wallA.y1);
+    const lenA = Math.hypot(uxA, uyA);
+
+    const uxB = (wallB.x2 - wallB.x1);
+    const uyB = (wallB.y2 - wallB.y1);
+    const lenB = Math.hypot(uxB, uyB);
+
+    // Normalized
+    const ax = uxA / lenA, ay = uyA / lenA;
+    const bx = uxB / lenB, by = uyB / lenB;
+
+    // Offset direction = wall normal
+    const nxA = -ay, nyA = ax;
+    const nxB = -by, nyB = bx;
+
+    // Offset points (for wall thickness)
+    const pA = {
+        x: p.x + nxA * thickness,
+        y: p.y + nyA * thickness
+    };
+
+    const pB = {
+        x: p.x + nxB * thickness,
+        y: p.y + nyB * thickness
+    };
+
+    return { inner: pA, outer: pB };
+}
+
 /**
  * Determine whether a node is connected to any wall that is not colinear with the given wall
  */
