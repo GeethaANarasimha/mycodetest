@@ -25,7 +25,7 @@ const MANUAL_DIMENSION_COLOR = '#e74c3c';
 const MANUAL_DIMENSION_LABEL_COLOR = '#3498db';
 const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
-const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
+const WALL_DIMENSION_OFFSET = 1; // extra gap (px) beyond wall thickness for auto dimensions
 const WALL_JOIN_COLINEAR_DOT = 0.999; // Treat walls as colinear when their dot product exceeds this threshold
 const CORNER_REFERENCE_RADIUS = 12;
 const CORNER_MARKER_SIZE = 8;
@@ -119,7 +119,7 @@ function getWallDirectionFromNode(wall, nodeId) {
 
     const dx = toNode.x - fromNode.x;
     const dy = toNode.y - fromNode.y;
-    const len = Math.hypot(dx, dy);
+    const len = Math.hypot(dx, dy) || 1;
     if (!len) return null;
 
     return { x: dx / len, y: dy / len };
@@ -418,6 +418,10 @@ window.createWallDimension = function(wallData, options = {}) {
     const dirX = dx / len;
     const dirY = dy / len;
 
+    const wallThickness = getWallThicknessPx(wallData.wall);
+    const borderOffset = wallThickness / 2;
+    const dimensionOffset = borderOffset + WALL_DIMENSION_OFFSET;
+
     const referenceX = options.referenceX ?? null;
     const referenceY = options.referenceY ?? null;
     const offsetSign = referenceX != null && referenceY != null
@@ -427,8 +431,8 @@ window.createWallDimension = function(wallData, options = {}) {
     const startBase = getDimensionEndpointWithJoint(n1, wallData.wall, true);
     const endBase = getDimensionEndpointWithJoint(n2, wallData.wall, false);
 
-    const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
-    const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+    const offsetX = (-dy / len) * dimensionOffset * offsetSign;
+    const offsetY = (dx / len) * dimensionOffset * offsetSign;
 
     const startX = startBase.x + offsetX;
     const startY = startBase.y + offsetY;
@@ -679,9 +683,13 @@ window.drawHoverWallDimension = function(wallData) {
     const dy = n2.y - n1.y;
     const midX = (n1.x + n2.x) / 2;
     const midY = (n1.y + n2.y) / 2;
-    const len = Math.hypot(dx, dy);
+    const len = Math.hypot(dx, dy) || 1;
     const nx = len === 0 ? 0 : -dy / len;
     const ny = len === 0 ? 0 : dx / len;
+
+    const wallThickness = getWallThicknessPx(wallData.wall);
+    const borderOffset = wallThickness / 2;
+    const dimensionOffset = borderOffset + WALL_DIMENSION_OFFSET;
 
     const referenceX = wallData.hoverX ?? window.dimensionHoverX;
     const referenceY = wallData.hoverY ?? window.dimensionHoverY;
@@ -695,13 +703,18 @@ window.drawHoverWallDimension = function(wallData) {
     const startBase = getDimensionEndpointWithJoint(n1, wallData.wall, true);
     const endBase = getDimensionEndpointWithJoint(n2, wallData.wall, false);
 
-    const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
-    const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+    const offsetX = (-dy / len) * dimensionOffset * offsetSign;
+    const offsetY = (dx / len) * dimensionOffset * offsetSign;
 
     const startX = startBase.x + offsetX;
     const startY = startBase.y + offsetY;
     const endX = endBase.x + offsetX;
     const endY = endBase.y + offsetY;
+
+    const wallEdgeStartX = startBase.x + nx * borderOffset * offsetSign;
+    const wallEdgeStartY = startBase.y + ny * borderOffset * offsetSign;
+    const wallEdgeEndX = endBase.x + nx * borderOffset * offsetSign;
+    const wallEdgeEndY = endBase.y + ny * borderOffset * offsetSign;
 
     ctx.save();
     ctx.strokeStyle = 'rgba(41, 128, 185, 0.7)'; // Semi-transparent blue
@@ -714,12 +727,12 @@ window.drawHoverWallDimension = function(wallData) {
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(n1.x, n1.y);
+    ctx.moveTo(wallEdgeStartX, wallEdgeStartY);
     ctx.lineTo(startX, startY);
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(n2.x, n2.y);
+    ctx.moveTo(wallEdgeEndX, wallEdgeEndY);
     ctx.lineTo(endX, endY);
     ctx.stroke();
 
