@@ -223,6 +223,41 @@
     </div>
 </div>
 
+<div id="pdfOptionsModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Download PDF</h3>
+        <p class="modal-subtitle">Set details for each page and choose a paper size.</p>
+
+        <label class="modal-label" for="pdfBusinessName">Business Name</label>
+        <input id="pdfBusinessName" type="text" placeholder="Enter business name" />
+
+        <label class="modal-label" for="pdfDesignerName">Designer Name</label>
+        <input id="pdfDesignerName" type="text" placeholder="Enter designer name" />
+
+        <label class="modal-label" for="pdfMobileNumber">Mobile Number</label>
+        <input id="pdfMobileNumber" type="text" placeholder="Enter mobile number" />
+
+        <label class="modal-label" for="pdfHeader">Header</label>
+        <input id="pdfHeader" type="text" placeholder="Enter header text" />
+
+        <label class="modal-label" for="pdfFooter">Footer</label>
+        <input id="pdfFooter" type="text" placeholder="Enter footer text" />
+
+        <label class="modal-label" for="pdfFormat">Page Format</label>
+        <select id="pdfFormat">
+            <option value="a4">A4</option>
+            <option value="letter">Letter</option>
+            <option value="legal">Legal</option>
+            <option value="a3">A3</option>
+        </select>
+
+        <div class="modal-actions">
+            <button id="pdfDownloadConfirm" class="tool-btn" type="button">Download</button>
+            <button id="pdfDownloadCancel" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <div id="layerManagerModal" class="modal hidden">
     <div class="modal-content">
         <h3>Manage Floors</h3>

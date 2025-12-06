@@ -61,6 +61,15 @@ const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
 const textModalConfirm = document.getElementById('textModalConfirm');
 const textModalCancel = document.getElementById('textModalCancel');
+const pdfOptionsModal = document.getElementById('pdfOptionsModal');
+const pdfBusinessNameInput = document.getElementById('pdfBusinessName');
+const pdfDesignerNameInput = document.getElementById('pdfDesignerName');
+const pdfMobileNumberInput = document.getElementById('pdfMobileNumber');
+const pdfHeaderInput = document.getElementById('pdfHeader');
+const pdfFooterInput = document.getElementById('pdfFooter');
+const pdfFormatSelect = document.getElementById('pdfFormat');
+const pdfDownloadConfirmButton = document.getElementById('pdfDownloadConfirm');
+const pdfDownloadCancelButton = document.getElementById('pdfDownloadCancel');
 const staircaseModal = document.getElementById('staircaseModal');
 const staircaseModeButtons = document.querySelectorAll('.staircase-mode-btn');
 const staircaseStepsSection = document.getElementById('staircaseStepsSection');
@@ -3282,17 +3291,21 @@ function getContentBounds() {
     };
 }
 
-async function downloadPlanAsPDF() {
+async function downloadPlanAsPDF(options = {}) {
+    const {
+        businessName = '',
+        designerName = '',
+        mobileNumber = '',
+        headerText = '',
+        footerText = '',
+        pageFormat = 'a4'
+    } = options;
+
     const jsPDFConstructor = await ensureJsPDF();
     if (!jsPDFConstructor) {
         alert('Could not load PDF generator. Please check your connection and try again.');
         return;
     }
-
-    const bounds = getContentBounds();
-    const padding = 20;
-    const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
-    const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
 
     const was3DView = is3DView;
     if (was3DView) {
@@ -3306,28 +3319,93 @@ async function downloadPlanAsPDF() {
     const prevViewScale = viewScale;
     const prevOffsetX = viewOffsetX;
     const prevOffsetY = viewOffsetY;
+    const activeLayerBeforeExport = currentLayerId();
+    const layersState = typeof getLayerState === 'function' ? getLayerState() : null;
+    const layersToExport = Array.isArray(layersState?.layers) && layersState.layers.length
+        ? layersState.layers
+        : [{ id: activeLayerBeforeExport, name: 'Floor plan' }];
+
+    const margins = { top: 50, right: 36, bottom: 80, left: 36 };
+    const textFontSize = 10;
+    const infoLineHeight = 12;
+    const padding = 20;
 
     try {
-        canvas.width = exportWidth;
-        canvas.height = exportHeight;
-        canvas.style.width = `${exportWidth}px`;
-        canvas.style.height = `${exportHeight}px`;
+        captureLayerSnapshot(activeLayerBeforeExport);
+        let pdf = null;
 
-        viewScale = 1;
-        viewOffsetX = padding - bounds.minX;
-        viewOffsetY = padding - bounds.minY;
+        layersToExport.forEach((layer, index) => {
+            const targetLayerId = layer?.id || activeLayerBeforeExport;
+            loadLayerSnapshot(targetLayerId);
 
-        redrawCanvas();
+            const bounds = getContentBounds();
+            const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
+            const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
 
-        const dataUrl = canvas.toDataURL('image/png');
-        const pdf = new jsPDFConstructor({
-            orientation: exportWidth >= exportHeight ? 'landscape' : 'portrait',
-            unit: 'px',
-            format: [exportWidth, exportHeight]
+            canvas.width = exportWidth;
+            canvas.height = exportHeight;
+            canvas.style.width = `${exportWidth}px`;
+            canvas.style.height = `${exportHeight}px`;
+
+            viewScale = 1;
+            viewOffsetX = padding - bounds.minX;
+            viewOffsetY = padding - bounds.minY;
+
+            redrawCanvas();
+
+            const dataUrl = canvas.toDataURL('image/png');
+            const orientation = exportWidth >= exportHeight ? 'landscape' : 'portrait';
+
+            if (!pdf) {
+                pdf = new jsPDFConstructor({
+                    orientation,
+                    unit: 'pt',
+                    format: pageFormat || 'a4'
+                });
+            } else {
+                pdf.addPage(pageFormat || 'a4', orientation);
+                pdf.setPage(index + 1);
+            }
+
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const availableWidth = pageWidth - margins.left - margins.right;
+            const availableHeight = pageHeight - margins.top - margins.bottom;
+            const scaleFactor = Math.min(availableWidth / exportWidth, availableHeight / exportHeight, 1);
+            const renderWidth = exportWidth * scaleFactor;
+            const renderHeight = exportHeight * scaleFactor;
+            const imageX = margins.left + (availableWidth - renderWidth) / 2;
+            const imageY = margins.top;
+
+            pdf.addImage(dataUrl, 'PNG', imageX, imageY, renderWidth, renderHeight);
+
+            pdf.setFontSize(textFontSize);
+
+            if (headerText) {
+                pdf.text(headerText, pageWidth / 2, margins.top / 2, { align: 'center' });
+            }
+
+            if (footerText) {
+                pdf.text(footerText, pageWidth / 2, pageHeight - margins.bottom / 2, { align: 'center' });
+            }
+
+            const infoLines = [
+                businessName ? `Business: ${businessName}` : '',
+                designerName ? `Designer: ${designerName}` : '',
+                mobileNumber ? `Mobile: ${mobileNumber}` : ''
+            ].filter(Boolean);
+
+            let infoY = pageHeight - margins.bottom + 10;
+            infoLines.forEach((line, lineIndex) => {
+                pdf.text(line, margins.left, infoY + lineIndex * infoLineHeight);
+            });
         });
 
-        pdf.addImage(dataUrl, 'PNG', 0, 0, exportWidth, exportHeight);
-        pdf.save('apzok-plan.pdf');
+        if (pdf) {
+            pdf.save('apzok-plan.pdf');
+        }
+
+        loadLayerSnapshot(activeLayerBeforeExport);
     } catch (error) {
         console.error('Failed to download PDF', error);
         alert('Could not download PDF. Please try again.');
@@ -3563,9 +3641,7 @@ function init() {
         });
     }
     if (downloadPdfButton) {
-        downloadPdfButton.addEventListener('click', () => {
-            downloadPlanAsPDF();
-        });
+        downloadPdfButton.addEventListener('click', openPdfOptionsModal);
     }
 
     if (textModalConfirm) {
@@ -3573,6 +3649,12 @@ function init() {
     }
     if (textModalCancel) {
         textModalCancel.addEventListener('click', closeTextModal);
+    }
+    if (pdfDownloadConfirmButton) {
+        pdfDownloadConfirmButton.addEventListener('click', submitPdfOptions);
+    }
+    if (pdfDownloadCancelButton) {
+        pdfDownloadCancelButton.addEventListener('click', closePdfOptionsModal);
     }
     if (staircaseApplyButton) {
         staircaseApplyButton.addEventListener('click', applyStaircaseSettings);
@@ -3627,6 +3709,19 @@ function init() {
             }
             if (event.key === 'Escape') {
                 closeTextModal();
+            }
+        });
+    }
+
+    if (pdfOptionsModal) {
+        pdfOptionsModal.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                submitPdfOptions();
+            }
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closePdfOptionsModal();
             }
         });
     }
@@ -8741,6 +8836,33 @@ function closeStaircaseModal() {
     if (!staircaseModal) return;
     staircaseModal.classList.add('hidden');
     staircaseEditTargetIndex = null;
+}
+
+function openPdfOptionsModal() {
+    if (!pdfOptionsModal) {
+        downloadPlanAsPDF();
+        return;
+    }
+    pdfOptionsModal.classList.remove('hidden');
+}
+
+function closePdfOptionsModal() {
+    if (!pdfOptionsModal) return;
+    pdfOptionsModal.classList.add('hidden');
+}
+
+function submitPdfOptions() {
+    const options = {
+        businessName: pdfBusinessNameInput?.value?.trim() || '',
+        designerName: pdfDesignerNameInput?.value?.trim() || '',
+        mobileNumber: pdfMobileNumberInput?.value?.trim() || '',
+        headerText: pdfHeaderInput?.value?.trim() || '',
+        footerText: pdfFooterInput?.value?.trim() || '',
+        pageFormat: pdfFormatSelect?.value || 'a4'
+    };
+
+    closePdfOptionsModal();
+    downloadPlanAsPDF(options);
 }
 
 function openTextModal({ defaultValue = 'New label', confirmLabel = 'Save', onSubmit } = {}) {
