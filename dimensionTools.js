@@ -786,8 +786,9 @@ window.drawDimensions = function() {
             // Always draw the primary label
             drawDimensionLabel(side);
 
-            // For vertical and horizontal walls, mirror the label on the opposite side
-            if (dim.isAuto && (dim.orientation === 'vertical' || dim.orientation === 'horizontal')) {
+            // Mirror the label on the opposite side for wall dimensions so the value is readable
+            // from either direction (e.g., when zoomed or panned to the far side of the wall).
+            if (dim.isAuto) {
                 drawDimensionLabel(-side);
             }
         }
