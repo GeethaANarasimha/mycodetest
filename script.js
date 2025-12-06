@@ -429,7 +429,7 @@ function loadLayerSnapshot(layerId = currentLayerId()) {
     const snapshot = ensureLayerSnapshot(layerId);
     const preservedClipboard = JSON.parse(JSON.stringify(clipboard));
     nodes = JSON.parse(JSON.stringify(snapshot.nodes));
-    walls = JSON.parse(JSON.stringify(snapshot.walls));
+    walls = normalizeWalls(JSON.parse(JSON.stringify(snapshot.walls)));
     objects = JSON.parse(JSON.stringify(snapshot.objects));
     floors = JSON.parse(JSON.stringify(snapshot.floors));
 
@@ -1525,6 +1525,7 @@ function showContextMenu(x, y, { wall = null, floorEdge = null } = {}) {
     const canGroupStairs = stairIndices.length >= 2 && !sharedStairGroup;
     const canUngroupStairs = stairIndices.length > 0 && !!sharedStairGroup;
     const backgroundVisibilityLabel = isBackgroundImageVisible ? 'Hide Background Image' : 'Show Background Image';
+    const demolitionLabel = wall?.isDemolition ? 'Unset Demolition' : 'Mark as Demolition';
     const backgroundMenu = hasBackgroundImage ? `
         <div class="context-item" data-action="toggleBackgroundVisibility" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
             ${backgroundVisibilityLabel}
@@ -1571,6 +1572,9 @@ function showContextMenu(x, y, { wall = null, floorEdge = null } = {}) {
             </div>
             <div class="context-item" data-action="joint" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
                 Joint Walls
+            </div>
+            <div class="context-item" data-action="toggleDemolition" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+                ${demolitionLabel}
             </div>
         ` : ''}
         ${hasSelection ? `
@@ -1623,6 +1627,13 @@ function handleContextMenuAction(action) {
             break;
         case 'joint':
             jointSelectedWalls();
+            break;
+        case 'toggleDemolition':
+            if (rightClickedWall) {
+                pushUndoState();
+                rightClickedWall.isDemolition = !rightClickedWall.isDemolition;
+                redrawCanvas();
+            }
             break;
         case 'cut':
             cutSelection();
@@ -1919,7 +1930,8 @@ function performPaste() {
             endNodeId: nodeIdMap.get(oldWall.endNodeId),
             lineColor: oldWall.lineColor,
             outlineWidth: oldWall.outlineWidth,
-            thicknessPx: oldWall.thicknessPx
+            thicknessPx: oldWall.thicknessPx,
+            isDemolition: !!oldWall.isDemolition
         };
         walls.push(newWall);
         wallIdMap.set(oldWall.id, newWall.id);
@@ -2004,6 +2016,14 @@ function drawPastePreview() {
             ctx.moveTo(sx, sy);
             ctx.lineTo(ex, ey);
             ctx.stroke();
+
+            if (oldWall.isDemolition) {
+                drawDemolitionMarkers(
+                    { x: sx, y: sy },
+                    { x: ex, y: ey },
+                    { ...oldWall }
+                );
+            }
         }
     });
     
@@ -2487,7 +2507,8 @@ function splitWallAtPointWithNode(wall, splitX, splitY) {
         endNodeId: splitNode.id,
         lineColor: wall.lineColor,
         outlineWidth: wall.outlineWidth,
-        thicknessPx: wall.thicknessPx
+        thicknessPx: wall.thicknessPx,
+        isDemolition: wall.isDemolition
     };
 
     // Add second segment
@@ -2497,7 +2518,8 @@ function splitWallAtPointWithNode(wall, splitX, splitY) {
         endNodeId: n2.id,
         lineColor: wall.lineColor,
         outlineWidth: wall.outlineWidth,
-        thicknessPx: wall.thicknessPx
+        thicknessPx: wall.thicknessPx,
+        isDemolition: wall.isDemolition
     };
 
     walls.push(firstSegment, secondSegment);
@@ -2924,7 +2946,7 @@ function cloneState() {
 
 function restoreState(state) {
     nodes = JSON.parse(JSON.stringify(state.nodes));
-    walls = JSON.parse(JSON.stringify(state.walls));
+    walls = normalizeWalls(JSON.parse(JSON.stringify(state.walls)));
     objects = JSON.parse(JSON.stringify(state.objects));
     directLines = JSON.parse(JSON.stringify(state.directLines || []));
     floors = JSON.parse(JSON.stringify(state.floors || []));
@@ -3040,6 +3062,18 @@ function stripFloorPattern(floor) {
     return clone;
 }
 
+function applyWallDefaults(wall) {
+    if (!wall) return wall;
+    if (wall.isDemolition === undefined) {
+        wall.isDemolition = false;
+    }
+    return wall;
+}
+
+function normalizeWalls(wallsArray) {
+    return (wallsArray || []).map(wall => applyWallDefaults(wall));
+}
+
 function buildProjectState() {
     const background = backgroundImageData ? {
         src: backgroundImageData.image?.src || '',
@@ -3122,7 +3156,7 @@ function applyProjectState(state) {
          loadLayerSnapshot(currentLayerId());
      } else {
          nodes = JSON.parse(JSON.stringify(state.nodes || []));
-         walls = JSON.parse(JSON.stringify(state.walls || []));
+         walls = normalizeWalls(JSON.parse(JSON.stringify(state.walls || [])));
          objects = JSON.parse(JSON.stringify(state.objects || []));
          floors = (state.floors || []).map(stripFloorPattern);
 
@@ -4298,14 +4332,15 @@ function getClosestNodeWithinRadius(x, y, radius = NODE_HIT_RADIUS + 4) {
 function createWall(n1, n2) {
     if (!n1 || !n2 || n1.id === n2.id) return;
     const thicknessPx = getThicknessPx() || (0.5 * scale);
-    
+
     const newWall = {
         id: nextWallId++,
         startNodeId: n1.id,
         endNodeId: n2.id,
         lineColor: lineColorInput.value || DEFAULT_WALL_COLOR,
         outlineWidth: parseInt(lineWidthInput.value, 10) || 2,
-        thicknessPx
+        thicknessPx,
+        isDemolition: false
     };
 
     walls.push(newWall);
@@ -6241,6 +6276,8 @@ function drawWalls() {
         ctx.stroke();
         ctx.restore();
 
+        if (w.isDemolition) drawDemolitionMarkers(n1, n2, w);
+
         if (showDimensions) drawWallDimension(n1.x, n1.y, n2.x, n2.y, w.thicknessPx);
 
         if (selectedWalls.has(w)) {
@@ -6277,6 +6314,36 @@ function drawWallSelectionHighlight(n1, n2, wall) {
     drawHandleNode(n1, horizontal);
     drawHandleNode(n2, horizontal);
     
+    ctx.restore();
+}
+
+function drawDemolitionMarkers(n1, n2, wall) {
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const thickness = wall?.thicknessPx || scale * 0.5;
+    const offset = thickness / 2 + 6;
+    const dashScale = 1 / viewScale;
+    const lineWidth = Math.max(1.5 * dashScale, (wall?.outlineWidth || 2) * dashScale);
+
+    ctx.save();
+    ctx.setLineDash([10 * dashScale, 6 * dashScale]);
+    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = wall?.lineColor || DEFAULT_WALL_COLOR;
+
+    const drawOffsetLine = (direction) => {
+        const ox = nx * offset * direction;
+        const oy = ny * offset * direction;
+        ctx.beginPath();
+        ctx.moveTo(n1.x + ox, n1.y + oy);
+        ctx.lineTo(n2.x + ox, n2.y + oy);
+        ctx.stroke();
+    };
+
+    drawOffsetLine(1);
+    drawOffsetLine(-1);
     ctx.restore();
 }
 
