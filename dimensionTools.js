@@ -353,9 +353,7 @@ window.createWallDimension = function(wallData, options = {}) {
     const offsetDistance = (wallThickness / 2 + WALL_DIMENSION_OFFSET) * offsetSign;
     const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
     const totalInches = Math.round((length / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+    const text = formatMeasurementText(totalInches);
 
     let startX, startY, endX, endY;
 
@@ -411,12 +409,9 @@ window.updateDimensionMeasurement = function(dimension) {
     if (!dimension) return;
 
     const length = Math.hypot(dimension.endX - dimension.startX, dimension.endY - dimension.startY);
-    const totalInches = Math.round((length / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-
     dimension.length = length;
-    dimension.text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+    const totalInches = Math.round((length / scale) * 12);
+    dimension.text = formatMeasurementText(totalInches);
 };
 
 window.createManualDimension = function(startX, startY, endX, endY, options = {}) {
@@ -538,9 +533,7 @@ window.drawHoverWallDimension = function(wallData) {
 
     const length = Math.hypot(centerN2.x - centerN1.x, centerN2.y - centerN1.y);
     const totalInches = Math.round((length / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}\"` : `${feet}'`;
+    const text = formatMeasurementText(totalInches);
 
     ctx.save();
     ctx.strokeStyle = 'rgba(41, 128, 185, 0.7)'; // Semi-transparent blue
@@ -830,9 +823,7 @@ window.drawDimensionPreview = function() {
 
             // Dimension text
             const totalInches = Math.round((len / scale) * 12);
-            const feet = Math.floor(totalInches / 12);
-            const inches = totalInches % 12;
-            const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+            const text = formatMeasurementText(totalInches);
 
             const midX = (previewStart.x + previewEnd.x) / 2;
             const midY = (previewStart.y + previewEnd.y) / 2;
@@ -1145,8 +1136,8 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
             const spaceLength = endX - startX;
             if (spaceLength <= 0) return;
             const totalInches = Math.round((spaceLength / scale) * 12);
-            const feet = Math.floor(totalInches / 12);
-            const inches = totalInches % 12;
+            const adjusted = applyMeasurementOffset(totalInches);
+            const { feet, inches } = inchesToFeetAndInches(adjusted);
             spaces.push({
                 leftWall,
                 rightWall,
@@ -1155,7 +1146,7 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 spaceLength,
                 feet,
                 inches,
-                text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
+                text: formatMeasurementText(totalInches),
                 wallY: wallN1.y,
                 wallThickness,
                 hoverX, hoverY,
@@ -1184,8 +1175,8 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
             const spaceLength = endY - startY;
             if (spaceLength <= 0) return;
             const totalInches = Math.round((spaceLength / scale) * 12);
-            const feet = Math.floor(totalInches / 12);
-            const inches = totalInches % 12;
+            const adjusted = applyMeasurementOffset(totalInches);
+            const { feet, inches } = inchesToFeetAndInches(adjusted);
             spaces.push({
                 topWall,
                 bottomWall,
@@ -1194,7 +1185,7 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 spaceLength,
                 feet,
                 inches,
-                text: inches > 0 ? `${feet}'${inches}"` : `${feet}'`,
+                text: formatMeasurementText(totalInches),
                 wallX: wallN1.x,
                 wallThickness,
                 hoverX, hoverY,
