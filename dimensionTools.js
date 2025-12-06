@@ -482,32 +482,30 @@ function endManualDimension(x, y) {
     redrawCanvas();
 }
 
+function getDimensionLength(dim) {
+    const dx = dim.p2.x - dim.p1.x;
+    const dy = dim.p2.y - dim.p1.y;
+    const pixel = Math.hypot(dx, dy);
+    return pixel / scale; // FEET
+}
+
 /**
  * Create wall dimension with 1px offset
  */
-window.createWallDimension = function(wallData, options = {}) {
-    const wall = wallData.wall || wallData;
+window.createWallDimension = function createWallDimension(wall) {
     const start = getNodeById(wall.startNodeId);
-    const end = getNodeById(wall.endNodeId);
+    const end   = getNodeById(wall.endNodeId);
 
     if (!start || !end) return null;
 
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len;
-    const ny = dx / len;
-    const midX = (start.x + end.x) / 2;
-    const midY = (start.y + end.y) / 2;
-
-    const referenceX = options.referenceX ?? null;
-    const referenceY = options.referenceY ?? null;
-    const offsetSign = referenceX != null && referenceY != null
-        ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
-        : 1;
-
     const dimension = {
         id: nextDimensionId++,
+        type: "wall",
+        wallId: wall.id,
+        p1: { x: start.x, y: start.y },   // ENDPOINT B
+        p2: { x: end.x,   y: end.y },     // ENDPOINT C
+        offset: 18,
+        selected: false,
         startX: start.x,
         startY: start.y,
         endX: end.x,
@@ -517,17 +515,10 @@ window.createWallDimension = function(wallData, options = {}) {
         lineWidth: 2,
         length: 0,
         isAuto: true,
-        orientation: getWallOrientation(start, end),
-        wallId: wall.id,
-        offsetSign: offsetSign,
-        p1: { x: start.x, y: start.y },
-        p2: { x: end.x, y: end.y },
-        offset: 18,
-        type: "wall-dimension"
+        offsetSign: 1
     };
 
     window.updateDimensionMeasurement(dimension);
-
     dimensions.push(dimension);
     return dimension;
 };
@@ -541,15 +532,17 @@ window.updateDimensionMeasurement = function(dimension) {
     const p1 = dimension.p1 || { x: dimension.startX, y: dimension.startY };
     const p2 = dimension.p2 || { x: dimension.endX, y: dimension.endY };
 
-    const dx = p1.x - p2.x;
-    const dy = p1.y - p2.y;
-    const pixelDist = Math.hypot(dx, dy);
-    const totalInches = Math.round((pixelDist / scale) * 12);
+    const lengthFeet = getDimensionLength({ p1, p2 });
+    const totalInches = Math.round(lengthFeet * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
 
-    dimension.length = pixelDist;
+    dimension.length = lengthFeet;
     dimension.text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+    dimension.startX = p1.x;
+    dimension.startY = p1.y;
+    dimension.endX = p2.x;
+    dimension.endY = p2.y;
 };
 
 function resolveAttachmentPosition(attachment) {

@@ -5494,7 +5494,62 @@ function handleMouseMove(e) {
     }
 
     if (dimensionDrag) {
-        applyDimensionDrag(x, y);
+        const dim = window.dimensions[dimensionDrag.index];
+        if (!dim) return;
+
+        const wall = walls.find(w => w.id === dim.wallId);
+        const { x: wx, y: wy } = snapPointToInch(x, y);
+
+        if (!dimensionDrag.undoApplied) {
+            pushUndoState();
+            dimensionDrag.undoApplied = true;
+        }
+
+        // DRAGGING FIRST ENDPOINT (LEFT/B)
+        if (dimensionDrag.handle === "p1" || dimensionDrag.handle === 'start') {
+            dim.p1.x = wx;
+            dim.p1.y = wy;
+            dim.startX = wx;
+            dim.startY = wy;
+
+            if (wall) {
+                const node = getNodeById(wall.startNodeId);
+                if (node) {
+                    node.x = wx;
+                    node.y = wy;
+                }
+
+                wall.x1 = wx;
+                wall.y1 = wy;
+            }
+        }
+
+        // DRAGGING SECOND ENDPOINT (RIGHT/C)
+        if (dimensionDrag.handle === "p2" || dimensionDrag.handle === 'end') {
+            dim.p2.x = wx;
+            dim.p2.y = wy;
+            dim.endX = wx;
+            dim.endY = wy;
+
+            if (wall) {
+                const node = getNodeById(wall.endNodeId);
+                if (node) {
+                    node.x = wx;
+                    node.y = wy;
+                }
+
+                wall.x2 = wx;
+                wall.y2 = wy;
+            }
+        }
+
+        if (typeof window.updateDimensionMeasurement === 'function') {
+            window.updateDimensionMeasurement(dim);
+        }
+
+        // FIX WALL CORNERS
+        applyMiterCorners(walls);
+        redrawCanvas();
         return;
     }
 
