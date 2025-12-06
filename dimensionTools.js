@@ -22,6 +22,68 @@ const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
 
+function computeWallAnchorData(wall, startX, startY, endX, endY) {
+    if (!wall) return null;
+
+    const n1 = getNodeById(wall.startNodeId);
+    const n2 = getNodeById(wall.endNodeId);
+    if (!n1 || !n2) return null;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return null;
+
+    const dir = { x: dx / len, y: dy / len };
+    const normal = { x: -dir.y, y: dir.x };
+
+    const startVec = { x: startX - n1.x, y: startY - n1.y };
+    const endVec = { x: endX - n1.x, y: endY - n1.y };
+
+    const startRatio = (startVec.x * dir.x + startVec.y * dir.y) / len;
+    const endRatio = (endVec.x * dir.x + endVec.y * dir.y) / len;
+
+    const startOffset = startVec.x * normal.x + startVec.y * normal.y;
+    const endOffset = endVec.x * normal.x + endVec.y * normal.y;
+    const offset = (startOffset + endOffset) / 2;
+
+    return { startRatio, endRatio, offset };
+}
+
+function updateDimensionsAttachedToWalls() {
+    if (!dimensions || dimensions.length === 0) return;
+
+    dimensions.forEach(dim => {
+        if (!dim.wallId) return;
+
+        const wall = walls.find(w => w.id === dim.wallId);
+        const n1 = wall ? getNodeById(wall.startNodeId) : null;
+        const n2 = wall ? getNodeById(wall.endNodeId) : null;
+        if (!wall || !n1 || !n2) return;
+
+        const dx = n2.x - n1.x;
+        const dy = n2.y - n1.y;
+        const len = Math.hypot(dx, dy);
+        if (len < 1 || !Number.isFinite(dim.wallStartRatio) || !Number.isFinite(dim.wallEndRatio)) return;
+
+        const dir = { x: dx / len, y: dy / len };
+        const normal = { x: -dir.y, y: dir.x };
+
+        const startRatio = clampValue(dim.wallStartRatio, 0, 1);
+        const endRatio = clampValue(dim.wallEndRatio, 0, 1);
+        const offset = Number.isFinite(dim.wallOffset) ? dim.wallOffset : 0;
+
+        dim.startX = n1.x + dir.x * len * startRatio + normal.x * offset;
+        dim.startY = n1.y + dir.y * len * startRatio + normal.y * offset;
+        dim.endX = n1.x + dir.x * len * endRatio + normal.x * offset;
+        dim.endY = n1.y + dir.y * len * endRatio + normal.y * offset;
+
+        if (typeof window.updateDimensionMeasurement === 'function') {
+            window.updateDimensionMeasurement(dim);
+        }
+    });
+}
+
 /**
  * Find the nearest wall to a point with edge detection
  */
@@ -256,7 +318,14 @@ window.createWallDimension = function(wallData, options = {}) {
         wallId: wallData.wall.id,
         offsetSign: offsetSign
     };
-    
+
+    const anchorData = computeWallAnchorData(wallData.wall, startX, startY, endX, endY);
+    if (anchorData) {
+        dimension.wallStartRatio = anchorData.startRatio;
+        dimension.wallEndRatio = anchorData.endRatio;
+        dimension.wallOffset = anchorData.offset;
+    }
+
     dimensions.push(dimension);
     return dimension;
 };
@@ -287,6 +356,16 @@ window.createManualDimension = function(startX, startY, endX, endY) {
         lineWidth: 2,
         isAuto: false
     };
+
+    if (window.dimensionActiveWall?.wall) {
+        const anchorData = computeWallAnchorData(window.dimensionActiveWall.wall, startX, startY, endX, endY);
+        if (anchorData) {
+            dimension.wallId = window.dimensionActiveWall.wall.id;
+            dimension.wallStartRatio = anchorData.startRatio;
+            dimension.wallEndRatio = anchorData.endRatio;
+            dimension.wallOffset = anchorData.offset;
+        }
+    }
 
     window.updateDimensionMeasurement(dimension);
 
@@ -701,6 +780,8 @@ window.drawDimensionPreview = function() {
  * Draw all dimensions
  */
 window.drawDimensions = function() {
+    updateDimensionsAttachedToWalls();
+
     // Draw hover preview first
     if (currentTool === 'dimension' && !isDimensionDrawing) {
         if (hoveredSpaceSegment) {
