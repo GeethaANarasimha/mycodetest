@@ -61,6 +61,19 @@ const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
 const textModalConfirm = document.getElementById('textModalConfirm');
 const textModalCancel = document.getElementById('textModalCancel');
+const pdfOptionsModal = document.getElementById('pdfOptionsModal');
+const pdfBusinessNameInput = document.getElementById('pdfBusinessName');
+const pdfDesignerNameInput = document.getElementById('pdfDesignerName');
+const pdfMobileNumberInput = document.getElementById('pdfMobileNumber');
+const pdfClientNameInput = document.getElementById('pdfClientName');
+const pdfClientAddressInput = document.getElementById('pdfClientAddress');
+const pdfClientMobileInput = document.getElementById('pdfClientMobile');
+const pdfHeaderInput = document.getElementById('pdfHeader');
+const pdfFooterInput = document.getElementById('pdfFooter');
+const pdfFormatSelect = document.getElementById('pdfFormat');
+const pdfOrientationSelect = document.getElementById('pdfOrientation');
+const pdfDownloadConfirmButton = document.getElementById('pdfDownloadConfirm');
+const pdfDownloadCancelButton = document.getElementById('pdfDownloadCancel');
 const staircaseModal = document.getElementById('staircaseModal');
 const staircaseModeButtons = document.querySelectorAll('.staircase-mode-btn');
 const staircaseStepsSection = document.getElementById('staircaseStepsSection');
@@ -320,7 +333,8 @@ let clipboard = {
     floors: [],
     nodes: [],
     referenceX: 0,
-    referenceY: 0
+    referenceY: 0,
+    sourceLayerId: null
 };
 let isPasteMode = false;
 let pasteTargetX = null;
@@ -342,14 +356,6 @@ function createEmptyLayerSnapshot() {
         objects: [],
         floors: [],
         dimensions: [],
-        clipboard: {
-            walls: [],
-            objects: [],
-            floors: [],
-            nodes: [],
-            referenceX: 0,
-            referenceY: 0
-        },
         ids: {
             nextNodeId: 1,
             nextWallId: 1,
@@ -376,7 +382,6 @@ function cloneLayerStatePayload() {
         directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
-        clipboard: JSON.parse(JSON.stringify(clipboard)),
         ids: {
             nextNodeId,
             nextWallId,
@@ -422,6 +427,7 @@ function resetTransientState() {
 
 function loadLayerSnapshot(layerId = currentLayerId()) {
     const snapshot = ensureLayerSnapshot(layerId);
+    const preservedClipboard = JSON.parse(JSON.stringify(clipboard));
     nodes = JSON.parse(JSON.stringify(snapshot.nodes));
     walls = JSON.parse(JSON.stringify(snapshot.walls));
     objects = JSON.parse(JSON.stringify(snapshot.objects));
@@ -432,7 +438,7 @@ function loadLayerSnapshot(layerId = currentLayerId()) {
         window.nextDimensionId = snapshot.dimensions.length > 0 ? Math.max(...snapshot.dimensions.map(d => d.id)) + 1 : 1;
     }
 
-    clipboard = JSON.parse(JSON.stringify(snapshot.clipboard || clipboard));
+    clipboard = preservedClipboard;
 
     nextNodeId = snapshot.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
     nextWallId = snapshot.ids?.nextWallId ?? (walls.length ? Math.max(...walls.map(w => w.id || 0)) + 1 : 1);
@@ -1692,7 +1698,8 @@ function copySelection() {
         floors: [],
         nodes: [],
         referenceX: 0,
-        referenceY: 0
+        referenceY: 0,
+        sourceLayerId: currentLayerId()
     };
     
     // Collect selected walls and their nodes
@@ -1842,8 +1849,17 @@ function startPasteMode(targetX = null, targetY = null) {
     updateToolInfo();
 
     // If a target point is already known (e.g., context-menu location or last pointer), paste immediately
-    const immediateX = targetX !== null ? targetX : lastContextMenuCanvasX ?? lastPointerCanvasX;
-    const immediateY = targetY !== null ? targetY : lastContextMenuCanvasY ?? lastPointerCanvasY;
+    const isCrossLayerPaste = clipboard.sourceLayerId && clipboard.sourceLayerId !== currentLayerId();
+    const immediateX = isCrossLayerPaste
+        ? clipboard.referenceX
+        : targetX !== null
+            ? targetX
+            : lastContextMenuCanvasX ?? lastPointerCanvasX;
+    const immediateY = isCrossLayerPaste
+        ? clipboard.referenceY
+        : targetY !== null
+            ? targetY
+            : lastContextMenuCanvasY ?? lastPointerCanvasY;
 
     if (immediateX !== null && immediateY !== null) {
         setPastePoint(immediateX, immediateY);
@@ -2772,22 +2788,39 @@ function findRoomPolygonAtPoint(x, y) {
 }
 
 function ensureFloorPattern(floor) {
-    if (!floor.texture || !floor.texture.imageSrc) return;
-    if (floor.texture.pattern) return;
+    if (!floor?.texture?.imageSrc) return Promise.resolve();
 
-    const image = new Image();
-    image.onload = () => {
+    const applyPatternFromImage = (image) => {
         const widthPx = floor.texture.widthPx || image.width;
         const heightPx = floor.texture.heightPx || image.height;
-        const tileCanvas = document.createElement('canvas');
+        const tileCanvas = (floor.texture.patternCanvas instanceof HTMLCanvasElement && typeof floor.texture.patternCanvas.getContext === 'function')
+            ? floor.texture.patternCanvas
+            : document.createElement('canvas');
         tileCanvas.width = Math.max(1, Math.round(widthPx));
         tileCanvas.height = Math.max(1, Math.round(heightPx));
         const tctx = tileCanvas.getContext('2d');
+        tctx.clearRect(0, 0, tileCanvas.width, tileCanvas.height);
         tctx.drawImage(image, 0, 0, tileCanvas.width, tileCanvas.height);
+        floor.texture.patternCanvas = tileCanvas;
         floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
-        redrawCanvas();
     };
-    image.src = floor.texture.imageSrc;
+
+    if (floor.texture.patternImage?.complete) {
+        applyPatternFromImage(floor.texture.patternImage);
+        return Promise.resolve();
+    }
+
+    return new Promise(resolve => {
+        const image = new Image();
+        image.onload = () => {
+            floor.texture.patternImage = image;
+            applyPatternFromImage(image);
+            redrawCanvas();
+            resolve();
+        };
+        image.onerror = () => resolve();
+        image.src = floor.texture.imageSrc;
+    });
 }
 
 function createFloorAtPoint(x, y) {
@@ -2885,11 +2918,7 @@ function cloneState() {
         objects: JSON.parse(JSON.stringify(objects)),
         directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
-        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
-        clipboard: JSON.parse(JSON.stringify(clipboard)),
-        isPasteMode: isPasteMode,
-        pasteTargetX: pasteTargetX,
-        pasteTargetY: pasteTargetY
+        dimensions: JSON.parse(JSON.stringify(window.dimensions || []))
     };
 }
 
@@ -2906,10 +2935,11 @@ function restoreState(state) {
         window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
     }
 
-    clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
-    isPasteMode = state.isPasteMode || false;
-    pasteTargetX = state.pasteTargetX || null;
-    pasteTargetY = state.pasteTargetY || null;
+    // Always exit paste mode when restoring a state so undo/redo doesn't
+    // re-enable a previously active paste session.
+    isPasteMode = false;
+    pasteTargetX = null;
+    pasteTargetY = null;
 
     selectedWalls.clear();
     rightClickedWall = null;
@@ -3282,22 +3312,37 @@ function getContentBounds() {
     };
 }
 
-async function downloadPlanAsPDF() {
+async function downloadPlanAsPDF(options = {}) {
+    const {
+        businessName = '',
+        designerName = '',
+        mobileNumber = '',
+        clientName = '',
+        clientAddress = '',
+        clientMobile = '',
+        headerText = '',
+        footerText = '',
+        pageFormat = 'a4',
+        pageOrientation = 'auto'
+    } = options;
+
     const jsPDFConstructor = await ensureJsPDF();
     if (!jsPDFConstructor) {
         alert('Could not load PDF generator. Please check your connection and try again.');
         return;
     }
 
-    const bounds = getContentBounds();
-    const padding = 20;
-    const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
-    const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
-
     const was3DView = is3DView;
     if (was3DView) {
         switchTo2DView();
     }
+
+    const originalShowGrid = showGrid;
+    showGrid = false;
+
+    // Hide the canvas while resizing for export to avoid on-screen flicker.
+    const previousCanvasVisibility = canvas.style.visibility;
+    canvas.style.visibility = 'hidden';
 
     const prevWidth = canvas.width;
     const prevHeight = canvas.height;
@@ -3306,28 +3351,111 @@ async function downloadPlanAsPDF() {
     const prevViewScale = viewScale;
     const prevOffsetX = viewOffsetX;
     const prevOffsetY = viewOffsetY;
+    const activeLayerBeforeExport = currentLayerId();
+    const layersState = typeof getLayerState === 'function' ? getLayerState() : null;
+    const layersToExport = Array.isArray(layersState?.layers) && layersState.layers.length
+        ? layersState.layers
+        : [{ id: activeLayerBeforeExport, name: 'Floor plan' }];
+
+    const margins = { top: 50, right: 36, bottom: 80, left: 36 };
+    const textFontSize = 10;
+    const infoLineHeight = 12;
+    const padding = 20;
 
     try {
-        canvas.width = exportWidth;
-        canvas.height = exportHeight;
-        canvas.style.width = `${exportWidth}px`;
-        canvas.style.height = `${exportHeight}px`;
+        captureLayerSnapshot(activeLayerBeforeExport);
+        let pdf = null;
 
-        viewScale = 1;
-        viewOffsetX = padding - bounds.minX;
-        viewOffsetY = padding - bounds.minY;
+        for (let index = 0; index < layersToExport.length; index++) {
+            const layer = layersToExport[index];
+            const targetLayerId = layer?.id || activeLayerBeforeExport;
+            loadLayerSnapshot(targetLayerId);
 
-        redrawCanvas();
+            await Promise.all((floors || []).map(floor => ensureFloorPattern(floor)));
 
-        const dataUrl = canvas.toDataURL('image/png');
-        const pdf = new jsPDFConstructor({
-            orientation: exportWidth >= exportHeight ? 'landscape' : 'portrait',
-            unit: 'px',
-            format: [exportWidth, exportHeight]
-        });
+            const bounds = getContentBounds();
+            const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
+            const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
 
-        pdf.addImage(dataUrl, 'PNG', 0, 0, exportWidth, exportHeight);
-        pdf.save('apzok-plan.pdf');
+            canvas.width = exportWidth;
+            canvas.height = exportHeight;
+            canvas.style.width = `${exportWidth}px`;
+            canvas.style.height = `${exportHeight}px`;
+
+            viewScale = 1;
+            viewOffsetX = padding - bounds.minX;
+            viewOffsetY = padding - bounds.minY;
+
+            redrawCanvas();
+
+            const dataUrl = canvas.toDataURL('image/png');
+            const inferredOrientation = exportWidth >= exportHeight ? 'landscape' : 'portrait';
+            const orientation = pageOrientation && pageOrientation !== 'auto'
+                ? pageOrientation
+                : inferredOrientation;
+
+            if (!pdf) {
+                pdf = new jsPDFConstructor({
+                    orientation,
+                    unit: 'pt',
+                    format: pageFormat || 'a4'
+                });
+            } else {
+                pdf.addPage(pageFormat || 'a4', orientation);
+                pdf.setPage(index + 1);
+            }
+
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const availableWidth = pageWidth - margins.left - margins.right;
+            const availableHeight = pageHeight - margins.top - margins.bottom;
+            const scaleFactor = Math.min(availableWidth / exportWidth, availableHeight / exportHeight, 1);
+            const renderWidth = exportWidth * scaleFactor;
+            const renderHeight = exportHeight * scaleFactor;
+            const imageX = margins.left + (availableWidth - renderWidth) / 2;
+            const imageY = margins.top;
+
+            // Use lossless compression to preserve maximum quality in the generated PDF.
+            pdf.addImage(dataUrl, 'PNG', imageX, imageY, renderWidth, renderHeight, undefined, 'NONE');
+
+            pdf.setFontSize(textFontSize);
+
+            if (headerText) {
+                pdf.text(headerText, pageWidth / 2, margins.top / 2, { align: 'center' });
+            }
+
+            if (footerText) {
+                pdf.text(footerText, pageWidth / 2, pageHeight - margins.bottom / 2, { align: 'center' });
+            }
+
+            const leftInfoLines = [
+                businessName ? `Business: ${businessName}` : '',
+                designerName ? `Designer: ${designerName}` : '',
+                mobileNumber ? `Mobile: ${mobileNumber}` : ''
+            ].filter(Boolean);
+
+            const rightInfoLines = [
+                clientName ? `Client: ${clientName}` : '',
+                clientAddress ? `Address: ${clientAddress}` : '',
+                clientMobile ? `Client Mobile: ${clientMobile}` : ''
+            ].filter(Boolean);
+
+            let infoY = pageHeight - margins.bottom + 10;
+            leftInfoLines.forEach((line, lineIndex) => {
+                pdf.text(line, margins.left, infoY + lineIndex * infoLineHeight);
+            });
+
+            const rightInfoX = pageWidth - margins.right;
+            rightInfoLines.forEach((line, lineIndex) => {
+                pdf.text(line, rightInfoX, infoY + lineIndex * infoLineHeight, { align: 'right' });
+            });
+        }
+
+        if (pdf) {
+            pdf.save('apzok-plan.pdf');
+        }
+
+        loadLayerSnapshot(activeLayerBeforeExport);
     } catch (error) {
         console.error('Failed to download PDF', error);
         alert('Could not download PDF. Please try again.');
@@ -3336,9 +3464,11 @@ async function downloadPlanAsPDF() {
         canvas.height = prevHeight;
         canvas.style.width = prevStyleWidth;
         canvas.style.height = prevStyleHeight;
+        canvas.style.visibility = previousCanvasVisibility;
         viewScale = prevViewScale;
         viewOffsetX = prevOffsetX;
         viewOffsetY = prevOffsetY;
+        showGrid = originalShowGrid;
         redrawCanvas();
         syncCanvasScrollArea();
 
@@ -3563,9 +3693,7 @@ function init() {
         });
     }
     if (downloadPdfButton) {
-        downloadPdfButton.addEventListener('click', () => {
-            downloadPlanAsPDF();
-        });
+        downloadPdfButton.addEventListener('click', openPdfOptionsModal);
     }
 
     if (textModalConfirm) {
@@ -3573,6 +3701,12 @@ function init() {
     }
     if (textModalCancel) {
         textModalCancel.addEventListener('click', closeTextModal);
+    }
+    if (pdfDownloadConfirmButton) {
+        pdfDownloadConfirmButton.addEventListener('click', submitPdfOptions);
+    }
+    if (pdfDownloadCancelButton) {
+        pdfDownloadCancelButton.addEventListener('click', closePdfOptionsModal);
     }
     if (staircaseApplyButton) {
         staircaseApplyButton.addEventListener('click', applyStaircaseSettings);
@@ -3627,6 +3761,19 @@ function init() {
             }
             if (event.key === 'Escape') {
                 closeTextModal();
+            }
+        });
+    }
+
+    if (pdfOptionsModal) {
+        pdfOptionsModal.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                submitPdfOptions();
+            }
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closePdfOptionsModal();
             }
         });
     }
@@ -4399,6 +4546,7 @@ function finalizeSelectionBox() {
         selectAllMode = false;
         selectedDirectLineIndices.clear();
         directLinePointSelection = null;
+        selectedFloorIds.clear();
     }
 
     walls.forEach(wall => {
@@ -4407,6 +4555,24 @@ function finalizeSelectionBox() {
         if (!n1 || !n2) return;
         if (rectIntersectsSegment(rect, n1.x, n1.y, n2.x, n2.y)) {
             selectedWalls.add(wall);
+        }
+    });
+
+    floors.forEach(floor => {
+        const floorNodes = (floor.nodeIds || []).map(getNodeById).filter(Boolean);
+        if (floorNodes.length < 3) return;
+
+        const xs = floorNodes.map(n => n.x);
+        const ys = floorNodes.map(n => n.y);
+        const floorRect = {
+            x: Math.min(...xs),
+            y: Math.min(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys)
+        };
+
+        if (rectsOverlap(rect, floorRect)) {
+            selectedFloorIds.add(floor.id);
         }
     });
 
@@ -5207,6 +5373,7 @@ function handleMouseMove(e) {
         const dy = selectionBoxEnd.y - selectionBoxStart.y;
         if (Math.hypot(dx, dy) > 3) {
             isSelectionBoxActive = true;
+            selectionBoxPending = false;
         }
     }
 
@@ -5644,16 +5811,16 @@ function handleMouseUp() {
         return;
     }
 
+    if (isSelectionBoxActive) {
+        finalizeSelectionBox();
+        return;
+    }
+
     if (selectionBoxPending) {
         selectionBoxPending = false;
         selectionBoxStart = null;
         selectionBoxEnd = null;
         redrawCanvas();
-        return;
-    }
-
-    if (isSelectionBoxActive) {
-        finalizeSelectionBox();
         return;
     }
 
@@ -8741,6 +8908,37 @@ function closeStaircaseModal() {
     if (!staircaseModal) return;
     staircaseModal.classList.add('hidden');
     staircaseEditTargetIndex = null;
+}
+
+function openPdfOptionsModal() {
+    if (!pdfOptionsModal) {
+        downloadPlanAsPDF();
+        return;
+    }
+    pdfOptionsModal.classList.remove('hidden');
+}
+
+function closePdfOptionsModal() {
+    if (!pdfOptionsModal) return;
+    pdfOptionsModal.classList.add('hidden');
+}
+
+function submitPdfOptions() {
+    const options = {
+        businessName: pdfBusinessNameInput?.value?.trim() || '',
+        designerName: pdfDesignerNameInput?.value?.trim() || '',
+        mobileNumber: pdfMobileNumberInput?.value?.trim() || '',
+        clientName: pdfClientNameInput?.value?.trim() || '',
+        clientAddress: pdfClientAddressInput?.value?.trim() || '',
+        clientMobile: pdfClientMobileInput?.value?.trim() || '',
+        headerText: pdfHeaderInput?.value?.trim() || '',
+        footerText: pdfFooterInput?.value?.trim() || '',
+        pageFormat: pdfFormatSelect?.value || 'a4',
+        pageOrientation: pdfOrientationSelect?.value || 'auto'
+    };
+
+    closePdfOptionsModal();
+    downloadPlanAsPDF(options);
 }
 
 function openTextModal({ defaultValue = 'New label', confirmLabel = 'Save', onSubmit } = {}) {

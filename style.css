@@ -375,7 +375,34 @@ input[type="number"] {
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
+.modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.pdf-modal {
+    width: 380px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.pdf-modal-body {
+    flex: 1;
+    padding-right: 4px;
+    margin-bottom: 8px;
+}
+
 .modal-content input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    margin: 8px 0;
+    font-size: 14px;
+}
+
+.modal-content select {
     width: 100%;
     box-sizing: border-box;
     padding: 8px;
