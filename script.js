@@ -2789,19 +2789,30 @@ function findRoomPolygonAtPoint(x, y) {
 
 function ensureFloorPattern(floor) {
     if (!floor?.texture?.imageSrc) return Promise.resolve();
-    if (floor.texture.pattern) return Promise.resolve();
+
+    const applyPatternFromImage = (image) => {
+        const widthPx = floor.texture.widthPx || image.width;
+        const heightPx = floor.texture.heightPx || image.height;
+        const tileCanvas = floor.texture.patternCanvas || document.createElement('canvas');
+        tileCanvas.width = Math.max(1, Math.round(widthPx));
+        tileCanvas.height = Math.max(1, Math.round(heightPx));
+        const tctx = tileCanvas.getContext('2d');
+        tctx.clearRect(0, 0, tileCanvas.width, tileCanvas.height);
+        tctx.drawImage(image, 0, 0, tileCanvas.width, tileCanvas.height);
+        floor.texture.patternCanvas = tileCanvas;
+        floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
+    };
+
+    if (floor.texture.patternImage?.complete) {
+        applyPatternFromImage(floor.texture.patternImage);
+        return Promise.resolve();
+    }
 
     return new Promise(resolve => {
         const image = new Image();
         image.onload = () => {
-            const widthPx = floor.texture.widthPx || image.width;
-            const heightPx = floor.texture.heightPx || image.height;
-            const tileCanvas = document.createElement('canvas');
-            tileCanvas.width = Math.max(1, Math.round(widthPx));
-            tileCanvas.height = Math.max(1, Math.round(heightPx));
-            const tctx = tileCanvas.getContext('2d');
-            tctx.drawImage(image, 0, 0, tileCanvas.width, tileCanvas.height);
-            floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
+            floor.texture.patternImage = image;
+            applyPatternFromImage(image);
             redrawCanvas();
             resolve();
         };
