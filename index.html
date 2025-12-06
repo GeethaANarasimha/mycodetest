@@ -224,48 +224,50 @@
 </div>
 
 <div id="pdfOptionsModal" class="modal hidden">
-    <div class="modal-content">
+    <div class="modal-content pdf-modal">
         <h3>Download PDF</h3>
         <p class="modal-subtitle">Set details for each page and choose a paper size.</p>
 
-        <label class="modal-label" for="pdfBusinessName">Business Name</label>
-        <input id="pdfBusinessName" type="text" placeholder="Enter business name" />
+        <div class="modal-body pdf-modal-body">
+            <label class="modal-label" for="pdfBusinessName">Business Name</label>
+            <input id="pdfBusinessName" type="text" placeholder="Enter business name" />
 
-        <label class="modal-label" for="pdfDesignerName">Designer Name</label>
-        <input id="pdfDesignerName" type="text" placeholder="Enter designer name" />
+            <label class="modal-label" for="pdfDesignerName">Designer Name</label>
+            <input id="pdfDesignerName" type="text" placeholder="Enter designer name" />
 
-        <label class="modal-label" for="pdfMobileNumber">Mobile Number</label>
-        <input id="pdfMobileNumber" type="text" placeholder="Enter mobile number" />
+            <label class="modal-label" for="pdfMobileNumber">Mobile Number</label>
+            <input id="pdfMobileNumber" type="text" placeholder="Enter mobile number" />
 
-        <label class="modal-label" for="pdfClientName">Client Name</label>
-        <input id="pdfClientName" type="text" placeholder="Enter client name" />
+            <label class="modal-label" for="pdfClientName">Client Name</label>
+            <input id="pdfClientName" type="text" placeholder="Enter client name" />
 
-        <label class="modal-label" for="pdfClientAddress">Client Address</label>
-        <input id="pdfClientAddress" type="text" placeholder="Enter client address" />
+            <label class="modal-label" for="pdfClientAddress">Client Address</label>
+            <input id="pdfClientAddress" type="text" placeholder="Enter client address" />
 
-        <label class="modal-label" for="pdfClientMobile">Client Mobile Number</label>
-        <input id="pdfClientMobile" type="text" placeholder="Enter client mobile number" />
+            <label class="modal-label" for="pdfClientMobile">Client Mobile Number</label>
+            <input id="pdfClientMobile" type="text" placeholder="Enter client mobile number" />
 
-        <label class="modal-label" for="pdfHeader">Header</label>
-        <input id="pdfHeader" type="text" placeholder="Enter header text" />
+            <label class="modal-label" for="pdfHeader">Header</label>
+            <input id="pdfHeader" type="text" placeholder="Enter header text" />
 
-        <label class="modal-label" for="pdfFooter">Footer</label>
-        <input id="pdfFooter" type="text" placeholder="Enter footer text" />
+            <label class="modal-label" for="pdfFooter">Footer</label>
+            <input id="pdfFooter" type="text" placeholder="Enter footer text" />
 
-        <label class="modal-label" for="pdfFormat">Page Format</label>
-        <select id="pdfFormat">
-            <option value="a4">A4</option>
-            <option value="letter">Letter</option>
-            <option value="legal">Legal</option>
-            <option value="a3">A3</option>
-        </select>
+            <label class="modal-label" for="pdfFormat">Page Format</label>
+            <select id="pdfFormat">
+                <option value="a4">A4</option>
+                <option value="letter">Letter</option>
+                <option value="legal">Legal</option>
+                <option value="a3">A3</option>
+            </select>
 
-        <label class="modal-label" for="pdfOrientation">Page Orientation</label>
-        <select id="pdfOrientation">
-            <option value="auto">Auto (match drawing)</option>
-            <option value="portrait">Portrait</option>
-            <option value="landscape">Landscape</option>
-        </select>
+            <label class="modal-label" for="pdfOrientation">Page Orientation</label>
+            <select id="pdfOrientation">
+                <option value="auto">Auto (match drawing)</option>
+                <option value="portrait">Portrait</option>
+                <option value="landscape">Landscape</option>
+            </select>
+        </div>
 
         <div class="modal-actions">
             <button id="pdfDownloadConfirm" class="tool-btn" type="button">Download</button>
