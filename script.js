@@ -3320,6 +3320,9 @@ async function downloadPlanAsPDF(options = {}) {
         switchTo2DView();
     }
 
+    const originalShowGrid = showGrid;
+    showGrid = false;
+
     const prevWidth = canvas.width;
     const prevHeight = canvas.height;
     const prevStyleWidth = canvas.style.width;
@@ -3400,18 +3403,26 @@ async function downloadPlanAsPDF(options = {}) {
                 pdf.text(footerText, pageWidth / 2, pageHeight - margins.bottom / 2, { align: 'center' });
             }
 
-            const infoLines = [
+            const leftInfoLines = [
                 businessName ? `Business: ${businessName}` : '',
                 designerName ? `Designer: ${designerName}` : '',
-                mobileNumber ? `Mobile: ${mobileNumber}` : '',
+                mobileNumber ? `Mobile: ${mobileNumber}` : ''
+            ].filter(Boolean);
+
+            const rightInfoLines = [
                 clientName ? `Client: ${clientName}` : '',
                 clientAddress ? `Address: ${clientAddress}` : '',
                 clientMobile ? `Client Mobile: ${clientMobile}` : ''
             ].filter(Boolean);
 
             let infoY = pageHeight - margins.bottom + 10;
-            infoLines.forEach((line, lineIndex) => {
+            leftInfoLines.forEach((line, lineIndex) => {
                 pdf.text(line, margins.left, infoY + lineIndex * infoLineHeight);
+            });
+
+            const rightInfoX = pageWidth - margins.right;
+            rightInfoLines.forEach((line, lineIndex) => {
+                pdf.text(line, rightInfoX, infoY + lineIndex * infoLineHeight, { align: 'right' });
             });
         });
 
@@ -3431,6 +3442,7 @@ async function downloadPlanAsPDF(options = {}) {
         viewScale = prevViewScale;
         viewOffsetX = prevOffsetX;
         viewOffsetY = prevOffsetY;
+        showGrid = originalShowGrid;
         redrawCanvas();
         syncCanvasScrollArea();
 
