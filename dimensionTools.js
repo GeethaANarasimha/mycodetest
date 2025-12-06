@@ -486,21 +486,19 @@ function endManualDimension(x, y) {
  * Create wall dimension with 1px offset
  */
 window.createWallDimension = function(wallData, options = {}) {
-    const { n1, n2 } = wallData;
-    const orientation = getWallOrientation(n1, n2);
-    const dx = n2.x - n1.x;
-    const dy = n2.y - n1.y;
-    const midX = (n1.x + n2.x) / 2;
-    const midY = (n1.y + n2.y) / 2;
+    const wall = wallData.wall || wallData;
+    const start = getNodeById(wall.startNodeId);
+    const end = getNodeById(wall.endNodeId);
+
+    if (!start || !end) return null;
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
     const len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len;
     const ny = dx / len;
-    const dirX = dx / len;
-    const dirY = dy / len;
-
-    const wallThickness = getWallThicknessPx(wallData.wall);
-    const borderOffset = wallThickness / 2;
-    const dimensionOffset = borderOffset + WALL_DIMENSION_OFFSET;
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2;
 
     const referenceX = options.referenceX ?? null;
     const referenceY = options.referenceY ?? null;
@@ -508,51 +506,28 @@ window.createWallDimension = function(wallData, options = {}) {
         ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
         : 1;
 
-    const startBase = getDimensionEndpointWithJoint(n1, wallData.wall, true);
-    const endBase = getDimensionEndpointWithJoint(n2, wallData.wall, false);
-    const startNode = getNodeById(wallData.wall.startNodeId) || n1;
-    const endNode = getNodeById(wallData.wall.endNodeId) || n2;
-
-    const offsetX = (-dy / len) * dimensionOffset * offsetSign;
-    const offsetY = (dx / len) * dimensionOffset * offsetSign;
-
-    const startX = startBase.x + offsetX;
-    const startY = startBase.y + offsetY;
-    const endX = endBase.x + offsetX;
-    const endY = endBase.y + offsetY;
-
-    const adjustedLength = Math.hypot(endX - startX, endY - startY);
-
-    // Measure the wall based on its true node-to-node length so isolated walls
-    // don't inherit extra thickness. The adjusted length is still used for
-    // drawing (to keep chamfered joins), but the label should reflect the wall
-    // length alone.
-    const measuredLength = getMeasuredWallLength(n1, n2, wallData.wall);
-    const totalInches = Math.round((measuredLength / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-
     const dimension = {
         id: nextDimensionId++,
-        startX: startX,
-        startY: startY,
-        endX: endX,
-        endY: endY,
-        text: text,
+        startX: start.x,
+        startY: start.y,
+        endX: end.x,
+        endY: end.y,
+        text: '',
         lineColor: WALL_DIMENSION_COLOR,
         lineWidth: 2,
-        length: measuredLength,
+        length: 0,
         isAuto: true,
-        orientation: orientation,
-        wallId: wallData.wall.id,
+        orientation: getWallOrientation(start, end),
+        wallId: wall.id,
         offsetSign: offsetSign,
-        p1: { x: startNode.x, y: startNode.y },
-        p2: { x: endNode.x, y: endNode.y },
-        offset: 15,
+        p1: { x: start.x, y: start.y },
+        p2: { x: end.x, y: end.y },
+        offset: 18,
         type: "wall-dimension"
     };
-    
+
+    window.updateDimensionMeasurement(dimension);
+
     dimensions.push(dimension);
     return dimension;
 };
@@ -563,12 +538,17 @@ window.createWallDimension = function(wallData, options = {}) {
 window.updateDimensionMeasurement = function(dimension) {
     if (!dimension) return;
 
-    const length = Math.hypot(dimension.endX - dimension.startX, dimension.endY - dimension.startY);
-    const totalInches = Math.round((length / scale) * 12);
+    const p1 = dimension.p1 || { x: dimension.startX, y: dimension.startY };
+    const p2 = dimension.p2 || { x: dimension.endX, y: dimension.endY };
+
+    const dx = p1.x - p2.x;
+    const dy = p1.y - p2.y;
+    const pixelDist = Math.hypot(dx, dy);
+    const totalInches = Math.round((pixelDist / scale) * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
 
-    dimension.length = length;
+    dimension.length = pixelDist;
     dimension.text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
 };
 
