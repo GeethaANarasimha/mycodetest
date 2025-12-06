@@ -203,6 +203,8 @@ let measurementDragHandle = null;
 let measurementDragLast = null;
 let measurementDistanceFeet = null;
 let isBackgroundImageVisible = true;
+let measurementPlacementStart = null;
+let measurementClickSuppressed = false;
 
 const BASE_CANVAS_WIDTH = canvas.width;
 const BASE_CANVAS_HEIGHT = canvas.height;
@@ -880,6 +882,8 @@ function resetBackgroundModal() {
     isBackgroundMeasurementActive = false;
     measurementDragHandle = null;
     measurementDragLast = null;
+    measurementPlacementStart = null;
+    measurementClickSuppressed = false;
     updateBackgroundMeasurementUI();
 }
 
@@ -1054,7 +1058,7 @@ function updateBackgroundMeasurementUI() {
         const hasDistance = hasValidMeasurementDistance();
         backgroundMeasurementHint.classList.toggle('hidden', !isBackgroundMeasurementActive || !hasDistance);
         if (isBackgroundMeasurementActive && hasDistance) {
-            backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${getMeasurementLabel()}, then press Finish.`;
+            backgroundMeasurementHint.textContent = `Drag the measurement line or click two points on the preview to match ${getMeasurementLabel()}, then press Finish.`;
         }
     }
 
@@ -1092,6 +1096,7 @@ function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
 
     if (resetLine) {
         measurementLineNormalized = null;
+        measurementPlacementStart = null;
         ensureMeasurementLine();
     }
 
@@ -1103,7 +1108,7 @@ function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
     }
 
     if (backgroundMeasurementHint && isBackgroundMeasurementActive && hasValidMeasurementDistance()) {
-        backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${getMeasurementLabel()}, then press Finish.`;
+        backgroundMeasurementHint.textContent = `Drag the measurement line or click two points on the preview to match ${getMeasurementLabel()}, then press Finish.`;
     }
 
     if (finishBackgroundMeasurementButton) {
@@ -1164,6 +1169,7 @@ function ensureMeasurementLine() {
         start: { x: 0.25, y: 0.85 },
         end: { x: 0.75, y: 0.85 }
     };
+    measurementPlacementStart = null;
     return measurementLineNormalized;
 }
 
@@ -1184,6 +1190,8 @@ function startBackgroundMeasurement() {
     isBackgroundMeasurementActive = true;
     measurementDragHandle = null;
     measurementDragLast = null;
+    measurementPlacementStart = null;
+    measurementClickSuppressed = false;
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.remove('hidden');
     isBackgroundImageVisible = false;
     updateBackgroundMeasurementUI();
@@ -1196,6 +1204,8 @@ function cancelBackgroundMeasurement() {
     measurementDragHandle = null;
     measurementDragLast = null;
     measurementLineNormalized = null;
+    measurementPlacementStart = null;
+    measurementClickSuppressed = false;
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
     updateBackgroundMeasurementUI();
     updateToolInfo();
@@ -1230,6 +1240,8 @@ function applyBackgroundMeasurement(closeModal = false) {
     isBackgroundMeasurementActive = false;
     measurementDragHandle = null;
     measurementDragLast = null;
+    measurementPlacementStart = null;
+    measurementClickSuppressed = false;
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
     isBackgroundImageVisible = true;
     updateBackgroundMeasurementUI();
@@ -1269,28 +1281,24 @@ function startMeasurementDragOnPreview(x, y) {
     const hitEnd = Math.hypot(x - end.x, y - end.y) <= radius;
     if (hitStart) {
         measurementDragHandle = 'start';
+        measurementPlacementStart = null;
     } else if (hitEnd) {
         measurementDragHandle = 'end';
+        measurementPlacementStart = null;
     } else {
         const distToLine = distanceToSegment(x, y, start.x, start.y, end.x, end.y);
         if (distToLine <= 8) {
             measurementDragHandle = 'line';
-        } else {
-            const halfLength = (measurementDistanceFeet || 10) * dims.width / 8;
-            measurementLineNormalized.start = {
-                x: toNormalized(x - halfLength, dims.width),
-                y: toNormalized(y, dims.height)
-            };
-            measurementLineNormalized.end = {
-                x: toNormalized(x + halfLength, dims.width),
-                y: toNormalized(y, dims.height)
-            };
-            measurementDragHandle = 'line';
+            measurementPlacementStart = null;
         }
     }
 
-    measurementDragLast = { x, y };
-    return true;
+    if (measurementDragHandle) {
+        measurementDragLast = { x, y };
+        measurementClickSuppressed = true;
+    }
+
+    return !!measurementDragHandle;
 }
 
 function updateMeasurementDragOnPreview(x, y) {
@@ -1327,6 +1335,40 @@ function finalizeMeasurementDragOnPreview() {
     measurementDragLast = null;
 }
 
+function handleMeasurementPlacementClick(event) {
+    if (!isBackgroundMeasurementActive) return;
+    if (measurementClickSuppressed) {
+        measurementClickSuppressed = false;
+        return;
+    }
+
+    ensureMeasurementLine();
+    if (!measurementLineNormalized) return;
+    const dims = getPreviewDimensions();
+    const pos = getPreviewPointerPosition(event);
+    if (!dims || !pos) return;
+
+    const normalized = {
+        x: toNormalized(pos.x, dims.width),
+        y: toNormalized(pos.y, dims.height)
+    };
+
+    if (!measurementPlacementStart) {
+        measurementPlacementStart = normalized;
+        measurementLineNormalized.start = normalized;
+        measurementLineNormalized.end = normalized;
+    } else {
+        measurementLineNormalized.start = measurementPlacementStart;
+        measurementLineNormalized.end = normalized;
+        measurementPlacementStart = null;
+    }
+
+    redrawPreviewMeasurementOverlay();
+    if (finishBackgroundMeasurementButton) {
+        finishBackgroundMeasurementButton.disabled = !measurementLineNormalized || !hasValidMeasurementDistance();
+    }
+}
+
 function getPreviewPointerPosition(event) {
     if (!backgroundPreviewCanvas) return null;
     const rect = backgroundPreviewCanvas.getBoundingClientRect();
@@ -1352,6 +1394,8 @@ function deleteBackgroundImage() {
     isBackgroundImageVisible = true;
     measurementDragHandle = null;
     measurementDragLast = null;
+    measurementPlacementStart = null;
+    measurementClickSuppressed = false;
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
     resetBackgroundModal();
     closeBackgroundImageModal();
@@ -3835,6 +3879,11 @@ function init() {
             const pos = getPreviewPointerPosition(event);
             if (!pos) return;
             updateMeasurementDragOnPreview(pos.x, pos.y);
+        });
+
+        backgroundPreviewCanvas.addEventListener('click', (event) => {
+            if (!isBackgroundMeasurementActive) return;
+            handleMeasurementPlacementClick(event);
         });
 
         window.addEventListener('mouseup', () => {
