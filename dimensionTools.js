@@ -257,6 +257,30 @@ window.findNearestWallCorner = function(x, y, maxDistance = CORNER_REFERENCE_RAD
     return bestCorner;
 };
 
+function normalizeDirection(dir) {
+    const len = Math.hypot(dir.x, dir.y) || 1;
+    return { x: dir.x / len, y: dir.y / len };
+}
+
+function getCornerReferencePosition(corner, directionOverride = null) {
+    if (!corner?.node) return null;
+
+    if (!directionOverride) {
+        return { x: corner.node.x, y: corner.node.y };
+    }
+
+    const direction = directionOverride || getCornerReferenceDirection(corner);
+    const dir = normalizeDirection(direction);
+    const wall = corner.wall || (corner.wallId ? walls.find(w => w.id === corner.wallId) : null);
+    const thickness = wall && typeof getWallThicknessPx === 'function' ? getWallThicknessPx(wall) : 0;
+    const offset = (thickness || 0) / 2;
+
+    return {
+        x: corner.node.x + dir.x * offset,
+        y: corner.node.y + dir.y * offset
+    };
+}
+
 /**
  * Start manual dimension
  */
@@ -269,12 +293,15 @@ function startManualDimension(x, y) {
     const wallFromCorner = cornerCandidate?.wall || hoveredWall?.wall || window.dimensionActiveWall?.wall;
 
     if (cornerCandidate?.node) {
-        x = cornerCandidate.node.x;
-        y = cornerCandidate.node.y;
+        const offsetDir = getCornerReferenceDirection(cornerCandidate);
+        const anchor = getCornerReferencePosition(cornerCandidate, offsetDir) || cornerCandidate.node;
+        x = anchor.x;
+        y = anchor.y;
         window.dimensionStartAttachment = {
             type: 'corner',
             nodeId: cornerCandidate.node.id,
-            wallId: wallFromCorner?.id || null
+            wallId: wallFromCorner?.id || null,
+            offsetDir
         };
 
         if (wallFromCorner) {
@@ -322,12 +349,15 @@ function endManualDimension(x, y) {
     let endAttachment = null;
 
     if (cornerCandidate?.node) {
-        x = cornerCandidate.node.x;
-        y = cornerCandidate.node.y;
+        const offsetDir = getCornerReferenceDirection(cornerCandidate);
+        const anchor = getCornerReferencePosition(cornerCandidate, offsetDir) || cornerCandidate.node;
+        x = anchor.x;
+        y = anchor.y;
         endAttachment = {
             type: 'corner',
             nodeId: cornerCandidate.node.id,
-            wallId: (cornerCandidate.wall || window.dimensionActiveWall?.wall)?.id || null
+            wallId: (cornerCandidate.wall || window.dimensionActiveWall?.wall)?.id || null,
+            offsetDir
         };
 
         if (cornerCandidate.wall && !window.dimensionActiveWall) {
@@ -457,7 +487,9 @@ function resolveAttachmentPosition(attachment) {
     if (attachment.type === 'corner') {
         const node = getNodeById(attachment.nodeId);
         if (node) {
-            return { x: node.x, y: node.y };
+            const wall = attachment.wallId ? walls.find(w => w.id === attachment.wallId) : null;
+            const anchor = getCornerReferencePosition({ node, wall, wallId: attachment.wallId }, attachment.offsetDir);
+            return anchor || { x: node.x, y: node.y };
         }
     }
 
@@ -550,11 +582,10 @@ window.drawCornerReference = function(corner) {
     if (!corner?.node) return;
 
     const direction = getCornerReferenceDirection(corner);
-    const len = Math.hypot(direction.x, direction.y) || 1;
-    const dir = { x: direction.x / len, y: direction.y / len };
+    const dir = normalizeDirection(direction);
     const normal = { x: -dir.y, y: dir.x };
 
-    const tip = { x: corner.node.x, y: corner.node.y };
+    const tip = getCornerReferencePosition(corner, direction) || corner.node;
     const baseCenter = { x: tip.x - dir.x * CORNER_MARKER_SIZE, y: tip.y - dir.y * CORNER_MARKER_SIZE };
     const spread = CORNER_MARKER_SIZE * 0.8;
     const p1 = { x: baseCenter.x + normal.x * spread, y: baseCenter.y + normal.y * spread };
