@@ -510,6 +510,8 @@ window.createWallDimension = function(wallData, options = {}) {
 
     const startBase = getDimensionEndpointWithJoint(n1, wallData.wall, true);
     const endBase = getDimensionEndpointWithJoint(n2, wallData.wall, false);
+    const startNode = getNodeById(wallData.wall.startNodeId) || n1;
+    const endNode = getNodeById(wallData.wall.endNodeId) || n2;
 
     const offsetX = (-dy / len) * dimensionOffset * offsetSign;
     const offsetY = (dx / len) * dimensionOffset * offsetSign;
@@ -545,8 +547,10 @@ window.createWallDimension = function(wallData, options = {}) {
         orientation: orientation,
         wallId: wallData.wall.id,
         offsetSign: offsetSign,
-        p1: { x: startBase.x, y: startBase.y },
-        p2: { x: endBase.x, y: endBase.y }
+        p1: { x: startNode.x, y: startNode.y },
+        p2: { x: endNode.x, y: endNode.y },
+        offset: 15,
+        type: "wall-dimension"
     };
     
     dimensions.push(dimension);
