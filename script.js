@@ -27,6 +27,8 @@ const coordinatesDisplay = document.querySelector('.coordinates');
 const toolInfoDisplay = document.querySelector('.tool-info');
 const measurementFontIncreaseButton = document.getElementById('measurementFontIncrease');
 const measurementFontDecreaseButton = document.getElementById('measurementFontDecrease');
+const measurementOffsetFeetInput = document.getElementById('measurementOffsetFeet');
+const measurementOffsetInchesInput = document.getElementById('measurementOffsetInches');
 const rotateLeftButton = document.getElementById('rotateLeft');
 const rotateRightButton = document.getElementById('rotateRight');
 const flipHorizontalButton = document.getElementById('flipHorizontal');
@@ -2573,6 +2575,36 @@ function findOrCreateNode(x, y) {
     return node;
 }
 
+function inchesToFeetAndInches(totalInches) {
+    const safeInches = Math.max(0, Math.round(totalInches));
+    const feet = Math.floor(safeInches / 12);
+    const inches = safeInches % 12;
+    return { feet, inches };
+}
+
+function getMeasurementOffsetInches() {
+    const feet = parseInt(measurementOffsetFeetInput?.value, 10) || 0;
+    const inches = parseInt(measurementOffsetInchesInput?.value, 10) || 0;
+    return Math.max(0, feet * 12 + inches);
+}
+
+function applyMeasurementOffset(totalInches) {
+    return Math.max(0, Math.round(totalInches) - getMeasurementOffsetInches());
+}
+
+function formatMeasurementText(totalInches) {
+    const adjusted = applyMeasurementOffset(totalInches);
+    const { feet, inches } = inchesToFeetAndInches(adjusted);
+    return inches > 0 ? `${feet}'${inches}\"` : `${feet}'`;
+}
+
+function refreshDimensionLabels() {
+    if (!window.dimensions || !Array.isArray(window.dimensions)) return;
+    if (typeof window.updateDimensionMeasurement !== 'function') return;
+
+    window.dimensions.forEach(dim => window.updateDimensionMeasurement(dim));
+}
+
 // ============================================================
 // FLOOR HELPERS
 // ============================================================
@@ -3075,6 +3107,8 @@ function buildProjectState() {
             textFontSize,
             textIsBold,
             textIsItalic,
+            measurementOffsetFeet: parseInt(measurementOffsetFeetInput?.value, 10) || 0,
+            measurementOffsetInches: parseInt(measurementOffsetInchesInput?.value, 10) || 0,
             lineWidth: parseInt(lineWidthInput?.value, 10) || 2,
             lineColor: lineColorInput?.value || DEFAULT_WALL_COLOR,
             fillColor: fillColorInput?.value || '#d9d9d9'
@@ -3156,6 +3190,8 @@ function applyProjectState(state) {
      textFontSize = settings.textFontSize ?? textFontSize;
      textIsBold = settings.textIsBold ?? textIsBold;
      textIsItalic = settings.textIsItalic ?? textIsItalic;
+     if (measurementOffsetFeetInput) measurementOffsetFeetInput.value = settings.measurementOffsetFeet ?? measurementOffsetFeetInput.value ?? 0;
+     if (measurementOffsetInchesInput) measurementOffsetInchesInput.value = settings.measurementOffsetInches ?? measurementOffsetInchesInput.value ?? 0;
      measurementDistanceFeet = state.measurementDistanceFeet ?? measurementDistanceFeet;
      isBackgroundImageVisible = state.backgroundImageVisible ?? isBackgroundImageVisible;
 
@@ -3206,10 +3242,11 @@ function applyProjectState(state) {
      updateMeasurementPreview();
      updateToolInfo();
      updatePropertiesPanel();
+     refreshDimensionLabels();
      redrawCanvas();
 
      isProjectLoading = false;
- }
+}
 
 let jsPdfLoader = null;
 
@@ -3883,6 +3920,19 @@ function init() {
     }
     if (measurementFontDecreaseButton) {
         measurementFontDecreaseButton.addEventListener('click', () => changeMeasurementFontSize(-2));
+    }
+
+    const onMeasurementOffsetChange = () => {
+        refreshDimensionLabels();
+        redrawCanvas();
+    };
+
+    if (measurementOffsetFeetInput) {
+        measurementOffsetFeetInput.addEventListener('input', onMeasurementOffsetChange);
+    }
+
+    if (measurementOffsetInchesInput) {
+        measurementOffsetInchesInput.addEventListener('input', onMeasurementOffsetChange);
     }
 
     if (backgroundDistanceInput) {
@@ -6385,9 +6435,7 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     if (len < 1) return;
 
     const totalInches = Math.round((len / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-    const text = `${feet}'${inches}"`;
+    const text = formatMeasurementText(totalInches);
 
     const midX = (x1 + x2) / 2;
     const midY = (y1 + y2) / 2;
