@@ -271,9 +271,10 @@ function getCornerReferencePosition(corner, directionOverride = null) {
 
     const direction = directionOverride || getCornerReferenceDirection(corner);
     const dir = normalizeDirection(direction);
-    const wall = corner.wall || (corner.wallId ? walls.find(w => w.id === corner.wallId) : null);
-    const thickness = wall && typeof getWallThicknessPx === 'function' ? getWallThicknessPx(wall) : 0;
-    const offset = (thickness || 0) / 2;
+
+    // Reference points should align to the wall center rather than its border
+    // so manual measurements use the middle of the wall.
+    const offset = 0;
 
     return {
         x: corner.node.x + dir.x * offset,
