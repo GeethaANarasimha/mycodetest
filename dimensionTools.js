@@ -66,8 +66,11 @@ function getDimensionEndpointWithJoint(node, wall, isStart) {
     const baseDir = { x: baseDx / baseLen, y: baseDy / baseLen };
     const dirSign = isStart ? -1 : 1;
 
+    // Dimensions should originate from the wall centerline. Avoid extending to
+    // the chamfered corner so the extension lines line up with the wall's
+    // center point instead of the outer corner.
     const needsExtension = hasAngledConnection(node.id, wall);
-    const extension = needsExtension ? getWallThicknessPx(wall) / 2 : 0;
+    const extension = 0;
 
     // Default direction is simply along the wall (outward from the node)
     let offsetDir = { x: baseDir.x * dirSign, y: baseDir.y * dirSign };
