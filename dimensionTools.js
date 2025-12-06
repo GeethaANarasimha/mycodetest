@@ -21,6 +21,48 @@ const DIMENSION_COLOR = '#3498db';
 const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
+const WALL_JOIN_COLINEAR_DOT = 0.999; // Treat walls as colinear when their dot product exceeds this threshold
+
+/**
+ * Determine whether a node is connected to any wall that is not colinear with the given wall
+ */
+function hasAngledConnection(nodeId, wall) {
+    return walls.some(candidate => {
+        if (candidate.id === wall.id) return false;
+        if (candidate.startNodeId !== nodeId && candidate.endNodeId !== nodeId) return false;
+        return !areWallsColinearAtNode(wall, candidate, nodeId);
+    });
+}
+
+/**
+ * Check if two walls are effectively colinear at a shared node
+ */
+function areWallsColinearAtNode(wallA, wallB, nodeId) {
+    const dirA = getWallDirectionFromNode(wallA, nodeId);
+    const dirB = getWallDirectionFromNode(wallB, nodeId);
+    if (!dirA || !dirB) return true;
+    const dot = dirA.x * dirB.x + dirA.y * dirB.y;
+    return Math.abs(dot) > WALL_JOIN_COLINEAR_DOT;
+}
+
+/**
+ * Get normalized direction vector for a wall originating from a specific node
+ */
+function getWallDirectionFromNode(wall, nodeId) {
+    const startNode = getNodeById(wall.startNodeId);
+    const endNode = getNodeById(wall.endNodeId);
+    if (!startNode || !endNode) return null;
+
+    const fromNode = wall.startNodeId === nodeId ? startNode : endNode;
+    const toNode = wall.startNodeId === nodeId ? endNode : startNode;
+
+    const dx = toNode.x - fromNode.x;
+    const dy = toNode.y - fromNode.y;
+    const len = Math.hypot(dx, dy);
+    if (!len) return null;
+
+    return { x: dx / len, y: dy / len };
+}
 
 /**
  * Find the nearest wall to a point with edge detection
@@ -183,12 +225,6 @@ function endManualDimension(x, y) {
 window.createWallDimension = function(wallData, options = {}) {
     const { n1, n2 } = wallData;
     const orientation = getWallOrientation(n1, n2);
-    const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
-    const totalInches = Math.round((length / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
-
     const dx = n2.x - n1.x;
     const dy = n2.y - n1.y;
     const midX = (n1.x + n2.x) / 2;
@@ -196,6 +232,8 @@ window.createWallDimension = function(wallData, options = {}) {
     const len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len;
     const ny = dx / len;
+    const dirX = dx / len;
+    const dirY = dy / len;
 
     const referenceX = options.referenceX ?? null;
     const referenceY = options.referenceY ?? null;
@@ -204,30 +242,38 @@ window.createWallDimension = function(wallData, options = {}) {
         : 1;
 
     let startX, startY, endX, endY;
+    const startExtension = hasAngledConnection(n1.id, wallData.wall) ? getWallThicknessPx(wallData.wall) / 2 : 0;
+    const endExtension = hasAngledConnection(n2.id, wallData.wall) ? getWallThicknessPx(wallData.wall) / 2 : 0;
 
     if (orientation === 'horizontal') {
         const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
-        startX = n1.x;
+        startX = n1.x - dirX * startExtension;
         startY = yPos;
-        endX = n2.x;
+        endX = n2.x + dirX * endExtension;
         endY = yPos;
     } else if (orientation === 'vertical') {
         const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
-        startX = xPos;
+        startX = xPos - dirX * startExtension;
         startY = n1.y;
-        endX = xPos;
+        endX = xPos + dirX * endExtension;
         endY = n2.y;
     } else {
         // Diagonal wall - use center with small offset
         const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
         const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
 
-        startX = n1.x + offsetX;
-        startY = n1.y + offsetY;
-        endX = n2.x + offsetX;
-        endY = n2.y + offsetY;
+        startX = n1.x + offsetX - dirX * startExtension;
+        startY = n1.y + offsetY - dirY * startExtension;
+        endX = n2.x + offsetX + dirX * endExtension;
+        endY = n2.y + offsetY + dirY * endExtension;
     }
-    
+
+    const adjustedLength = Math.hypot(endX - startX, endY - startY);
+    const totalInches = Math.round((adjustedLength / scale) * 12);
+    const feet = Math.floor(totalInches / 12);
+    const inches = totalInches % 12;
+    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+
     const dimension = {
         id: nextDimensionId++,
         startX: startX,
@@ -237,7 +283,7 @@ window.createWallDimension = function(wallData, options = {}) {
         text: text,
         lineColor: WALL_DIMENSION_COLOR,
         lineWidth: 2,
-        length: length,
+        length: adjustedLength,
         isAuto: true,
         orientation: orientation,
         wallId: wallData.wall.id,
