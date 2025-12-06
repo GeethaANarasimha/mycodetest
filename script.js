@@ -333,7 +333,8 @@ let clipboard = {
     floors: [],
     nodes: [],
     referenceX: 0,
-    referenceY: 0
+    referenceY: 0,
+    sourceLayerId: null
 };
 let isPasteMode = false;
 let pasteTargetX = null;
@@ -1697,7 +1698,8 @@ function copySelection() {
         floors: [],
         nodes: [],
         referenceX: 0,
-        referenceY: 0
+        referenceY: 0,
+        sourceLayerId: currentLayerId()
     };
     
     // Collect selected walls and their nodes
@@ -1847,8 +1849,17 @@ function startPasteMode(targetX = null, targetY = null) {
     updateToolInfo();
 
     // If a target point is already known (e.g., context-menu location or last pointer), paste immediately
-    const immediateX = targetX !== null ? targetX : lastContextMenuCanvasX ?? lastPointerCanvasX;
-    const immediateY = targetY !== null ? targetY : lastContextMenuCanvasY ?? lastPointerCanvasY;
+    const isCrossLayerPaste = clipboard.sourceLayerId && clipboard.sourceLayerId !== currentLayerId();
+    const immediateX = isCrossLayerPaste
+        ? clipboard.referenceX
+        : targetX !== null
+            ? targetX
+            : lastContextMenuCanvasX ?? lastPointerCanvasX;
+    const immediateY = isCrossLayerPaste
+        ? clipboard.referenceY
+        : targetY !== null
+            ? targetY
+            : lastContextMenuCanvasY ?? lastPointerCanvasY;
 
     if (immediateX !== null && immediateY !== null) {
         setPastePoint(immediateX, immediateY);
