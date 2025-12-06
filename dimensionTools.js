@@ -16,8 +16,9 @@ window.dimensionHoverY = null;
 window.dimensionActiveWall = null;
 window.selectedDimensionIndex = null;
 
-// Blue color for dimensions
+// Dimension colors
 const DIMENSION_COLOR = '#3498db';
+const MANUAL_DIMENSION_COLOR = '#e74c3c';
 const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
@@ -351,7 +352,7 @@ window.createManualDimension = function(startX, startY, endX, endY) {
         startY: startY,
         endX: endX,
         endY: endY,
-        lineColor: DIMENSION_COLOR,
+        lineColor: MANUAL_DIMENSION_COLOR,
         lineWidth: 2,
         isAuto: false
     };
@@ -624,7 +625,7 @@ window.drawDimensionPreview = function() {
 
     withViewTransform(() => {
         ctx.save();
-        ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
+        ctx.strokeStyle = 'rgba(231, 76, 60, 0.7)';
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 2]);
 
@@ -666,7 +667,7 @@ window.drawDimensionPreview = function() {
             const textY = midY + ny * 15;
 
             ctx.setLineDash([]);
-            ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+            ctx.fillStyle = MANUAL_DIMENSION_COLOR;
             const fontPx = measurementFontSize || 12;
             ctx.font = `${fontPx}px Arial`;
             ctx.textAlign = 'center';
@@ -683,14 +684,14 @@ window.drawDimensionPreview = function() {
                 ctx.translate(textX, textY);
                 ctx.rotate(-Math.PI / 2);
                 ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
-                ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+                ctx.fillStyle = MANUAL_DIMENSION_COLOR;
                 ctx.fillText(text, 0, 0);
                 ctx.restore();
             } else {
                 ctx.fillRect(textX - textWidth/2 - 2, textY - textHeight / 2, textWidth + 4, textHeight);
 
                 // Text
-                ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+                ctx.fillStyle = MANUAL_DIMENSION_COLOR;
                 ctx.fillText(text, textX, textY);
             }
         }
@@ -722,7 +723,7 @@ window.drawDimensions = function() {
             ctx.strokeStyle = WALL_DIMENSION_COLOR;
             ctx.setLineDash([4, 2]);
         } else {
-            ctx.strokeStyle = DIMENSION_COLOR;
+            ctx.strokeStyle = MANUAL_DIMENSION_COLOR;
             ctx.setLineDash([4, 2]);
         }
         
@@ -744,7 +745,7 @@ window.drawDimensions = function() {
             const nx = -dy / len;
             const ny = dx / len;
             const offset = 6;
-            const side = dim.offsetSign || 1;
+            const side = dim.isAuto ? (dim.offsetSign || 1) : 0;
             
             // Extension lines
             ctx.beginPath();
@@ -759,7 +760,7 @@ window.drawDimensions = function() {
             
             // Dimension text
             ctx.setLineDash([]);
-            ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
+            ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : MANUAL_DIMENSION_COLOR;
             const fontPx = measurementFontSize || 12;
             ctx.font = `${fontPx}px Arial`;
             ctx.textAlign = 'center';
@@ -788,24 +789,19 @@ window.drawDimensions = function() {
                 ctx.fillRect(-textWidth/2 - 2, -textHeight / 2, textWidth + 4, textHeight);
 
                 // Text
-                ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
+                ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : MANUAL_DIMENSION_COLOR;
                 ctx.fillText(dim.text, 0, 0);
                 ctx.restore();
             };
 
-            // Always draw the primary label
+            // Always draw the primary label. Manual dimensions keep the label centered on the
+            // dimension line while wall dimensions offset to a single side.
             drawDimensionLabel(side);
-
-            // Mirror the label on the opposite side for wall dimensions so the value is readable
-            // from either direction (e.g., when zoomed or panned to the far side of the wall).
-            if (dim.isAuto) {
-                drawDimensionLabel(-side);
-            }
         }
 
         if (isSelected) {
             ctx.setLineDash([]);
-            ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : DIMENSION_COLOR;
+            ctx.fillStyle = dim.isAuto ? WALL_DIMENSION_COLOR : MANUAL_DIMENSION_COLOR;
             ctx.beginPath();
             ctx.arc(dim.startX, dim.startY, 4, 0, Math.PI * 2);
             ctx.fill();
