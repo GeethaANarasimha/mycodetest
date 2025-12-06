@@ -183,19 +183,14 @@ function endManualDimension(x, y) {
 window.createWallDimension = function(wallData, options = {}) {
     const { n1, n2 } = wallData;
     const orientation = getWallOrientation(n1, n2);
-    const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
-    const totalInches = Math.round((length / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
 
     const dx = n2.x - n1.x;
     const dy = n2.y - n1.y;
-    const midX = (n1.x + n2.x) / 2;
-    const midY = (n1.y + n2.y) / 2;
     const len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len;
     const ny = dx / len;
+    const midX = (n1.x + n2.x) / 2;
+    const midY = (n1.y + n2.y) / 2;
 
     const referenceX = options.referenceX ?? null;
     const referenceY = options.referenceY ?? null;
@@ -203,29 +198,47 @@ window.createWallDimension = function(wallData, options = {}) {
         ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
         : 1;
 
+    // Shift from wall edge to centerline so dimensions anchor to the wall center
+    const wallThickness = getWallThicknessPx(wallData.wall ?? wallData);
+    const centerShift = -offsetSign * (wallThickness / 2);
+    const centerN1 = {
+        x: n1.x + nx * centerShift,
+        y: n1.y + ny * centerShift
+    };
+    const centerN2 = {
+        x: n2.x + nx * centerShift,
+        y: n2.y + ny * centerShift
+    };
+
+    const length = Math.hypot(centerN2.x - centerN1.x, centerN2.y - centerN1.y);
+    const totalInches = Math.round((length / scale) * 12);
+    const feet = Math.floor(totalInches / 12);
+    const inches = totalInches % 12;
+    const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+
     let startX, startY, endX, endY;
 
     if (orientation === 'horizontal') {
-        const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
-        startX = n1.x;
+        const yPos = centerN1.y + WALL_DIMENSION_OFFSET * offsetSign;
+        startX = centerN1.x;
         startY = yPos;
-        endX = n2.x;
+        endX = centerN2.x;
         endY = yPos;
     } else if (orientation === 'vertical') {
-        const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
+        const xPos = centerN1.x + WALL_DIMENSION_OFFSET * offsetSign;
         startX = xPos;
-        startY = n1.y;
+        startY = centerN1.y;
         endX = xPos;
-        endY = n2.y;
+        endY = centerN2.y;
     } else {
         // Diagonal wall - use center with small offset
         const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
         const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
 
-        startX = n1.x + offsetX;
-        startY = n1.y + offsetY;
-        endX = n2.x + offsetX;
-        endY = n2.y + offsetY;
+        startX = centerN1.x + offsetX;
+        startY = centerN1.y + offsetY;
+        endX = centerN2.x + offsetX;
+        endY = centerN2.y + offsetY;
     }
     
     const dimension = {
@@ -340,12 +353,6 @@ window.drawHoverWallDimension = function(wallData) {
 
     const { n1, n2 } = wallData;
     const orientation = getWallOrientation(n1, n2);
-    const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
-    const totalInches = Math.round((length / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-    const text = inches > 0 ? `${feet}'${inches}\"` : `${feet}'`;
-
     const dx = n2.x - n1.x;
     const dy = n2.y - n1.y;
     const midX = (n1.x + n2.x) / 2;
@@ -363,30 +370,47 @@ window.drawHoverWallDimension = function(wallData) {
         offsetSign = dot >= 0 ? 1 : -1;
     }
 
+    const wallThickness = getWallThicknessPx(wallData.wall ?? wallData);
+    const centerShift = -offsetSign * (wallThickness / 2);
+    const centerN1 = {
+        x: n1.x + nx * centerShift,
+        y: n1.y + ny * centerShift
+    };
+    const centerN2 = {
+        x: n2.x + nx * centerShift,
+        y: n2.y + ny * centerShift
+    };
+
+    const length = Math.hypot(centerN2.x - centerN1.x, centerN2.y - centerN1.y);
+    const totalInches = Math.round((length / scale) * 12);
+    const feet = Math.floor(totalInches / 12);
+    const inches = totalInches % 12;
+    const text = inches > 0 ? `${feet}'${inches}\"` : `${feet}'`;
+
     ctx.save();
     ctx.strokeStyle = 'rgba(41, 128, 185, 0.7)'; // Semi-transparent blue
     ctx.lineWidth = 2;
     ctx.setLineDash([2, 2]);
 
     if (orientation === 'horizontal') {
-        const yPos = n1.y + WALL_DIMENSION_OFFSET * offsetSign;
+        const yPos = centerN1.y + WALL_DIMENSION_OFFSET * offsetSign;
 
         ctx.beginPath();
-        ctx.moveTo(n1.x, yPos);
-        ctx.lineTo(n2.x, yPos);
+        ctx.moveTo(centerN1.x, yPos);
+        ctx.lineTo(centerN2.x, yPos);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(n1.x, n1.y);
-        ctx.lineTo(n1.x, yPos);
+        ctx.moveTo(centerN1.x, centerN1.y);
+        ctx.lineTo(centerN1.x, yPos);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(n2.x, n2.y);
-        ctx.lineTo(n2.x, yPos);
+        ctx.moveTo(centerN2.x, centerN2.y);
+        ctx.lineTo(centerN2.x, yPos);
         ctx.stroke();
 
-        const midX = (n1.x + n2.x) / 2;
+        const midX = (centerN1.x + centerN2.x) / 2;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         const fontPx = measurementFontSize || 12;
@@ -402,24 +426,24 @@ window.drawHoverWallDimension = function(wallData) {
         ctx.fillText(text, midX, yPos);
 
     } else if (orientation === 'vertical') {
-        const xPos = n1.x + WALL_DIMENSION_OFFSET * offsetSign;
+        const xPos = centerN1.x + WALL_DIMENSION_OFFSET * offsetSign;
 
         ctx.beginPath();
-        ctx.moveTo(xPos, n1.y);
-        ctx.lineTo(xPos, n2.y);
+        ctx.moveTo(xPos, centerN1.y);
+        ctx.lineTo(xPos, centerN2.y);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(n1.x, n1.y);
-        ctx.lineTo(xPos, n1.y);
+        ctx.moveTo(centerN1.x, centerN1.y);
+        ctx.lineTo(xPos, centerN1.y);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(n2.x, n2.y);
-        ctx.lineTo(xPos, n2.y);
+        ctx.moveTo(centerN2.x, centerN2.y);
+        ctx.lineTo(xPos, centerN2.y);
         ctx.stroke();
 
-        const midY = (n1.y + n2.y) / 2;
+        const midY = (centerN1.y + centerN2.y) / 2;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.font = '12px Arial';
@@ -443,18 +467,18 @@ window.drawHoverWallDimension = function(wallData) {
         const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
 
         ctx.beginPath();
-        ctx.moveTo(n1.x + offsetX, n1.y + offsetY);
-        ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
+        ctx.moveTo(centerN1.x + offsetX, centerN1.y + offsetY);
+        ctx.lineTo(centerN2.x + offsetX, centerN2.y + offsetY);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(n1.x, n1.y);
-        ctx.lineTo(n1.x + offsetX, n1.y + offsetY);
+        ctx.moveTo(centerN1.x, centerN1.y);
+        ctx.lineTo(centerN1.x + offsetX, centerN1.y + offsetY);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(n2.x, n2.y);
-        ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
+        ctx.moveTo(centerN2.x, centerN2.y);
+        ctx.lineTo(centerN2.x + offsetX, centerN2.y + offsetY);
         ctx.stroke();
 
         ctx.setLineDash([]);
