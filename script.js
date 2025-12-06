@@ -2901,10 +2901,7 @@ function cloneState() {
         objects: JSON.parse(JSON.stringify(objects)),
         directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
-        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
-        isPasteMode: isPasteMode,
-        pasteTargetX: pasteTargetX,
-        pasteTargetY: pasteTargetY
+        dimensions: JSON.parse(JSON.stringify(window.dimensions || []))
     };
 }
 
@@ -2921,9 +2918,11 @@ function restoreState(state) {
         window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
     }
 
-    isPasteMode = state.isPasteMode || false;
-    pasteTargetX = state.pasteTargetX || null;
-    pasteTargetY = state.pasteTargetY || null;
+    // Always exit paste mode when restoring a state so undo/redo doesn't
+    // re-enable a previously active paste session.
+    isPasteMode = false;
+    pasteTargetX = null;
+    pasteTargetY = null;
 
     selectedWalls.clear();
     rightClickedWall = null;
