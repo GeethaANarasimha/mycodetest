@@ -50,6 +50,32 @@ function computeWallAnchorData(wall, startX, startY, endX, endY) {
     return { startRatio, endRatio, offset };
 }
 
+function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWallData = null) {
+    let wallData = explicitWallData;
+
+    // If no wall provided, try to find a common wall near both points
+    if (!wallData?.wall && typeof window.findNearestWall === 'function') {
+        const startWall = window.findNearestWall(startX, startY, 12);
+        const endWall = window.findNearestWall(endX, endY, 12);
+
+        if (startWall?.wall && endWall?.wall && startWall.wall.id === endWall.wall.id) {
+            wallData = startWall;
+        }
+    }
+
+    if (!wallData?.wall) return false;
+
+    const anchorData = computeWallAnchorData(wallData.wall, startX, startY, endX, endY);
+    if (!anchorData) return false;
+
+    dimension.wallId = wallData.wall.id;
+    dimension.wallStartRatio = anchorData.startRatio;
+    dimension.wallEndRatio = anchorData.endRatio;
+    dimension.wallOffset = anchorData.offset;
+
+    return true;
+}
+
 function updateDimensionsAttachedToWalls() {
     if (!dimensions || dimensions.length === 0) return;
 
@@ -357,15 +383,8 @@ window.createManualDimension = function(startX, startY, endX, endY) {
         isAuto: false
     };
 
-    if (window.dimensionActiveWall?.wall) {
-        const anchorData = computeWallAnchorData(window.dimensionActiveWall.wall, startX, startY, endX, endY);
-        if (anchorData) {
-            dimension.wallId = window.dimensionActiveWall.wall.id;
-            dimension.wallStartRatio = anchorData.startRatio;
-            dimension.wallEndRatio = anchorData.endRatio;
-            dimension.wallOffset = anchorData.offset;
-        }
-    }
+    // Attach to the active wall if available, otherwise attempt to find a shared wall near both points
+    attachDimensionToWall(dimension, startX, startY, endX, endY, window.dimensionActiveWall);
 
     window.updateDimensionMeasurement(dimension);
 
