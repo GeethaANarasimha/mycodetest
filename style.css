@@ -383,6 +383,14 @@ input[type="number"] {
     font-size: 14px;
 }
 
+.modal-content select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    margin: 8px 0;
+    font-size: 14px;
+}
+
 .modal-content.wide {
     width: 720px;
     max-width: 90vw;
