@@ -511,9 +511,8 @@ window.drawHoverWallDimension = function(wallData) {
         ctx.restore();
     };
 
-    // Show the same preview text on both sides of the wall dimension
+    // Show preview text on the same side as the offset, avoiding duplicate labels
     drawPreviewLabel(offsetSign);
-    drawPreviewLabel(-offsetSign);
 
     ctx.restore();
 };
