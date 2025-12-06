@@ -3111,6 +3111,18 @@ function applyWallDefaults(wall) {
     if (wall.isDemolition === undefined) {
         wall.isDemolition = false;
     }
+
+    if (!Number.isFinite(wall.thicknessPx) || wall.thicknessPx <= 0) {
+        wall.thicknessPx = getThicknessPx() || (0.5 * scale);
+    }
+
+    if (!Number.isFinite(wall.outlineWidth) || wall.outlineWidth <= 0) {
+        wall.outlineWidth = parseInt(lineWidthInput?.value, 10) || 2;
+    }
+
+    if (!wall.lineColor) {
+        wall.lineColor = lineColorInput?.value || DEFAULT_WALL_COLOR;
+    }
     return wall;
 }
 
