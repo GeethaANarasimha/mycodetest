@@ -2902,7 +2902,6 @@ function cloneState() {
         directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
-        clipboard: JSON.parse(JSON.stringify(clipboard)),
         isPasteMode: isPasteMode,
         pasteTargetX: pasteTargetX,
         pasteTargetY: pasteTargetY
@@ -2922,7 +2921,6 @@ function restoreState(state) {
         window.nextDimensionId = state.dimensions.length > 0 ? Math.max(...state.dimensions.map(d => d.id)) + 1 : 1;
     }
 
-    clipboard = JSON.parse(JSON.stringify(state.clipboard || { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 }));
     isPasteMode = state.isPasteMode || false;
     pasteTargetX = state.pasteTargetX || null;
     pasteTargetY = state.pasteTargetY || null;
