@@ -2793,7 +2793,9 @@ function ensureFloorPattern(floor) {
     const applyPatternFromImage = (image) => {
         const widthPx = floor.texture.widthPx || image.width;
         const heightPx = floor.texture.heightPx || image.height;
-        const tileCanvas = floor.texture.patternCanvas || document.createElement('canvas');
+        const tileCanvas = (floor.texture.patternCanvas instanceof HTMLCanvasElement && typeof floor.texture.patternCanvas.getContext === 'function')
+            ? floor.texture.patternCanvas
+            : document.createElement('canvas');
         tileCanvas.width = Math.max(1, Math.round(widthPx));
         tileCanvas.height = Math.max(1, Math.round(heightPx));
         const tctx = tileCanvas.getContext('2d');
