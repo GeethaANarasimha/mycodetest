@@ -306,7 +306,13 @@ window.createWallDimension = function(wallData, options = {}) {
     const endY = endBase.y + offsetY;
 
     const adjustedLength = Math.hypot(endX - startX, endY - startY);
-    const totalInches = Math.round((adjustedLength / scale) * 12);
+
+    // Measure the wall based on its true node-to-node length so isolated walls
+    // don't inherit extra thickness. The adjusted length is still used for
+    // drawing (to keep chamfered joins), but the label should reflect the wall
+    // length alone.
+    const measuredLength = Math.hypot(n2.x - n1.x, n2.y - n1.y);
+    const totalInches = Math.round((measuredLength / scale) * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
     const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
@@ -320,7 +326,7 @@ window.createWallDimension = function(wallData, options = {}) {
         text: text,
         lineColor: WALL_DIMENSION_COLOR,
         lineWidth: 2,
-        length: adjustedLength,
+        length: measuredLength,
         isAuto: true,
         orientation: orientation,
         wallId: wallData.wall.id,
