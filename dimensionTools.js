@@ -191,6 +191,27 @@ window.getWallThicknessPx = function(wall) {
     return wall.thicknessPx || (0.5 * scale); // Default to 6 inches if not specified
 };
 
+function getHalfConnectedWallThickness(nodeId, currentWall) {
+    if (!nodeId || typeof getWallsConnectedToNode !== 'function') return 0;
+
+    const connectedWalls = getWallsConnectedToNode(nodeId).filter(w => w.id !== currentWall?.id);
+    if (connectedWalls.length === 0) return 0;
+
+    const maxThickness = connectedWalls.reduce((max, wall) => {
+        const thickness = getWallThicknessPx(wall);
+        return thickness > max ? thickness : max;
+    }, 0);
+
+    return maxThickness / 2;
+}
+
+function getMeasuredWallLength(n1, n2, wall) {
+    const baseLength = Math.hypot(n2.x - n1.x, n2.y - n1.y);
+    return baseLength
+        + getHalfConnectedWallThickness(n1?.id, wall)
+        + getHalfConnectedWallThickness(n2?.id, wall);
+}
+
 /**
  * Handle dimension tool mouse down - SINGLE CLICK for wall dimensions
  */
@@ -445,7 +466,7 @@ window.createWallDimension = function(wallData, options = {}) {
     // don't inherit extra thickness. The adjusted length is still used for
     // drawing (to keep chamfered joins), but the label should reflect the wall
     // length alone.
-    const measuredLength = Math.hypot(n2.x - n1.x, n2.y - n1.y);
+    const measuredLength = getMeasuredWallLength(n1, n2, wallData.wall);
     const totalInches = Math.round((measuredLength / scale) * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
@@ -673,7 +694,7 @@ window.drawHoverWallDimension = function(wallData) {
     if (!wallData) return;
 
     const { n1, n2 } = wallData;
-    const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
+    const length = getMeasuredWallLength(n1, n2, wallData.wall);
     const totalInches = Math.round((length / scale) * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
