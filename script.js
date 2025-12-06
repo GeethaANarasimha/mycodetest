@@ -81,6 +81,7 @@ const staircaseCancelButton = document.getElementById('staircaseCancel');
 const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
+const downloadPdfButton = document.getElementById('downloadPdf');
 const threeContainer = document.getElementById('threeContainer');
 const threeStatus = document.getElementById('threeStatus');
 const horizontalRuler = document.getElementById('horizontalRuler');
@@ -120,12 +121,14 @@ const MIN_VIEW_SCALE = 0.5;
 const MAX_VIEW_SCALE = 3;
 const VIEW_ZOOM_STEP = 1.2;
 const WALL_ANGLE_SNAP_DEGREES = 15;
-const SAVE_FILE_EXTENSION = '.paz';
+const SAVE_FILE_EXTENSION = '.ipynb';
 const SAVE_SECRET = 'apzok-project-key';
 const DEFAULT_TREAD_DEPTH_INCHES = 10;
 const STAIRCASE_MAGNET_THRESHOLD = 12;
 const RULER_SIZE = 28;
 const DEFAULT_VIEW_MARGIN_FEET = 3;
+const DIRECT_LINE_HANDLE_RADIUS = 8;
+const DIRECT_LINE_HIT_TOLERANCE = 8;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -198,6 +201,15 @@ let viewOffsetY = 0;
 let last2DScrollLeft = 0;
 let last2DScrollTop = 0;
 
+// Direct line tool
+let directLines = [];
+let isDirectLineDrawing = false;
+let directLinePoints = [];
+let directLinePreview = null;
+let selectedDirectLineIndices = new Set();
+let directLinePointSelection = null;
+let directLineDrag = null;
+
 let selectedWalls = new Set(); // MULTIPLE wall selection
 let rightClickedWall = null;
 
@@ -206,6 +218,7 @@ let isSelectionBoxActive = false;
 let selectionBoxStart = null;
 let selectionBoxEnd = null;
 let selectionBoxAdditive = false;
+let selectionBoxPending = false;
 
 function snapRotation(angle, step = 5) {
     const normalized = ((angle % 360) + 360) % 360;
@@ -257,12 +270,14 @@ let lastContextMenuCanvasX = null;
 let lastContextMenuCanvasY = null;
 let lastPointerCanvasX = null;
 let lastPointerCanvasY = null;
+let rightClickedFloorEdge = null;
 
 // Floor polygon lasso
 let isFloorLassoActive = false;
 let floorLassoPoints = [];
 let floorLassoPreview = null;
 let floorHoverCorner = null;
+let floorDragData = null;
 
 // View mode (2D/3D)
 let is3DView = false;
@@ -358,6 +373,7 @@ function cloneLayerStatePayload() {
         nodes: JSON.parse(JSON.stringify(nodes)),
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
+        directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
@@ -379,11 +395,13 @@ function captureLayerSnapshot(layerId = currentLayerId()) {
 function resetTransientState() {
     selectedWalls.clear();
     rightClickedWall = null;
+    rightClickedFloorEdge = null;
     selectedNode = null;
     isDraggingNode = false;
     dragDir = null;
     dragOriginNodePos = null;
     dragOriginMousePos = null;
+    floorDragData = null;
     isWallDrawing = false;
     wallChain = [];
     wallPreviewX = null;
@@ -394,6 +412,7 @@ function resetTransientState() {
     selectedObjectIndices.clear();
     selectAllMode = false;
     resetFloorLasso();
+    resetDirectLineDrawing();
     clearDimensionSelection();
 
     if (typeof window.resetDimensionTool === 'function') {
@@ -1486,10 +1505,14 @@ function ungroupSelectedStaircases() {
 // CONTEXT MENU FUNCTIONS
 // ============================================================
 
-function showContextMenu(x, y, wall = null) {
+function showContextMenu(x, y, { wall = null, floorEdge = null } = {}) {
     rightClickedWall = wall;
+    rightClickedFloorEdge = floorEdge;
 
-    const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
+    const hasSelection =
+        selectedWalls.size > 0 ||
+        selectedObjectIndices.size > 0 ||
+        selectedFloorIds.size > 0;
     const hasBackgroundImage = !!backgroundImageData;
     const stairIndices = getSelectedStairIndices();
     const sharedStairGroup = getSharedStairGroupId(stairIndices);
@@ -1513,10 +1536,17 @@ function showContextMenu(x, y, wall = null) {
         </div>
     `;
 
+    const floorMenu = floorEdge ? `
+        <div class="context-item" data-action="addFloorPoint" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;">
+            Add Floor Point
+        </div>
+    ` : '';
+
     contextMenu.innerHTML = `
         <div style="padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #eee; font-weight: bold;">
             ${wall ? 'Wall Options' : 'Designer Options'}
         </div>
+        ${floorMenu}
         ${backgroundAddItem}
         ${backgroundMenu}
         ${canGroupStairs ? `
@@ -1603,6 +1633,17 @@ function handleContextMenuAction(action) {
         case 'ungroupStairs':
             ungroupSelectedStaircases();
             break;
+        case 'addFloorPoint':
+            if (rightClickedFloorEdge) {
+                pushUndoState();
+                const targetFloor = floors.find(f => f.id === rightClickedFloorEdge.floor.id) || rightClickedFloorEdge.floor;
+                insertFloorPointAtEdge({ ...rightClickedFloorEdge, floor: targetFloor });
+                if (targetFloor) {
+                    selectedFloorIds = new Set([targetFloor.id]);
+                }
+                redrawCanvas();
+            }
+            break;
         case 'background':
             openBackgroundImageModal();
             break;
@@ -1631,6 +1672,7 @@ function handleContextMenuAction(action) {
 function hideContextMenu() {
     contextMenu.style.display = 'none';
     rightClickedWall = null;
+    rightClickedFloorEdge = null;
 }
 
 // ============================================================
@@ -2003,7 +2045,7 @@ function drawPastePreview() {
 }
 
 function deleteSelection() {
-    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0) {
+    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0 || selectedDirectLineIndices.size > 0) {
         pushUndoState();
         if (selectedWalls.size > 0) {
             walls = walls.filter(w => !selectedWalls.has(w));
@@ -2016,6 +2058,11 @@ function deleteSelection() {
         if (selectedFloorIds.size > 0) {
             floors = floors.filter(f => !selectedFloorIds.has(f.id));
             selectedFloorIds.clear();
+        }
+        if (selectedDirectLineIndices.size > 0) {
+            directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
+            selectedDirectLineIndices.clear();
+            directLinePointSelection = null;
         }
 
         cleanupOrphanNodes();
@@ -2767,6 +2814,55 @@ function getFloorPoints(floor) {
     return (floor.nodeIds || []).map(id => getNodeById(id)).filter(Boolean);
 }
 
+function getFloorsUsingNode(nodeId) {
+    return floors.filter(floor => (floor.nodeIds || []).includes(nodeId));
+}
+
+function projectPointToSegment(px, py, ax, ay, bx, by) {
+    const vx = bx - ax;
+    const vy = by - ay;
+    const lenSq = vx * vx + vy * vy;
+    if (lenSq === 0) return { x: ax, y: ay, t: 0 };
+    const t = Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / lenSq));
+    return {
+        x: ax + vx * t,
+        y: ay + vy * t,
+        t
+    };
+}
+
+function findFloorEdgeAt(x, y, tolerance = 8) {
+    let closest = null;
+    for (const floor of floors) {
+        const points = getFloorPoints(floor);
+        if (points.length < 2) continue;
+        for (let i = 0; i < points.length; i++) {
+            const start = points[i];
+            const end = points[(i + 1) % points.length];
+            const projection = projectPointToSegment(x, y, start.x, start.y, end.x, end.y);
+            const dist = Math.hypot(x - projection.x, y - projection.y);
+            if (dist <= tolerance && (!closest || dist < closest.distance)) {
+                closest = {
+                    floor,
+                    startIndex: i,
+                    distance: dist,
+                    point: { x: projection.x, y: projection.y }
+                };
+            }
+        }
+    }
+    return closest;
+}
+
+function insertFloorPointAtEdge(edgeInfo) {
+    if (!edgeInfo || !edgeInfo.floor || !edgeInfo.point) return null;
+    const insertIndex = (edgeInfo.startIndex + 1) % edgeInfo.floor.nodeIds.length;
+    const snapped = snapPointToInch(edgeInfo.point.x, edgeInfo.point.y);
+    const node = findOrCreateNode(snapped.x, snapped.y);
+    edgeInfo.floor.nodeIds.splice(insertIndex, 0, node.id);
+    return node;
+}
+
 function getFloorAt(x, y) {
     for (let i = floors.length - 1; i >= 0; i--) {
         const floor = floors[i];
@@ -2787,6 +2883,7 @@ function cloneState() {
         nodes: JSON.parse(JSON.stringify(nodes)),
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
+        directLines: JSON.parse(JSON.stringify(directLines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
@@ -2800,6 +2897,7 @@ function restoreState(state) {
     nodes = JSON.parse(JSON.stringify(state.nodes));
     walls = JSON.parse(JSON.stringify(state.walls));
     objects = JSON.parse(JSON.stringify(state.objects));
+    directLines = JSON.parse(JSON.stringify(state.directLines || []));
     floors = JSON.parse(JSON.stringify(state.floors || []));
     nextFloorId = floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1;
 
@@ -2828,6 +2926,9 @@ function restoreState(state) {
     ignoreNextClick = false;
     selectedFloorIds.clear();
     selectedObjectIndices.clear();
+    selectedDirectLineIndices.clear();
+    directLinePointSelection = null;
+    directLineDrag = null;
     selectAllMode = false;
     resetFloorLasso();
 
@@ -2923,6 +3024,7 @@ function buildProjectState() {
         nodes: JSON.parse(JSON.stringify(nodes)),
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
+        directLines: JSON.parse(JSON.stringify(directLines)),
         floors: (floors || []).map(stripFloorPattern),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
@@ -3011,6 +3113,9 @@ function applyProjectState(state) {
          captureLayerSnapshot();
      }
 
+     directLines = JSON.parse(JSON.stringify(state.directLines || []));
+     resetDirectLineDrawing();
+
      const settings = state.settings || {};
      scale = settings.scale ?? scale;
      gridSize = settings.gridSize ?? gridSize;
@@ -3076,6 +3181,173 @@ function applyProjectState(state) {
      isProjectLoading = false;
  }
 
+let jsPdfLoader = null;
+
+function ensureJsPDF() {
+    if (window.jspdf?.jsPDF) {
+        return Promise.resolve(window.jspdf.jsPDF);
+    }
+
+    if (!jsPdfLoader) {
+        jsPdfLoader = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            script.async = true;
+            script.onload = () => resolve(window.jspdf?.jsPDF || null);
+            script.onerror = (err) => reject(err);
+            document.head.appendChild(script);
+        }).catch(err => {
+            console.error('Failed to load jsPDF', err);
+            return null;
+        });
+    }
+
+    return jsPdfLoader;
+}
+
+function expandBounds(bounds, x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    bounds.minX = Math.min(bounds.minX, x);
+    bounds.minY = Math.min(bounds.minY, y);
+    bounds.maxX = Math.max(bounds.maxX, x);
+    bounds.maxY = Math.max(bounds.maxY, y);
+}
+
+function expandRect(bounds, x, y, width, height) {
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+    expandBounds(bounds, x, y);
+    expandBounds(bounds, x + width, y + height);
+}
+
+function getContentBounds() {
+    const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
+    (nodes || []).forEach(node => expandBounds(bounds, node.x, node.y));
+
+    (floors || []).forEach(floor => {
+        (getFloorPoints(floor) || []).forEach(point => expandBounds(bounds, point.x, point.y));
+    });
+
+    (objects || []).forEach(obj => {
+        const corners = getObjectTransformedCorners(obj);
+        (corners || []).forEach(corner => expandBounds(bounds, corner.x, corner.y));
+    });
+
+    (directLines || []).forEach(line => {
+        (line?.points || []).forEach(pt => expandBounds(bounds, pt.x, pt.y));
+    });
+
+    (window.dimensions || []).forEach(dim => {
+        expandBounds(bounds, dim.startX, dim.startY);
+        expandBounds(bounds, dim.endX, dim.endY);
+
+        const dx = dim.endX - dim.startX;
+        const dy = dim.endY - dim.startY;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len;
+        const ny = dx / len;
+        const side = dim.offsetSign || 1;
+        const fontPx = measurementFontSize || 12;
+        const midX = (dim.startX + dim.endX) / 2;
+        const midY = (dim.startY + dim.endY) / 2;
+        const textX = midX + nx * 8 * side;
+        const textY = midY + ny * 8 * side;
+        const estimatedWidth = Math.max(fontPx, (dim.text?.length || 0) * fontPx * 0.6);
+        const estimatedHeight = fontPx * 1.4;
+        expandRect(bounds, textX - estimatedWidth / 2, textY - estimatedHeight / 2, estimatedWidth, estimatedHeight);
+    });
+
+    if (isBackgroundImageVisible && backgroundImageData) {
+        expandRect(bounds, backgroundImageData.x, backgroundImageData.y, backgroundImageData.width, backgroundImageData.height);
+    }
+
+    if (!isFinite(bounds.minX) || !isFinite(bounds.minY) || !isFinite(bounds.maxX) || !isFinite(bounds.maxY)) {
+        return {
+            minX: 0,
+            minY: 0,
+            maxX: canvas?.width || 0,
+            maxY: canvas?.height || 0,
+            width: canvas?.width || 0,
+            height: canvas?.height || 0
+        };
+    }
+
+    return {
+        minX: bounds.minX,
+        minY: bounds.minY,
+        maxX: bounds.maxX,
+        maxY: bounds.maxY,
+        width: bounds.maxX - bounds.minX,
+        height: bounds.maxY - bounds.minY
+    };
+}
+
+async function downloadPlanAsPDF() {
+    const jsPDFConstructor = await ensureJsPDF();
+    if (!jsPDFConstructor) {
+        alert('Could not load PDF generator. Please check your connection and try again.');
+        return;
+    }
+
+    const bounds = getContentBounds();
+    const padding = 20;
+    const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
+    const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
+
+    const was3DView = is3DView;
+    if (was3DView) {
+        switchTo2DView();
+    }
+
+    const prevWidth = canvas.width;
+    const prevHeight = canvas.height;
+    const prevStyleWidth = canvas.style.width;
+    const prevStyleHeight = canvas.style.height;
+    const prevViewScale = viewScale;
+    const prevOffsetX = viewOffsetX;
+    const prevOffsetY = viewOffsetY;
+
+    try {
+        canvas.width = exportWidth;
+        canvas.height = exportHeight;
+        canvas.style.width = `${exportWidth}px`;
+        canvas.style.height = `${exportHeight}px`;
+
+        viewScale = 1;
+        viewOffsetX = padding - bounds.minX;
+        viewOffsetY = padding - bounds.minY;
+
+        redrawCanvas();
+
+        const dataUrl = canvas.toDataURL('image/png');
+        const pdf = new jsPDFConstructor({
+            orientation: exportWidth >= exportHeight ? 'landscape' : 'portrait',
+            unit: 'px',
+            format: [exportWidth, exportHeight]
+        });
+
+        pdf.addImage(dataUrl, 'PNG', 0, 0, exportWidth, exportHeight);
+        pdf.save('apzok-plan.pdf');
+    } catch (error) {
+        console.error('Failed to download PDF', error);
+        alert('Could not download PDF. Please try again.');
+    } finally {
+        canvas.width = prevWidth;
+        canvas.height = prevHeight;
+        canvas.style.width = prevStyleWidth;
+        canvas.style.height = prevStyleHeight;
+        viewScale = prevViewScale;
+        viewOffsetX = prevOffsetX;
+        viewOffsetY = prevOffsetY;
+        redrawCanvas();
+        syncCanvasScrollArea();
+
+        if (was3DView) {
+            switchTo3DView();
+        }
+    }
+}
+
 function saveProjectToFile() {
     try {
         const state = buildProjectState();
@@ -3100,7 +3372,7 @@ function handleProjectFileUpload(event) {
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith(SAVE_FILE_EXTENSION)) {
-        alert('Please select a valid .paz project file.');
+        alert('Please select a valid .ipynb project file.');
         return;
     }
 
@@ -3112,7 +3384,7 @@ function handleProjectFileUpload(event) {
             applyProjectState(state);
         } catch (error) {
             console.error('Failed to load project', error);
-            alert('Could not load project. Ensure you selected a valid .paz file.');
+            alert('Could not load project. Ensure you selected a valid .ipynb file.');
         }
     };
     reader.readAsText(file);
@@ -3188,6 +3460,7 @@ function init() {
             cancelBackgroundMeasurement();
             closeTextModal();
             closeStaircaseModal();
+            resetDirectLineDrawing();
         }
     });
 
@@ -3218,6 +3491,10 @@ function init() {
                 window.resetDimensionTool();
             }
 
+            if (currentTool !== 'directline') {
+                resetDirectLineDrawing();
+            }
+
             if (currentTool === 'staircase') {
                 staircaseEditTargetIndex = null;
                 openStaircaseModal();
@@ -3240,6 +3517,7 @@ function init() {
             selectedFloorIds.clear();
             selectAllMode = false;
             isSelectionBoxActive = false;
+            selectionBoxPending = false;
             selectionBoxStart = null;
             selectionBoxEnd = null;
             hideContextMenu();
@@ -3282,6 +3560,11 @@ function init() {
         projectFileInput.addEventListener('change', (event) => {
             handleProjectFileUpload(event);
             projectFileInput.value = '';
+        });
+    }
+    if (downloadPdfButton) {
+        downloadPdfButton.addEventListener('click', () => {
+            downloadPlanAsPDF();
         });
     }
 
@@ -3523,19 +3806,28 @@ function handleCanvasContextMenu(e) {
         // Don't show context menu in paste mode
         return;
     }
-    
+
     // Find if there's a wall at the click position (optional)
     const wall = findWallAtPoint(x, y, 10);
-    
+    const floor = getFloorAt(x, y);
+    const floorEdge = findFloorEdgeAt(x, y);
+
     // Show context menu at click position with appropriate options
-    showContextMenu(e.clientX, e.clientY, wall);
-    
-    // If there's a wall under the cursor, optionally select it
-    if (wall && currentTool === 'select') {
-        if (!selectedWalls.has(wall)) {
-            selectedWalls.clear();
-            selectedWalls.add(wall);
+    showContextMenu(e.clientX, e.clientY, { wall, floorEdge });
+
+    if (currentTool === 'select') {
+        if (floorEdge) {
+            selectedFloorIds = new Set([floorEdge.floor.id]);
             redrawCanvas();
+        } else if (floor) {
+            selectedFloorIds = new Set([floor.id]);
+            redrawCanvas();
+        } else if (wall) {
+            if (!selectedWalls.has(wall)) {
+                selectedWalls.clear();
+                selectedWalls.add(wall);
+                redrawCanvas();
+            }
         }
     }
 }
@@ -3774,6 +4066,55 @@ function moveSelectedFloors(dx, dy, { skipUndo = false } = {}) {
     redrawCanvas();
 }
 
+function startFloorDrag(mouseX, mouseY) {
+    if (selectedFloorIds.size === 0) return;
+    const nodeIds = new Set();
+    selectedFloorIds.forEach(id => {
+        const floor = floors.find(f => f.id === id);
+        (floor?.nodeIds || []).forEach(nId => nodeIds.add(nId));
+    });
+
+    if (nodeIds.size === 0) return;
+
+    const startPositions = new Map();
+    nodeIds.forEach(nodeId => {
+        const node = getNodeById(nodeId);
+        if (node) {
+            startPositions.set(nodeId, { x: node.x, y: node.y });
+        }
+    });
+
+    floorDragData = {
+        startMouse: { x: mouseX, y: mouseY },
+        nodeIds,
+        startPositions,
+        undoApplied: false
+    };
+}
+
+function updateFloorDrag(mouseX, mouseY) {
+    if (!floorDragData) return;
+    if (!floorDragData.undoApplied) {
+        pushUndoState();
+        floorDragData.undoApplied = true;
+    }
+    const dx = mouseX - floorDragData.startMouse.x;
+    const dy = mouseY - floorDragData.startMouse.y;
+
+    floorDragData.nodeIds.forEach(nodeId => {
+        const node = getNodeById(nodeId);
+        const origin = floorDragData.startPositions.get(nodeId);
+        if (!node || !origin) return;
+        const snapped = snapPointToInch(origin.x + dx, origin.y + dy);
+        node.x = snapped.x;
+        node.y = snapped.y;
+    });
+}
+
+function stopFloorDrag() {
+    floorDragData = null;
+}
+
 function getThicknessPx() {
     const ft = parseInt(wallThicknessFeetInput.value, 10) || 0;
     const inch = parseInt(wallThicknessInchesInput.value, 10) || 0;
@@ -3923,20 +4264,28 @@ function startNodeDrag(node, mouseX, mouseY) {
         w.startNodeId === node.id || w.endNodeId === node.id
     );
 
-    if (attachedWalls.length === 0) return;
+    const belongsToFloor = getFloorsUsingNode(node.id).length > 0;
+
+    if (attachedWalls.length === 0 && !belongsToFloor) return;
 
     // Prefer a wall that is currently selected so dragging honours the intended segment
     const wall = attachedWalls.find(w => selectedWalls.has(w)) || attachedWalls[0];
-    const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
-    const other = getNodeById(otherNodeId);
+    if (wall) {
+        const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
+        const other = getNodeById(otherNodeId);
 
-    if (!other) return;
+        if (other) {
+            const dx = node.x - other.x;
+            const dy = node.y - other.y;
+            const len = Math.hypot(dx, dy) || 1;
 
-    const dx = node.x - other.x;
-    const dy = node.y - other.y;
-    const len = Math.hypot(dx, dy) || 1;
-
-    dragDir = { x: dx / len, y: dy / len };
+            dragDir = { x: dx / len, y: dy / len };
+        } else {
+            dragDir = null;
+        }
+    } else {
+        dragDir = null;
+    }
     dragOriginNodePos = { x: node.x, y: node.y };
     dragOriginMousePos = { x: mouseX, y: mouseY };
     selectedNode = node;
@@ -4033,6 +4382,7 @@ function rectIntersectsSegment(rect, x1, y1, x2, y2) {
 function finalizeSelectionBox() {
     const rect = getSelectionRect();
     isSelectionBoxActive = false;
+    selectionBoxPending = false;
     selectionBoxAdditive = false;
     selectionBoxStart = null;
     selectionBoxEnd = null;
@@ -4047,6 +4397,8 @@ function finalizeSelectionBox() {
         selectedObjectIndices.clear();
         selectedNode = null;
         selectAllMode = false;
+        selectedDirectLineIndices.clear();
+        directLinePointSelection = null;
     }
 
     walls.forEach(wall => {
@@ -4062,6 +4414,18 @@ function finalizeSelectionBox() {
         const objRect = { x: obj.x, y: obj.y, width: obj.width, height: obj.height };
         if (rectsOverlap(rect, objRect)) {
             selectedObjectIndices.add(index);
+        }
+    });
+
+    directLines.forEach((line, index) => {
+        const pts = line?.points || [];
+        for (let i = 1; i < pts.length; i++) {
+            const p1 = pts[i - 1];
+            const p2 = pts[i];
+            if (rectIntersectsSegment(rect, p1.x, p1.y, p2.x, p2.y)) {
+                selectedDirectLineIndices.add(index);
+                break;
+            }
         }
     });
 
@@ -4348,6 +4712,48 @@ function handleMouseDown(e) {
         return;
     }
 
+    if (currentTool === 'select') {
+        const pointHit = findDirectLinePointHit(x, y, DIRECT_LINE_HANDLE_RADIUS + 2);
+        if (pointHit) {
+            if (!selectedDirectLineIndices.has(pointHit.lineIndex)) {
+                selectedDirectLineIndices.clear();
+            }
+            selectedDirectLineIndices.add(pointHit.lineIndex);
+            directLinePointSelection = pointHit;
+            startDirectLineDrag(pointHit.lineIndex, pointHit.pointIndex, 'point', x, y);
+            redrawCanvas();
+            return;
+        }
+
+        const lineHit = findDirectLineHit(x, y, DIRECT_LINE_HIT_TOLERANCE * 1.5);
+        if (lineHit) {
+            if (!e.shiftKey) {
+                selectedDirectLineIndices.clear();
+                directLinePointSelection = null;
+            }
+            selectedDirectLineIndices.add(lineHit.lineIndex);
+            directLinePointSelection = null;
+            startDirectLineDrag(lineHit.lineIndex, null, 'line', x, y);
+            redrawCanvas();
+            return;
+        }
+    }
+
+    if (currentTool === 'directline') {
+        ({ x, y } = snapPointToInch(x, y));
+        if (!isDirectLineDrawing) {
+            isDirectLineDrawing = true;
+            directLinePoints = [{ x, y }];
+        } else {
+            directLinePoints.push({ x, y });
+        }
+
+        directLinePreview = null;
+        coordinatesDisplay.textContent = `Direct line: ${directLinePoints.length} point(s)`;
+        redrawCanvas();
+        return;
+    }
+
     if (currentTool === 'floor') {
         ({ x, y } = snapPointToInch(x, y));
         const snapNode = getClosestNodeWithinRadius(x, y);
@@ -4479,8 +4885,18 @@ function handleMouseDown(e) {
         const node = getNodeAt(x, y);
         if (node) {
             clearDimensionSelection();
+            clearDirectLineSelection();
+            const floorsWithNode = getFloorsUsingNode(node.id);
+            if (floorsWithNode.length > 0) {
+                if (e.shiftKey) {
+                    floorsWithNode.forEach(floor => selectedFloorIds.add(floor.id));
+                } else {
+                    selectedFloorIds = new Set(floorsWithNode.map(floor => floor.id));
+                }
+            } else {
+                selectedFloorIds.clear();
+            }
             startNodeDrag(node, x, y);
-            selectedFloorIds.clear();
             redrawCanvas();
             return;
         }
@@ -4489,6 +4905,7 @@ function handleMouseDown(e) {
         const objIndex = getObjectAt(x, y, true);
         if (objIndex !== -1) {
             clearDimensionSelection();
+            clearDirectLineSelection();
             selectAllMode = false;
             if (e.shiftKey) {
                 if (selectedObjectIndices.has(objIndex)) {
@@ -4515,6 +4932,7 @@ function handleMouseDown(e) {
         const wall = getWallAt(x, y);
         if (wall) {
             clearDimensionSelection();
+            clearDirectLineSelection();
             if (e.shiftKey) {
                 // MULTIPLE SELECTION with Shift key
                 if (selectedWalls.has(wall)) {
@@ -4551,6 +4969,7 @@ function handleMouseDown(e) {
                 selectedWalls.clear();
                 selectedObjectIndices.clear();
                 ungroupSelectionElements();
+                startFloorDrag(x, y);
             }
             selectAllMode = false;
             redrawCanvas();
@@ -4560,7 +4979,8 @@ function handleMouseDown(e) {
         // LEFT CLICK ONLY for selection operations
 
         // Click on empty space - clear selection unless Shift is held
-        isSelectionBoxActive = true;
+        selectionBoxPending = true;
+        isSelectionBoxActive = false;
         selectionBoxStart = { x, y };
         selectionBoxEnd = { x, y };
         selectionBoxAdditive = e.shiftKey;
@@ -4573,6 +4993,7 @@ function handleMouseDown(e) {
             selectAllMode = false;
             ungroupSelectionElements();
             clearDimensionSelection();
+            clearDirectLineSelection();
         }
 
         redrawCanvas();
@@ -4753,11 +5174,52 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (directLineDrag) {
+        const { lineIndex, pointIndex, mode, startMouse, originalPoints } = directLineDrag;
+        const line = directLines[lineIndex];
+        if (line) {
+            if (!directLineDrag.undoApplied) {
+                pushUndoState();
+                directLineDrag.undoApplied = true;
+            }
+
+            const dx = x - startMouse.x;
+            const dy = y - startMouse.y;
+
+            if (mode === 'point' && pointIndex !== null && pointIndex !== undefined) {
+                const original = originalPoints[pointIndex];
+                const snapped = snapPointToInch(original.x + dx, original.y + dy);
+                line.points[pointIndex] = { x: snapped.x, y: snapped.y };
+            } else {
+                line.points = originalPoints.map(pt => {
+                    const snapped = snapPointToInch(pt.x + dx, pt.y + dy);
+                    return { x: snapped.x, y: snapped.y };
+                });
+            }
+            redrawCanvas();
+        }
+        return;
+    }
+
+    if (selectionBoxPending && selectionBoxStart) {
+        selectionBoxEnd = { x, y };
+        const dx = selectionBoxEnd.x - selectionBoxStart.x;
+        const dy = selectionBoxEnd.y - selectionBoxStart.y;
+        if (Math.hypot(dx, dy) > 3) {
+            isSelectionBoxActive = true;
+        }
+    }
+
     if (isSelectionBoxActive) {
         selectionBoxEnd = { x, y };
         coordinatesDisplay.textContent = `Select box: ${Math.abs(selectionBoxEnd.x - selectionBoxStart.x).toFixed(1)} x ${Math.abs(selectionBoxEnd.y - selectionBoxStart.y).toFixed(1)}`;
         redrawCanvas();
         drawSelectionBoxOverlay();
+        return;
+    }
+
+    if (selectionBoxPending) {
+        redrawCanvas();
         return;
     }
 
@@ -4899,6 +5361,17 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (floorDragData) {
+        updateFloorDrag(x, y);
+        const sampleNodeId = floorDragData.nodeIds.values().next().value;
+        const sampleNode = sampleNodeId ? getNodeById(sampleNodeId) : null;
+        if (sampleNode) {
+            coordinatesDisplay.textContent = `Floor drag: X: ${sampleNode.x.toFixed(1)}, Y: ${sampleNode.y.toFixed(1)}`;
+        }
+        redrawCanvas();
+        return;
+    }
+
     if (draggingObjectIndex !== null && objectDragOffset) {
         const obj = objects[draggingObjectIndex];
         if (obj) {
@@ -4952,6 +5425,19 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (currentTool === 'directline') {
+        ({ x, y } = snapPointToInch(x, y));
+        if (isDirectLineDrawing && directLinePoints.length > 0) {
+            directLinePreview = { x, y };
+            const lastPoint = directLinePoints[directLinePoints.length - 1];
+            coordinatesDisplay.textContent = `Direct line: ${(Math.hypot(x - lastPoint.x, y - lastPoint.y) / scale).toFixed(2)}ft segment preview`;
+        } else {
+            coordinatesDisplay.textContent = `Direct line: ${x.toFixed(1)}, ${y.toFixed(1)}`;
+        }
+        redrawCanvas();
+        return;
+    }
+
     if (currentTool === 'floor') {
         ({ x, y } = snapPointToInch(x, y));
         floorHoverCorner = getClosestNodeWithinRadius(x, y);
@@ -4972,14 +5458,21 @@ function handleMouseMove(e) {
         return;
     }
 
-    if (isDraggingNode && selectedNode && dragDir && dragOriginMousePos && dragOriginNodePos) {
+    if (isDraggingNode && selectedNode && dragOriginMousePos && dragOriginNodePos) {
         const dx = x - dragOriginMousePos.x;
         const dy = y - dragOriginMousePos.y;
-        let t = dx * dragDir.x + dy * dragDir.y;
-        t = snapToInchAlongDirection(t);
 
-        selectedNode.x = dragOriginNodePos.x + dragDir.x * t;
-        selectedNode.y = dragOriginNodePos.y + dragDir.y * t;
+        if (dragDir) {
+            let t = dx * dragDir.x + dy * dragDir.y;
+            t = snapToInchAlongDirection(t);
+
+            selectedNode.x = dragOriginNodePos.x + dragDir.x * t;
+            selectedNode.y = dragOriginNodePos.y + dragDir.y * t;
+        } else {
+            const snapped = snapPointToInch(dragOriginNodePos.x + dx, dragOriginNodePos.y + dy);
+            selectedNode.x = snapped.x;
+            selectedNode.y = snapped.y;
+        }
 
         coordinatesDisplay.textContent = `X: ${selectedNode.x.toFixed(1)}, Y: ${selectedNode.y.toFixed(1)}`;
         redrawCanvas();
@@ -5135,6 +5628,26 @@ function handleMouseUp() {
 
     if (windowHandleDrag) {
         windowHandleDrag = null;
+        redrawCanvas();
+        return;
+    }
+
+    if (directLineDrag) {
+        directLineDrag = null;
+        redrawCanvas();
+        return;
+    }
+
+    if (floorDragData) {
+        stopFloorDrag();
+        redrawCanvas();
+        return;
+    }
+
+    if (selectionBoxPending) {
+        selectionBoxPending = false;
+        selectionBoxStart = null;
+        selectionBoxEnd = null;
         redrawCanvas();
         return;
     }
@@ -5380,6 +5893,16 @@ function applyDimensionDrag(x, y) {
 
 function handleCanvasDoubleClick(e) {
     let { x, y } = screenToWorld(e.clientX, e.clientY);
+
+    if (currentTool === 'directline' && isDirectLineDrawing) {
+        ({ x, y } = snapPointToInch(x, y));
+        if (directLinePoints.length > 0) {
+            directLinePoints[directLinePoints.length - 1] = { x, y };
+        }
+        ignoreNextClick = true;
+        finalizeDirectLine();
+        return;
+    }
 
     if (currentTool === 'floor' && isFloorLassoActive) {
         ({ x, y } = snapPointToInch(x, y));
@@ -6173,8 +6696,24 @@ function drawFloors() {
             ctx.stroke();
         }
 
+        drawFloorVertices(points, selectedFloorIds.has(floor.id));
+
         ctx.restore();
     });
+}
+
+function drawFloorVertices(points, isSelected) {
+    ctx.save();
+    points.forEach(pt => {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = isSelected ? 'rgba(22, 160, 133, 0.25)' : '#ffffff';
+        ctx.strokeStyle = isSelected ? '#16a085' : '#7f8c8d';
+        ctx.lineWidth = isSelected ? 2 : 1.25;
+        ctx.fill();
+        ctx.stroke();
+    });
+    ctx.restore();
 }
 
 function getWindowHandles(obj) {
@@ -6370,6 +6909,234 @@ function drawFloorLassoOverlay() {
     ctx.restore();
 }
 
+function drawDirectLineArrow(start, end, options = {}) {
+    if (!start || !end) return;
+    if (start.x === end.x && start.y === end.y) return;
+    // Align the arrow head with the actual direction of the segment
+    // so a 0° heading renders to the right, 90° up, etc.
+    const angle = Math.atan2(end.y - start.y, end.x - start.x);
+    const size = 18;
+    const color = options.color || '#333';
+
+    ctx.save();
+    // Position the arrow so the tail (base) sits exactly on the end point of the
+    // line segment. This keeps the line visually connected to the tail instead
+    // of intersecting the mid-wing of the arrow graphic.
+    ctx.translate(end.x, end.y);
+    ctx.rotate(angle);
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    // Tail at the origin, tip offset forward by `size`.
+    ctx.moveTo(size, 0);
+    ctx.lineTo(0, size / 2);
+    ctx.lineTo(0, -size / 2);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function drawDirectLinePath(points, options = {}) {
+    if (!points || points.length < 2) return;
+    const { lineColor, lineWidth } = options;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+    }
+    const strokeColor = lineColor || (lineColorInput?.value || DEFAULT_WALL_COLOR);
+    const strokeWidth = lineWidth || (parseInt(lineWidthInput?.value, 10) || 2);
+
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = strokeWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    const end = points[points.length - 1];
+    const MIN_SEGMENT_LENGTH = 2; // Ignore tiny tail segments when orienting the arrow.
+
+    // Orient the arrow using the *last* meaningful segment so the arrowhead
+    // always points in the drawn direction, even when the path zig-zags.
+    let arrowStart = null;
+    for (let i = points.length - 2; i >= 0; i--) {
+        const start = points[i];
+        if (!start || !end) continue;
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        if (Math.hypot(dx, dy) < MIN_SEGMENT_LENGTH) continue;
+        arrowStart = start;
+        break;
+    }
+
+    if (arrowStart && (arrowStart.x !== end.x || arrowStart.y !== end.y)) {
+        drawDirectLineArrow(arrowStart, end, { color: strokeColor });
+    }
+    ctx.restore();
+}
+
+function drawDirectLines() {
+    directLines.forEach(line => drawDirectLinePath(line.points, line));
+
+    if (isDirectLineDrawing && directLinePoints.length > 0) {
+        const previewPoints = directLinePreview
+            ? directLinePoints.concat([directLinePreview])
+            : directLinePoints;
+        drawDirectLinePath(previewPoints, {
+            lineColor: lineColorInput?.value || DEFAULT_WALL_COLOR,
+            lineWidth: parseInt(lineWidthInput?.value, 10) || 2
+        });
+
+        ctx.save();
+        previewPoints.forEach(pt => {
+            ctx.beginPath();
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.35)';
+            ctx.strokeStyle = '#2980b9';
+            ctx.lineWidth = 1.25;
+            ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+        ctx.restore();
+    }
+
+    selectedDirectLineIndices.forEach(index => {
+        const line = directLines[index];
+        if (!line) return;
+
+        ctx.save();
+        ctx.strokeStyle = '#3498db';
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = Math.max(2, (line.lineWidth || 2) / 2);
+        ctx.beginPath();
+        ctx.moveTo(line.points[0].x, line.points[0].y);
+        for (let i = 1; i < line.points.length; i++) {
+            ctx.lineTo(line.points[i].x, line.points[i].y);
+        }
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        line.points.forEach((pt, idx) => {
+            ctx.beginPath();
+            const isSelectedPoint = directLinePointSelection &&
+                directLinePointSelection.lineIndex === index &&
+                directLinePointSelection.pointIndex === idx;
+            ctx.fillStyle = isSelectedPoint ? '#1f78d1' : 'rgba(52, 152, 219, 0.35)';
+            ctx.strokeStyle = '#2980b9';
+            ctx.lineWidth = 1.5;
+            ctx.arc(pt.x, pt.y, DIRECT_LINE_HANDLE_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+        ctx.restore();
+    });
+}
+
+function resetDirectLineDrawing() {
+    isDirectLineDrawing = false;
+    directLinePoints = [];
+    directLinePreview = null;
+}
+
+function finalizeDirectLine() {
+    if (directLinePoints.length < 2) {
+        resetDirectLineDrawing();
+        redrawCanvas();
+        return;
+    }
+
+    pushUndoState();
+    directLines.push({
+        points: JSON.parse(JSON.stringify(directLinePoints)),
+        lineColor: lineColorInput?.value || DEFAULT_WALL_COLOR,
+        lineWidth: parseInt(lineWidthInput?.value, 10) || 2
+    });
+
+    resetDirectLineDrawing();
+    redrawCanvas();
+}
+
+function clearDirectLineSelection() {
+    selectedDirectLineIndices.clear();
+    directLinePointSelection = null;
+    directLineDrag = null;
+}
+
+function findDirectLinePointHit(x, y, radius = NODE_HIT_RADIUS) {
+    for (let i = directLines.length - 1; i >= 0; i--) {
+        const line = directLines[i];
+        if (!line?.points) continue;
+        for (let j = 0; j < line.points.length; j++) {
+            const pt = line.points[j];
+            if (Math.hypot(x - pt.x, y - pt.y) <= radius) {
+                return { lineIndex: i, pointIndex: j };
+            }
+        }
+    }
+    return null;
+}
+
+function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+    const ax = px - x1;
+    const ay = py - y1;
+    const bx = x2 - x1;
+    const by = y2 - y1;
+    const lenSq = bx * bx + by * by;
+    if (lenSq === 0) return Math.hypot(ax, ay);
+    const t = Math.max(0, Math.min(1, (ax * bx + ay * by) / lenSq));
+    const projX = x1 + t * bx;
+    const projY = y1 + t * by;
+    return Math.hypot(px - projX, py - projY);
+}
+
+function findDirectLineHit(x, y, tolerance = DIRECT_LINE_HIT_TOLERANCE) {
+    for (let i = directLines.length - 1; i >= 0; i--) {
+        const line = directLines[i];
+        const pts = line?.points || [];
+        for (let j = 1; j < pts.length; j++) {
+            const p1 = pts[j - 1];
+            const p2 = pts[j];
+            const dist = pointToSegmentDistance(x, y, p1.x, p1.y, p2.x, p2.y);
+            if (dist <= tolerance) {
+                return { lineIndex: i };
+            }
+        }
+    }
+    return null;
+}
+
+function startDirectLineDrag(lineIndex, pointIndex, mode, startX, startY) {
+    const line = directLines[lineIndex];
+    if (!line) return;
+    directLineDrag = {
+        lineIndex,
+        pointIndex,
+        mode,
+        startMouse: { x: startX, y: startY },
+        originalPoints: JSON.parse(JSON.stringify(line.points)),
+        undoApplied: false
+    };
+}
+
+function moveSelectedDirectLines(dx, dy, { skipUndo = false } = {}) {
+    if (selectedDirectLineIndices.size === 0) return;
+    if (!skipUndo) pushUndoState();
+
+    selectedDirectLineIndices.forEach(index => {
+        const line = directLines[index];
+        if (!line?.points) return;
+        line.points = line.points.map(pt => {
+            const snapped = snapPointToInch(pt.x + dx, pt.y + dy);
+            return { x: snapped.x, y: snapped.y };
+        });
+    });
+
+    redrawCanvas();
+}
+
 function redrawCanvas() {
     if (is3DView) {
         refresh3DView();
@@ -6386,6 +7153,7 @@ function redrawCanvas() {
     drawGrid();
     drawFloors();
     drawWalls();
+    drawDirectLines();
     drawObjects();
     drawDimensions();
     drawBackgroundMeasurementLine();
@@ -7499,6 +8267,7 @@ function selectAllEntities() {
     selectedWalls = new Set(walls);
     selectedNode = null;
     selectedFloorIds = new Set(floors.map(f => f.id));
+    selectedDirectLineIndices = new Set(directLines.map((_, i) => i));
     clearDimensionSelection();
     isDraggingNode = false;
     selectAllMode = true;
@@ -7586,6 +8355,7 @@ function handleKeyDown(e) {
                 selectedObjectIndices.size > 0 ||
                 selectedWalls.size > 0 ||
                 selectedFloorIds.size > 0 ||
+                selectedDirectLineIndices.size > 0 ||
                 selectedDimensionIndex !== null;
             if (hasSelection) {
                 e.preventDefault();
@@ -7593,6 +8363,7 @@ function handleKeyDown(e) {
                 moveSelectedObjects(dx, dy, { skipUndo: true });
                 moveSelectedWalls(dx, dy, { skipUndo: true });
                 moveSelectedFloors(dx, dy, { skipUndo: true });
+                moveSelectedDirectLines(dx, dy, { skipUndo: true });
                 moveSelectedDimension(dx, dy, { skipUndo: true });
                 maintainDoorAttachmentForSelection();
                 redrawCanvas();
@@ -7628,6 +8399,7 @@ function handleKeyDown(e) {
             isDraggingNode = false;
             selectedObjectIndices.clear();
             selectedFloorIds.clear();
+            clearDirectLineSelection();
             selectAllMode = false;
             isSelectionBoxActive = false;
             selectionBoxStart = null;
@@ -7647,6 +8419,7 @@ function handleKeyDown(e) {
                 nodes = [];
                 walls = [];
                 objects = [];
+                directLines = [];
                 if (window.dimensions) window.dimensions = [];
             }
             selectedWalls.clear();
@@ -7655,7 +8428,11 @@ function handleKeyDown(e) {
             selectAllMode = false;
             redrawCanvas();
         } else {
-            const hasSelection = selectedWalls.size > 0 || selectedObjectIndices.size > 0;
+            const hasSelection =
+                selectedWalls.size > 0 ||
+                selectedObjectIndices.size > 0 ||
+                selectedFloorIds.size > 0 ||
+                selectedDirectLineIndices.size > 0;
             const hasDimensions = window.dimensions && window.dimensions.length > 0;
             const hasSelectedDimension = selectedDimensionIndex !== null;
 
@@ -7722,6 +8499,8 @@ function getActivePropertyContext() {
         }
         return 'mixed';
     }
+
+    if (selectedDirectLineIndices.size > 0) return 'directline';
 
     if (selectedFloorIds.size > 0) return 'floor';
     if (selectedWalls.size > 0) return 'wall';
@@ -7799,6 +8578,7 @@ function updateToolInfo() {
         case 'select': name = 'Select'; break;
         case 'erase': name = 'Eraser'; break;
         case 'dimension': name = 'Dimension'; break;
+        case 'directline': name = 'Direct Line (click to add points, double-click to finish)'; break;
         case 'text': name = 'Text'; break;
     }
 
