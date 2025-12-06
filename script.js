@@ -6334,6 +6334,22 @@ function drawGrid() {
     ctx.restore();
 }
 
+function getWallOutlineCorners(start, end, thicknessPx) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const half = thicknessPx / 2;
+
+    return [
+        { x: start.x + nx * half, y: start.y + ny * half },
+        { x: end.x + nx * half, y: end.y + ny * half },
+        { x: end.x - nx * half, y: end.y - ny * half },
+        { x: start.x - nx * half, y: start.y - ny * half }
+    ];
+}
+
 function drawWalls() {
     const selectedToHighlight = [];
 
@@ -6343,13 +6359,18 @@ function drawWalls() {
         const n2 = getNodeById(w.endNodeId);
         if (!n1 || !n2) continue;
 
+        const corners = getWallOutlineCorners(n1, n2, w.thicknessPx);
+
         ctx.save();
-        ctx.lineWidth = w.thicknessPx;
+        ctx.lineWidth = Math.max(1, 2 / viewScale);
         ctx.strokeStyle = w.lineColor;
-        ctx.lineCap = 'square';
+        ctx.lineJoin = 'miter';
         ctx.beginPath();
-        ctx.moveTo(n1.x, n1.y);
-        ctx.lineTo(n2.x, n2.y);
+        ctx.moveTo(corners[0].x, corners[0].y);
+        for (let i = 1; i < corners.length; i++) {
+            ctx.lineTo(corners[i].x, corners[i].y);
+        }
+        ctx.closePath();
         ctx.stroke();
         ctx.restore();
 
@@ -6506,15 +6527,20 @@ function drawWallPreview() {
     const ey = wallPreviewY;
     const thicknessPx = getThicknessPx() || (0.5 * scale);
 
+    const corners = getWallOutlineCorners({ x: sx, y: sy }, { x: ex, y: ey }, thicknessPx);
+
     withViewTransform(() => {
         ctx.save();
         ctx.globalAlpha = 0.6;
-        ctx.lineWidth = thicknessPx;
+        ctx.lineWidth = Math.max(1, 2 / viewScale);
         ctx.strokeStyle = lineColorInput.value;
-        ctx.lineCap = 'square';
+        ctx.lineJoin = 'miter';
         ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(ex, ey);
+        ctx.moveTo(corners[0].x, corners[0].y);
+        for (let i = 1; i < corners.length; i++) {
+            ctx.lineTo(corners[i].x, corners[i].y);
+        }
+        ctx.closePath();
         ctx.stroke();
         ctx.restore();
     });
