@@ -2788,10 +2788,10 @@ function findRoomPolygonAtPoint(x, y) {
 }
 
 function ensureFloorPattern(floor) {
-    if (!floor.texture || !floor.texture.imageSrc) return Promise.resolve();
+    if (!floor?.texture?.imageSrc) return Promise.resolve();
     if (floor.texture.pattern) return Promise.resolve();
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
         const image = new Image();
         image.onload = () => {
             const widthPx = floor.texture.widthPx || image.width;
@@ -3349,7 +3349,7 @@ async function downloadPlanAsPDF(options = {}) {
         captureLayerSnapshot(activeLayerBeforeExport);
         let pdf = null;
 
-        for (let index = 0; index < layersToExport.length; index += 1) {
+        for (let index = 0; index < layersToExport.length; index++) {
             const layer = layersToExport[index];
             const targetLayerId = layer?.id || activeLayerBeforeExport;
             loadLayerSnapshot(targetLayerId);
