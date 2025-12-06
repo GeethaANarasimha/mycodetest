@@ -116,7 +116,7 @@ function areWallsColinearAtNode(wallA, wallB, nodeId) {
  * This uses the angle bisector of the current wall direction (pointing outward from the node)
  * and the connected wall direction to produce the expected 45° chamfer at joints.
  */
-function getDimensionEndpointWithJoint(node, wall, isStart) {
+function getDimensionEndpointWithJoint(node, wall, isStart, offsetSign = 1) {
     const startNode = getNodeById(wall.startNodeId);
     const endNode = getNodeById(wall.endNodeId);
 
@@ -130,16 +130,17 @@ function getDimensionEndpointWithJoint(node, wall, isStart) {
     const baseDir = { x: baseDx / baseLen, y: baseDy / baseLen };
     const dirSign = isStart ? -1 : 1;
 
-    // Dimensions should originate from the wall centerline. Avoid extending to
-    // the chamfered corner so the extension lines line up with the wall's
-    // center point instead of the outer corner.
-    const needsExtension = hasAngledConnection(node.id, wall);
-    const extension = 0;
+    // Measurements should originate from the corner of the wall, not the
+    // centerline. Offset outward using the wall's normal so the extension
+    // lines align with the wall face at the node.
+    const wallThickness = getWallThicknessPx(wall);
+    const offsetMagnitude = wallThickness / 2;
 
-    // Default direction is simply along the wall (outward from the node)
-    let offsetDir = { x: baseDir.x * dirSign, y: baseDir.y * dirSign };
+    // Default direction is the outward normal on the requested side
+    const baseNormal = { x: -baseDir.y * offsetSign, y: baseDir.x * offsetSign };
+    let offsetDir = { ...baseNormal };
 
-    if (needsExtension && typeof getWallsConnectedToNode === 'function') {
+    if (typeof getWallsConnectedToNode === 'function') {
         const connected = getWallsConnectedToNode(node.id).filter(w => w.id !== wall.id);
 
         for (const candidate of connected) {
@@ -147,21 +148,20 @@ function getDimensionEndpointWithJoint(node, wall, isStart) {
             const candidateDir = getWallDirectionFromNode(candidate, node.id);
             if (!candidateDir) continue;
 
-            // Angle bisector between the outward wall direction and the connected wall direction
-            const combinedX = offsetDir.x + candidateDir.x;
-            const combinedY = offsetDir.y + candidateDir.y;
+            const candidateNormal = { x: -candidateDir.y * offsetSign, y: candidateDir.x * offsetSign };
+            const combinedX = offsetDir.x + candidateNormal.x;
+            const combinedY = offsetDir.y + candidateNormal.y;
             const combinedLen = Math.hypot(combinedX, combinedY);
 
             if (combinedLen > 0.0001) {
                 offsetDir = { x: combinedX / combinedLen, y: combinedY / combinedLen };
-                break;
             }
         }
     }
 
     return {
-        x: node.x + offsetDir.x * extension,
-        y: node.y + offsetDir.y * extension
+        x: node.x + offsetDir.x * offsetMagnitude,
+        y: node.y + offsetDir.y * offsetMagnitude
     };
 }
 
@@ -750,9 +750,7 @@ window.drawHoverWallDimension = function(wallData) {
     const nx = len === 0 ? 0 : -dy / len;
     const ny = len === 0 ? 0 : dx / len;
 
-    const wallThickness = getWallThicknessPx(wallData.wall);
-    const borderOffset = wallThickness / 2;
-    const dimensionOffset = borderOffset + WALL_DIMENSION_OFFSET;
+    const dimensionOffset = WALL_DIMENSION_OFFSET;
 
     const referenceX = wallData.hoverX ?? window.dimensionHoverX;
     const referenceY = wallData.hoverY ?? window.dimensionHoverY;
@@ -763,8 +761,8 @@ window.drawHoverWallDimension = function(wallData) {
         offsetSign = dot >= 0 ? 1 : -1;
     }
 
-    const startBase = getDimensionEndpointWithJoint(n1, wallData.wall, true);
-    const endBase = getDimensionEndpointWithJoint(n2, wallData.wall, false);
+    const startBase = getDimensionEndpointWithJoint(n1, wallData.wall, true, offsetSign);
+    const endBase = getDimensionEndpointWithJoint(n2, wallData.wall, false, offsetSign);
 
     const offsetX = (-dy / len) * dimensionOffset * offsetSign;
     const offsetY = (dx / len) * dimensionOffset * offsetSign;
@@ -774,10 +772,10 @@ window.drawHoverWallDimension = function(wallData) {
     const endX = endBase.x + offsetX;
     const endY = endBase.y + offsetY;
 
-    const wallEdgeStartX = startBase.x + nx * borderOffset * offsetSign;
-    const wallEdgeStartY = startBase.y + ny * borderOffset * offsetSign;
-    const wallEdgeEndX = endBase.x + nx * borderOffset * offsetSign;
-    const wallEdgeEndY = endBase.y + ny * borderOffset * offsetSign;
+    const wallEdgeStartX = startBase.x;
+    const wallEdgeStartY = startBase.y;
+    const wallEdgeEndX = endBase.x;
+    const wallEdgeEndY = endBase.y;
 
     ctx.save();
     ctx.strokeStyle = 'rgba(41, 128, 185, 0.7)'; // Semi-transparent blue
