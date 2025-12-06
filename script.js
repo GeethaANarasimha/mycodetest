@@ -2788,22 +2788,26 @@ function findRoomPolygonAtPoint(x, y) {
 }
 
 function ensureFloorPattern(floor) {
-    if (!floor.texture || !floor.texture.imageSrc) return;
-    if (floor.texture.pattern) return;
+    if (!floor.texture || !floor.texture.imageSrc) return Promise.resolve();
+    if (floor.texture.pattern) return Promise.resolve();
 
-    const image = new Image();
-    image.onload = () => {
-        const widthPx = floor.texture.widthPx || image.width;
-        const heightPx = floor.texture.heightPx || image.height;
-        const tileCanvas = document.createElement('canvas');
-        tileCanvas.width = Math.max(1, Math.round(widthPx));
-        tileCanvas.height = Math.max(1, Math.round(heightPx));
-        const tctx = tileCanvas.getContext('2d');
-        tctx.drawImage(image, 0, 0, tileCanvas.width, tileCanvas.height);
-        floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
-        redrawCanvas();
-    };
-    image.src = floor.texture.imageSrc;
+    return new Promise((resolve) => {
+        const image = new Image();
+        image.onload = () => {
+            const widthPx = floor.texture.widthPx || image.width;
+            const heightPx = floor.texture.heightPx || image.height;
+            const tileCanvas = document.createElement('canvas');
+            tileCanvas.width = Math.max(1, Math.round(widthPx));
+            tileCanvas.height = Math.max(1, Math.round(heightPx));
+            const tctx = tileCanvas.getContext('2d');
+            tctx.drawImage(image, 0, 0, tileCanvas.width, tileCanvas.height);
+            floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
+            redrawCanvas();
+            resolve();
+        };
+        image.onerror = () => resolve();
+        image.src = floor.texture.imageSrc;
+    });
 }
 
 function createFloorAtPoint(x, y) {
@@ -3345,9 +3349,12 @@ async function downloadPlanAsPDF(options = {}) {
         captureLayerSnapshot(activeLayerBeforeExport);
         let pdf = null;
 
-        layersToExport.forEach((layer, index) => {
+        for (let index = 0; index < layersToExport.length; index += 1) {
+            const layer = layersToExport[index];
             const targetLayerId = layer?.id || activeLayerBeforeExport;
             loadLayerSnapshot(targetLayerId);
+
+            await Promise.all((floors || []).map(floor => ensureFloorPattern(floor)));
 
             const bounds = getContentBounds();
             const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
@@ -3425,7 +3432,7 @@ async function downloadPlanAsPDF(options = {}) {
             rightInfoLines.forEach((line, lineIndex) => {
                 pdf.text(line, rightInfoX, infoY + lineIndex * infoLineHeight, { align: 'right' });
             });
-        });
+        }
 
         if (pdf) {
             pdf.save('apzok-plan.pdf');
