@@ -6172,6 +6172,9 @@ function applyDimensionDrag(x, y) {
     const { initial } = dimensionDrag;
     const initialP1 = initial.p1;
     const initialP2 = initial.p2;
+    const snappedPointer = snapPointToInch(x, y);
+    const wx = snappedPointer.x;
+    const wy = snappedPointer.y;
 
     let newStart = { x: initial.startX, y: initial.startY };
     let newEnd = { x: initial.endX, y: initial.endY };
@@ -6179,18 +6182,18 @@ function applyDimensionDrag(x, y) {
     let newP2 = initialP2 ? { x: initialP2.x, y: initialP2.y } : null;
 
     if (dimensionDrag.handle === 'start') {
-        newStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
+        newStart = { x: wx, y: wy };
         if (initialP1) {
-            const deltaX = newStart.x - initial.startX;
-            const deltaY = newStart.y - initial.startY;
-            newP1 = { x: initialP1.x + deltaX, y: initialP1.y + deltaY };
+            const offsetX = initial.startX - initialP1.x;
+            const offsetY = initial.startY - initialP1.y;
+            newP1 = { x: wx - offsetX, y: wy - offsetY };
         }
     } else if (dimensionDrag.handle === 'end') {
-        newEnd = snapPointToInch(initial.endX + dx, initial.endY + dy);
+        newEnd = { x: wx, y: wy };
         if (initialP2) {
-            const deltaX = newEnd.x - initial.endX;
-            const deltaY = newEnd.y - initial.endY;
-            newP2 = { x: initialP2.x + deltaX, y: initialP2.y + deltaY };
+            const offsetX = initial.endX - initialP2.x;
+            const offsetY = initial.endY - initialP2.y;
+            newP2 = { x: wx - offsetX, y: wy - offsetY };
         }
     } else if (dimensionDrag.handle === 'line') {
         const snappedStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
@@ -6221,7 +6224,36 @@ function applyDimensionDrag(x, y) {
         window.updateDimensionMeasurement(dimension);
     }
 
-    updateWallFromDimension(dimension);
+    if (dimension.wallId) {
+        const wall = walls.find(w => w.id === dimension.wallId);
+
+        if (wall) {
+            if (dimensionDrag.handle === 'start') {
+                const n = getNodeById(wall.startNodeId);
+                if (n) { n.x = newStart.x; n.y = newStart.y; }
+                wall.x1 = newStart.x;
+                wall.y1 = newStart.y;
+            } else if (dimensionDrag.handle === 'end') {
+                const n = getNodeById(wall.endNodeId);
+                if (n) { n.x = newEnd.x; n.y = newEnd.y; }
+                wall.x2 = newEnd.x;
+                wall.y2 = newEnd.y;
+            } else if (dimensionDrag.handle === 'line') {
+                const p1 = dimension.p1 || { x: dimension.startX, y: dimension.startY };
+                const p2 = dimension.p2 || { x: dimension.endX, y: dimension.endY };
+                wall.x1 = p1.x;
+                wall.y1 = p1.y;
+                wall.x2 = p2.x;
+                wall.y2 = p2.y;
+
+                const n1 = getNodeById(wall.startNodeId);
+                const n2 = getNodeById(wall.endNodeId);
+                if (n1) { n1.x = p1.x; n1.y = p1.y; }
+                if (n2) { n2.x = p2.x; n2.y = p2.y; }
+            }
+        }
+    }
+
     applyMiterCorners(walls);
 
     redrawCanvas();
