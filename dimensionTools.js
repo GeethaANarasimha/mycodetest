@@ -14,6 +14,7 @@ window.hoveredSpaceSegment = null;
 window.dimensionHoverX = null;
 window.dimensionHoverY = null;
 window.dimensionActiveWall = null;
+window.dimensionActiveOffsetSign = 1;
 window.selectedDimensionIndex = null;
 
 // Blue color for dimensions
@@ -21,6 +22,7 @@ const DIMENSION_COLOR = '#3498db';
 const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
+const DEFAULT_WALL_FACE_OFFSET = 6; // distance from wall face for manual dimensions
 
 function computeWallAnchorData(wall, startX, startY, endX, endY) {
     if (!wall) return null;
@@ -48,6 +50,34 @@ function computeWallAnchorData(wall, startX, startY, endX, endY) {
     const offset = (startOffset + endOffset) / 2;
 
     return { startRatio, endRatio, offset };
+}
+
+function getWallNormalAndSign(wallData, referenceX, referenceY) {
+    const { n1, n2 } = wallData || {};
+    if (!n1 || !n2) return null;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const len = Math.hypot(dx, dy);
+    if (!len) return null;
+
+    const normal = { x: -dy / len, y: dx / len };
+    const midX = (n1.x + n2.x) / 2;
+    const midY = (n1.y + n2.y) / 2;
+    const offsetSign = ((referenceX - midX) * normal.x + (referenceY - midY) * normal.y) >= 0 ? 1 : -1;
+
+    return { normal, offsetSign };
+}
+
+function computeWallOffset(dim, wall) {
+    if (!wall) return Number.isFinite(dim?.wallOffset) ? dim.wallOffset : 0;
+
+    if (Number.isFinite(dim?.wallFaceOffset)) {
+        const thickness = getWallThicknessPx(wall);
+        return (thickness / 2 + dim.wallFaceOffset) * (dim.offsetSign || 1);
+    }
+
+    return Number.isFinite(dim?.wallOffset) ? dim.wallOffset : 0;
 }
 
 function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWallData = null) {
@@ -97,7 +127,7 @@ function updateDimensionsAttachedToWalls() {
 
         const startRatio = clampValue(dim.wallStartRatio, 0, 1);
         const endRatio = clampValue(dim.wallEndRatio, 0, 1);
-        const offset = Number.isFinite(dim.wallOffset) ? dim.wallOffset : 0;
+        const offset = computeWallOffset(dim, wall);
 
         dim.startX = n1.x + dir.x * len * startRatio + normal.x * offset;
         dim.startY = n1.y + dir.y * len * startRatio + normal.y * offset;
@@ -215,8 +245,12 @@ function startManualDimension(x, y) {
         x = projected.x;
         y = projected.y;
         window.dimensionActiveWall = nearestWall;
+
+        const wallSide = getWallNormalAndSign(nearestWall, x, y);
+        window.dimensionActiveOffsetSign = wallSide?.offsetSign || 1;
     } else {
         window.dimensionActiveWall = null;
+        window.dimensionActiveOffsetSign = 1;
     }
 
     dimensionStartX = x;
@@ -251,8 +285,34 @@ function endManualDimension(x, y) {
         y = projected.y;
     }
 
+    let startPoint = { x: dimensionStartX, y: dimensionStartY };
+    let endPoint = { x, y };
+    let offsetSign = window.dimensionActiveOffsetSign || 1;
+
+    if (window.dimensionActiveWall?.wall) {
+        const wallInfo = getWallNormalAndSign(window.dimensionActiveWall, x, y);
+        offsetSign = wallInfo?.offsetSign || offsetSign;
+        const normal = wallInfo?.normal;
+
+        if (normal) {
+            const wallOffset = (getWallThicknessPx(window.dimensionActiveWall.wall) / 2 + DEFAULT_WALL_FACE_OFFSET) * offsetSign;
+            startPoint = {
+                x: startPoint.x + normal.x * wallOffset,
+                y: startPoint.y + normal.y * wallOffset
+            };
+            endPoint = {
+                x: endPoint.x + normal.x * wallOffset,
+                y: endPoint.y + normal.y * wallOffset
+            };
+        }
+    }
+
     pushUndoState();
-    createManualDimension(dimensionStartX, dimensionStartY, x, y);
+    createManualDimension(startPoint.x, startPoint.y, endPoint.x, endPoint.y, {
+        offsetSign,
+        explicitWallData: window.dimensionActiveWall,
+        offsetFromWallFace: DEFAULT_WALL_FACE_OFFSET
+    });
     
     // Reset for next dimension
     isDimensionDrawing = false;
@@ -261,6 +321,7 @@ function endManualDimension(x, y) {
     dimensionPreviewX = null;
     dimensionPreviewY = null;
     window.dimensionActiveWall = null;
+    window.dimensionActiveOffsetSign = 1;
 
     redrawCanvas();
 }
@@ -286,19 +347,9 @@ window.createWallDimension = function(wallData, options = {}) {
         ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
         : 1;
 
-    // Shift from wall edge to centerline so dimensions anchor to the wall center
     const wallThickness = getWallThicknessPx(wallData.wall ?? wallData);
-    const centerShift = -offsetSign * (wallThickness / 2);
-    const centerN1 = {
-        x: n1.x + nx * centerShift,
-        y: n1.y + ny * centerShift
-    };
-    const centerN2 = {
-        x: n2.x + nx * centerShift,
-        y: n2.y + ny * centerShift
-    };
-
-    const length = Math.hypot(centerN2.x - centerN1.x, centerN2.y - centerN1.y);
+    const offsetDistance = (wallThickness / 2 + WALL_DIMENSION_OFFSET) * offsetSign;
+    const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
     const totalInches = Math.round((length / scale) * 12);
     const feet = Math.floor(totalInches / 12);
     const inches = totalInches % 12;
@@ -307,26 +358,20 @@ window.createWallDimension = function(wallData, options = {}) {
     let startX, startY, endX, endY;
 
     if (orientation === 'horizontal') {
-        const yPos = centerN1.y + WALL_DIMENSION_OFFSET * offsetSign;
-        startX = centerN1.x;
-        startY = yPos;
-        endX = centerN2.x;
-        endY = yPos;
+        startX = n1.x + nx * offsetDistance;
+        startY = n1.y + ny * offsetDistance;
+        endX = n2.x + nx * offsetDistance;
+        endY = n2.y + ny * offsetDistance;
     } else if (orientation === 'vertical') {
-        const xPos = centerN1.x + WALL_DIMENSION_OFFSET * offsetSign;
-        startX = xPos;
-        startY = centerN1.y;
-        endX = xPos;
-        endY = centerN2.y;
+        startX = n1.x + nx * offsetDistance;
+        startY = n1.y + ny * offsetDistance;
+        endX = n2.x + nx * offsetDistance;
+        endY = n2.y + ny * offsetDistance;
     } else {
-        // Diagonal wall - use center with small offset
-        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
-        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
-
-        startX = centerN1.x + offsetX;
-        startY = centerN1.y + offsetY;
-        endX = centerN2.x + offsetX;
-        endY = centerN2.y + offsetY;
+        startX = n1.x + nx * offsetDistance;
+        startY = n1.y + ny * offsetDistance;
+        endX = n2.x + nx * offsetDistance;
+        endY = n2.y + ny * offsetDistance;
     }
     
     const dimension = {
@@ -342,14 +387,15 @@ window.createWallDimension = function(wallData, options = {}) {
         isAuto: true,
         orientation: orientation,
         wallId: wallData.wall.id,
-        offsetSign: offsetSign
+        offsetSign: offsetSign,
+        wallFaceOffset: WALL_DIMENSION_OFFSET
     };
 
     const anchorData = computeWallAnchorData(wallData.wall, startX, startY, endX, endY);
     if (anchorData) {
         dimension.wallStartRatio = anchorData.startRatio;
         dimension.wallEndRatio = anchorData.endRatio;
-        dimension.wallOffset = anchorData.offset;
+        dimension.wallOffset = computeWallOffset(dimension, wallData.wall);
     }
 
     dimensions.push(dimension);
@@ -371,7 +417,7 @@ window.updateDimensionMeasurement = function(dimension) {
     dimension.text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
 };
 
-window.createManualDimension = function(startX, startY, endX, endY) {
+window.createManualDimension = function(startX, startY, endX, endY, options = {}) {
     const dimension = {
         id: nextDimensionId++,
         startX: startX,
@@ -380,13 +426,22 @@ window.createManualDimension = function(startX, startY, endX, endY) {
         endY: endY,
         lineColor: DIMENSION_COLOR,
         lineWidth: 2,
-        isAuto: false
+        isAuto: false,
+        offsetSign: options.offsetSign || 1
     };
 
     // Attach to the active wall if available, otherwise attempt to find a shared wall near both points
-    attachDimensionToWall(dimension, startX, startY, endX, endY, window.dimensionActiveWall);
+    attachDimensionToWall(dimension, startX, startY, endX, endY, options.explicitWallData || window.dimensionActiveWall);
 
     window.updateDimensionMeasurement(dimension);
+
+    if (dimension.wallId) {
+        const wall = walls.find(w => w.id === dimension.wallId);
+        if (wall) {
+            dimension.wallFaceOffset = Number.isFinite(options.offsetFromWallFace) ? options.offsetFromWallFace : undefined;
+            dimension.wallOffset = computeWallOffset(dimension, wall);
+        }
+    }
 
     dimensions.push(dimension);
     return dimension;
@@ -724,15 +779,36 @@ window.drawDimensionPreview = function() {
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 2]);
 
+        let previewStart = { x: dimensionStartX, y: dimensionStartY };
+        let previewEnd = { x: dimensionPreviewX, y: dimensionPreviewY };
+
+        if (window.dimensionActiveWall?.wall) {
+            const wallInfo = getWallNormalAndSign(window.dimensionActiveWall, dimensionPreviewX, dimensionPreviewY);
+            const offsetSign = wallInfo?.offsetSign || window.dimensionActiveOffsetSign || 1;
+            const normal = wallInfo?.normal;
+
+            if (normal) {
+                const wallOffset = (getWallThicknessPx(window.dimensionActiveWall.wall) / 2 + DEFAULT_WALL_FACE_OFFSET) * offsetSign;
+                previewStart = {
+                    x: previewStart.x + normal.x * wallOffset,
+                    y: previewStart.y + normal.y * wallOffset
+                };
+                previewEnd = {
+                    x: previewEnd.x + normal.x * wallOffset,
+                    y: previewEnd.y + normal.y * wallOffset
+                };
+            }
+        }
+
         // Draw dimension line
         ctx.beginPath();
-        ctx.moveTo(dimensionStartX, dimensionStartY);
-        ctx.lineTo(dimensionPreviewX, dimensionPreviewY);
+        ctx.moveTo(previewStart.x, previewStart.y);
+        ctx.lineTo(previewEnd.x, previewEnd.y);
         ctx.stroke();
 
         // Draw extension lines
-        const dx = dimensionPreviewX - dimensionStartX;
-        const dy = dimensionPreviewY - dimensionStartY;
+        const dx = previewEnd.x - previewStart.x;
+        const dy = previewEnd.y - previewStart.y;
         const len = Math.hypot(dx, dy);
 
         if (len > 0) {
@@ -741,13 +817,13 @@ window.drawDimensionPreview = function() {
             const offset = 10;
 
             ctx.beginPath();
-            ctx.moveTo(dimensionStartX + nx * offset, dimensionStartY + ny * offset);
-            ctx.lineTo(dimensionStartX - nx * offset, dimensionStartY - ny * offset);
+            ctx.moveTo(previewStart.x + nx * offset, previewStart.y + ny * offset);
+            ctx.lineTo(previewStart.x - nx * offset, previewStart.y - ny * offset);
             ctx.stroke();
 
             ctx.beginPath();
-            ctx.moveTo(dimensionPreviewX + nx * offset, dimensionPreviewY + ny * offset);
-            ctx.lineTo(dimensionPreviewX - nx * offset, dimensionPreviewY - ny * offset);
+            ctx.moveTo(previewEnd.x + nx * offset, previewEnd.y + ny * offset);
+            ctx.lineTo(previewEnd.x - nx * offset, previewEnd.y - ny * offset);
             ctx.stroke();
 
             // Dimension text
@@ -756,8 +832,8 @@ window.drawDimensionPreview = function() {
             const inches = totalInches % 12;
             const text = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
 
-            const midX = (dimensionStartX + dimensionPreviewX) / 2;
-            const midY = (dimensionStartY + dimensionPreviewY) / 2;
+            const midX = (previewStart.x + previewEnd.x) / 2;
+            const midY = (previewStart.y + previewEnd.y) / 2;
             const textX = midX + nx * 15;
             const textY = midY + ny * 15;
 
