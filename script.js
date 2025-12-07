@@ -3605,18 +3605,117 @@ function parseWallsFromXml(xmlText) {
         });
     });
 
+    const nodeLookup = new Map(Array.from(nodesByKey.values()).map(node => [node.id, node]));
+
+    const doorsFromXml = parseDoorsFromXml(xml, nodeLookup, wallsFromXml);
+
     return {
         nodes: Array.from(nodesByKey.values()),
-        walls: wallsFromXml
+        walls: wallsFromXml,
+        doors: doorsFromXml
     };
 }
 
-function buildConvertedProject(nodesFromXml, wallsFromXml) {
+function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
+    const doorElements = Array.from(xmlDoc.getElementsByTagName('doorOrWindow'));
+    if (!doorElements.length) return [];
+
+    const wallsById = new Map(wallsFromXml.map(wall => [wall.id, wall]));
+
+    const findNearestWall = (cx, cy) => {
+        let closest = null;
+        let bestDistance = Infinity;
+
+        wallsById.forEach((wall) => {
+            const n1 = nodeLookup.get(wall.startNodeId);
+            const n2 = nodeLookup.get(wall.endNodeId);
+            if (!n1 || !n2) return;
+
+            const projection = projectPointToWallSegment(cx, cy, n1.x, n1.y, n2.x, n2.y);
+            const distance = Math.hypot(cx - projection.x, cy - projection.y);
+
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                closest = { wall, n1, n2, projection };
+            }
+        });
+
+        return closest;
+    };
+
+    const resolveOrientationFromAngle = (angleRad) => {
+        const sin = Math.sin(angleRad);
+        const cos = Math.cos(angleRad);
+        return Math.abs(sin) > Math.abs(cos) ? 'vertical' : 'horizontal';
+    };
+
+    return doorElements.map((doorElement, index) => {
+        const xAttr = doorElement.getAttribute('x');
+        const yAttr = doorElement.getAttribute('y');
+        const angleAttr = doorElement.getAttribute('angle') || '0';
+        const widthAttr = doorElement.getAttribute('width');
+        const depthAttr = doorElement.getAttribute('depth');
+
+        const centerX = convertXmlDistanceToPixels(xAttr);
+        const centerY = convertXmlDistanceToPixels(yAttr);
+
+        if (centerX === null || centerY === null) {
+            throw new Error('Missing door coordinates in XML.');
+        }
+
+        const angleRad = parseFloat(angleAttr) || 0;
+        const orientationHint = resolveOrientationFromAngle(angleRad);
+
+        const lengthPx = convertXmlDistanceToPixels(widthAttr) ?? getDoorLengthPx('normal', scale);
+        const thicknessFromXml = convertXmlDistanceToPixels(depthAttr);
+
+        const nearestWall = findNearestWall(centerX, centerY);
+        const nearestWallThickness = nearestWall?.wall?.thicknessPx ?? getWallThicknessForDoor(nearestWall?.wall, scale);
+        const alongWall = lengthPx ?? getDoorLengthPx('normal', scale);
+        const acrossWall = thicknessFromXml ?? nearestWallThickness ?? convertXmlDistanceToPixels(15.24) ?? (0.5 * scale);
+
+        const orientation = nearestWall
+            ? (Math.abs(nearestWall.n2.x - nearestWall.n1.x) >= Math.abs(nearestWall.n2.y - nearestWall.n1.y)
+                ? 'horizontal'
+                : 'vertical')
+            : orientationHint;
+
+        const width = orientation === 'horizontal' ? alongWall : acrossWall;
+        const height = orientation === 'horizontal' ? acrossWall : alongWall;
+
+        const centerProjection = nearestWall?.projection || { x: centerX, y: centerY };
+
+        const door = {
+            id: `converted-door-${index + 1}`,
+            type: 'door',
+            doorType: 'normal',
+            x: centerProjection.x - width / 2,
+            y: centerProjection.y - height / 2,
+            width,
+            height,
+            lineWidth: parseInt(lineWidthInput?.value, 10) || 2,
+            lineColor: DEFAULT_DOOR_LINE,
+            fillColor: DEFAULT_DOOR_FILL,
+            rotation: orientation === 'horizontal' ? 0 : 90,
+            flipH: false,
+            flipV: false,
+            orientation
+        };
+
+        if (nearestWall) {
+            door.attachedWallId = nearestWall.wall.id;
+        }
+
+        return door;
+    });
+}
+
+function buildConvertedProject(nodesFromXml, wallsFromXml, objectsFromXml) {
     return {
         version: 1,
         nodes: nodesFromXml,
         walls: wallsFromXml,
-        objects: [],
+        objects: objectsFromXml,
         directLines: [],
         floors: [],
         dimensions: [],
@@ -3659,8 +3758,10 @@ function handleXmlFileUpload(event) {
     reader.onload = () => {
         try {
             const parsed = parseWallsFromXml(reader.result);
-            convertedProjectState = buildConvertedProject(parsed.nodes, parsed.walls);
-            resetXmlConvertStatus(`Loaded ${parsed.walls.length} wall(s) and ${parsed.nodes.length} node(s). Ready to download.`);
+            convertedProjectState = buildConvertedProject(parsed.nodes, parsed.walls, parsed.doors);
+            resetXmlConvertStatus(
+                `Loaded ${parsed.walls.length} wall(s), ${parsed.nodes.length} node(s), and ${parsed.doors.length} door(s). Ready to download.`
+            );
             downloadConvertedProjectButton?.removeAttribute('disabled');
         } catch (error) {
             console.error('Failed to convert XML', error);
