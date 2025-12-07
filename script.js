@@ -3622,7 +3622,7 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
 
     const wallsById = new Map(wallsFromXml.map(wall => [wall.id, wall]));
 
-    const findNearestWall = (cx, cy) => {
+    const findNearestWall = (cx, cy, maxDistance = 5) => {
         let closest = null;
         let bestDistance = Infinity;
 
@@ -3636,11 +3636,15 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
 
             if (distance < bestDistance) {
                 bestDistance = distance;
-                closest = { wall, n1, n2, projection };
+                closest = { wall, n1, n2, projection, distance };
             }
         });
 
-        return closest;
+        if (bestDistance <= maxDistance) {
+            return closest;
+        }
+
+        return null;
     };
 
     const resolveOrientationFromAngle = (angleRad) => {
@@ -3652,6 +3656,11 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
     const normalizeAngleDegrees = (degrees) => {
         const normalized = degrees % 360;
         return normalized < 0 ? normalized + 360 : normalized;
+    };
+
+    const normalizeSignedAngleDifference = (degrees) => {
+        const normalized = ((degrees % 360) + 540) % 360 - 180;
+        return normalized;
     };
 
     const smallestAngleDifference = (aDeg, bDeg) => {
@@ -3680,7 +3689,7 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
         const lengthPx = convertXmlDistanceToPixels(widthAttr) ?? getDoorLengthPx('normal', scale);
         const thicknessFromXml = convertXmlDistanceToPixels(depthAttr);
 
-        const nearestWall = findNearestWall(centerX, centerY);
+        const nearestWall = findNearestWall(centerX, centerY, 5);
         const nearestWallThickness = nearestWall?.wall?.thicknessPx ?? getWallThicknessForDoor(nearestWall?.wall, scale);
         const alongWall = lengthPx ?? getDoorLengthPx('normal', scale);
         const acrossWall = thicknessFromXml ?? nearestWallThickness ?? convertXmlDistanceToPixels(15.24) ?? (0.5 * scale);
@@ -3700,7 +3709,7 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
 
         if (wallAngleDeg !== null) {
             if (Number.isFinite(angleDeg)) {
-                wallAngleOffset = normalizeAngleDegrees(angleDeg - wallAngleDeg);
+                wallAngleOffset = normalizeSignedAngleDifference(angleDeg - wallAngleDeg);
                 rotationDeg = normalizeAngleDegrees(wallAngleDeg + wallAngleOffset);
             } else {
                 rotationDeg = wallAngleDeg;
