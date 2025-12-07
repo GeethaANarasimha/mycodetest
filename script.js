@@ -3700,10 +3700,8 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
 
         if (wallAngleDeg !== null) {
             if (Number.isFinite(angleDeg)) {
-                const diff = smallestAngleDifference(wallAngleDeg, angleDeg);
-                const shouldFlipDirection = diff > 90;
-                wallAngleOffset = shouldFlipDirection ? 180 : 0;
-                rotationDeg = shouldFlipDirection ? normalizeAngleDegrees(wallAngleDeg + 180) : normalizeAngleDegrees(angleDeg);
+                wallAngleOffset = normalizeAngleDegrees(angleDeg - wallAngleDeg);
+                rotationDeg = normalizeAngleDegrees(wallAngleDeg + wallAngleOffset);
             } else {
                 rotationDeg = wallAngleDeg;
             }
