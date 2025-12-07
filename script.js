@@ -3649,6 +3649,16 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
         return Math.abs(sin) > Math.abs(cos) ? 'vertical' : 'horizontal';
     };
 
+    const normalizeAngleDegrees = (degrees) => {
+        const normalized = degrees % 360;
+        return normalized < 0 ? normalized + 360 : normalized;
+    };
+
+    const smallestAngleDifference = (aDeg, bDeg) => {
+        const diff = Math.abs(normalizeAngleDegrees(aDeg) - normalizeAngleDegrees(bDeg));
+        return diff > 180 ? 360 - diff : diff;
+    };
+
     return doorElements.map((doorElement, index) => {
         const xAttr = doorElement.getAttribute('x');
         const yAttr = doorElement.getAttribute('y');
@@ -3664,6 +3674,7 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
         }
 
         const angleRad = parseFloat(angleAttr) || 0;
+        const angleDeg = normalizeAngleDegrees((angleRad * 180) / Math.PI);
         const orientationHint = resolveOrientationFromAngle(angleRad);
 
         const lengthPx = convertXmlDistanceToPixels(widthAttr) ?? getDoorLengthPx('normal', scale);
@@ -3679,6 +3690,26 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
                 ? 'horizontal'
                 : 'vertical')
             : orientationHint;
+
+        const wallAngleDeg = nearestWall
+            ? normalizeAngleDegrees((Math.atan2(nearestWall.n2.y - nearestWall.n1.y, nearestWall.n2.x - nearestWall.n1.x) * 180) / Math.PI)
+            : null;
+
+        let wallAngleOffset = 0;
+        let rotationDeg;
+
+        if (wallAngleDeg !== null) {
+            if (Number.isFinite(angleDeg)) {
+                const diff = smallestAngleDifference(wallAngleDeg, angleDeg);
+                const shouldFlipDirection = diff > 90;
+                wallAngleOffset = shouldFlipDirection ? 180 : 0;
+                rotationDeg = shouldFlipDirection ? normalizeAngleDegrees(wallAngleDeg + 180) : normalizeAngleDegrees(angleDeg);
+            } else {
+                rotationDeg = wallAngleDeg;
+            }
+        } else {
+            rotationDeg = Number.isFinite(angleDeg) ? angleDeg : (orientation === 'horizontal' ? 0 : 90);
+        }
 
         const width = orientation === 'horizontal' ? alongWall : acrossWall;
         const height = orientation === 'horizontal' ? acrossWall : alongWall;
@@ -3696,7 +3727,8 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
             lineWidth: parseInt(lineWidthInput?.value, 10) || 2,
             lineColor: DEFAULT_DOOR_LINE,
             fillColor: DEFAULT_DOOR_FILL,
-            rotation: orientation === 'horizontal' ? 0 : 90,
+            rotation: rotationDeg,
+            wallAngleOffset,
             flipH: false,
             flipV: false,
             orientation
@@ -4937,8 +4969,12 @@ function maintainDoorAttachmentForSelection() {
             sizeDoorToWall(obj, { wall, n1, n2, projection, orientation }, scale);
         }
 
-        // Keep the door's rotation aligned with the wall direction so it doesn't double-rotate
-        obj.rotation = orientation === 'horizontal' ? 0 : 90;
+        const baseWallAngleDeg = (Math.atan2(n2.y - n1.y, n2.x - n1.x) * 180) / Math.PI;
+        const wallOffsetDeg = obj.wallAngleOffset || 0;
+        const alignedRotation = baseWallAngleDeg + wallOffsetDeg;
+
+        obj.rotation = ((alignedRotation % 360) + 360) % 360;
+        obj.orientation = orientation;
     });
 }
 
@@ -6913,7 +6949,9 @@ function getObjectTransformInfo(obj) {
         const n2 = wall && getNodeById(wall.endNodeId);
 
         if (n1 && n2) {
-            angleRad = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+            const wallAngleRad = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+            const offsetRad = ((obj.wallAngleOffset || 0) * Math.PI) / 180;
+            angleRad = wallAngleRad + offsetRad;
             orientationRotation = 0; // Angle already matches the wall
         }
     }
