@@ -300,6 +300,7 @@ let threeScene = null;
 let threeRenderer = null;
 let threeCamera = null;
 let threeControls = null;
+let threeRenderLoopId = null;
 let wallMeshes = [];
 let threeContentGroup = null;
 let orbitCenterHelper = null;
@@ -7393,6 +7394,10 @@ function setThreeStatus(message = '', isError = false) {
 function loadScriptOnce(src) {
     const existing = document.querySelector(`script[src="${src}"]`);
     if (existing) {
+        if (existing.dataset.loaded === 'error') {
+            existing.remove();
+            return loadScriptOnce(src);
+        }
         if (existing.dataset.loaded === 'true' || existing.readyState === 'complete') {
             return Promise.resolve();
         }
@@ -7411,19 +7416,47 @@ function loadScriptOnce(src) {
             script.dataset.loaded = 'true';
             resolve();
         };
-        script.onerror = (err) => reject(err);
+        script.onerror = (err) => {
+            script.dataset.loaded = 'error';
+            script.remove();
+            reject(err);
+        };
         document.head.appendChild(script);
     });
 }
 
+function resetFailedThreeLoadState() {
+    useFallback3DRenderer = false;
+    threeLibsPromise = null;
+}
+
+let lastThreeLibErrorTime = 0;
+
 function ensureThreeLibraries() {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         useFallback3DRenderer = true;
+        lastThreeLibErrorTime = Date.now();
         if (!threeLibsPromise) {
             threeLibsPromise = Promise.resolve(false);
         }
         setThreeStatus('Offline mode: using built-in 3D preview.');
         return threeLibsPromise;
+    }
+
+    if (useFallback3DRenderer) {
+        if (!lastThreeLibErrorTime) {
+            lastThreeLibErrorTime = Date.now();
+        }
+
+        const elapsed = Date.now() - lastThreeLibErrorTime;
+        if (elapsed < 5000) {
+            if (!threeLibsPromise) {
+                threeLibsPromise = Promise.resolve(false);
+            }
+            return threeLibsPromise;
+        }
+
+        resetFailedThreeLoadState();
     }
 
     if (typeof THREE !== 'undefined' && THREE.Scene && THREE.PerspectiveCamera) {
@@ -7456,6 +7489,14 @@ function ensureThreeLibraries() {
             console.warn('Falling back to offline 3D renderer', err);
             setThreeStatus('Using offline 3D preview (Three.js unreachable).');
             useFallback3DRenderer = true;
+            lastThreeLibErrorTime = Date.now();
+
+            // Remove any errored scripts so a later attempt can retry cleanly.
+            document.querySelectorAll('script[src*="three.js/r155"]')
+                .forEach(tag => tag.dataset.loaded === 'error' ? tag.remove() : null);
+
+            // Allow later toggles to re-attempt loading when connectivity returns.
+            threeLibsPromise = null;
             return false;
         });
     }
@@ -7546,14 +7587,77 @@ function ensureThreeView() {
     threeScene.add(threeContentGroup);
 
     window.addEventListener('resize', handleThreeResize);
+    startThreeRenderLoop();
+}
+
+function startThreeRenderLoop() {
+    if (threeRenderLoopId || !threeRenderer || !threeScene || !threeCamera) return;
 
     const renderLoop = () => {
-        requestAnimationFrame(renderLoop);
-        if (!threeRenderer || !threeScene || !threeCamera) return;
+        if (!threeRenderer || !threeScene || !threeCamera) {
+            threeRenderLoopId = null;
+            return;
+        }
+        if (!is3DView) {
+            threeRenderLoopId = null;
+            return;
+        }
+
         if (threeControls) threeControls.update();
         threeRenderer.render(threeScene, threeCamera);
+        threeRenderLoopId = requestAnimationFrame(renderLoop);
     };
-    renderLoop();
+
+    threeRenderLoopId = requestAnimationFrame(renderLoop);
+}
+
+function ensureThreeRenderLoop() {
+    if (!useFallback3DRenderer && !threeRenderLoopId) {
+        startThreeRenderLoop();
+    }
+}
+
+function stopThreeRenderLoop() {
+    if (threeRenderLoopId) cancelAnimationFrame(threeRenderLoopId);
+    threeRenderLoopId = null;
+}
+
+function teardownThreeView() {
+    stopThreeRenderLoop();
+    teardownFallback3DView();
+
+    if (threeControls && typeof threeControls.dispose === 'function') {
+        threeControls.dispose();
+    }
+    threeControls = null;
+
+    window.removeEventListener('resize', handleThreeResize);
+
+    clearThreeContent();
+    if (threeContentGroup && threeScene) {
+        threeScene.remove(threeContentGroup);
+    }
+    threeContentGroup = null;
+
+    if (threeScene) {
+        threeScene.traverse(obj => disposeThreeObject(obj));
+    }
+    threeScene = null;
+    threeCamera = null;
+
+    if (threeRenderer) {
+        if (threeRenderer.domElement?.parentElement === threeContainer) {
+            threeRenderer.domElement.remove();
+        }
+        if (typeof threeRenderer.dispose === 'function') {
+            threeRenderer.dispose();
+        }
+    }
+    threeRenderer = null;
+
+    if (threeContainer && !is3DView) {
+        threeContainer.innerHTML = '';
+    }
 }
 
 function getPlanBounds() {
@@ -7613,6 +7717,10 @@ function buildOrbitBoundingBox() {
     return new THREE.Box3(min, max);
 }
 
+function preventFallbackContextMenu(e) {
+    e.preventDefault();
+}
+
 function ensureFallback3DView() {
     if (!threeContainer) return;
 
@@ -7629,13 +7737,34 @@ function ensureFallback3DView() {
         fallback3DCanvas.addEventListener('pointerup', handleFallbackPointerUp);
         fallback3DCanvas.addEventListener('pointerleave', handleFallbackPointerUp);
         fallback3DCanvas.addEventListener('wheel', handleFallbackWheel, { passive: false });
-        fallback3DCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        fallback3DCanvas.addEventListener('contextmenu', preventFallbackContextMenu);
         window.addEventListener('resize', resizeFallbackCanvas);
     }
 
     resizeFallbackCanvas();
     updateFallbackCameraTarget();
     startFallbackAnimation();
+}
+
+function teardownFallback3DView() {
+    if (!fallback3DCanvas) return;
+
+    stopFallbackAnimation();
+    fallback3DCamera.isDragging = false;
+    fallback3DCamera.lastPointer = null;
+    fallback3DCamera.autoRotate = false;
+
+    fallback3DCanvas.removeEventListener('pointerdown', handleFallbackPointerDown);
+    fallback3DCanvas.removeEventListener('pointermove', handleFallbackPointerMove);
+    fallback3DCanvas.removeEventListener('pointerup', handleFallbackPointerUp);
+    fallback3DCanvas.removeEventListener('pointerleave', handleFallbackPointerUp);
+    fallback3DCanvas.removeEventListener('wheel', handleFallbackWheel);
+    fallback3DCanvas.removeEventListener('contextmenu', preventFallbackContextMenu);
+    window.removeEventListener('resize', resizeFallbackCanvas);
+
+    fallback3DCanvas.remove();
+    fallback3DCanvas = null;
+    fallback3DCtx = null;
 }
 
 function resizeFallbackCanvas() {
@@ -8411,6 +8540,7 @@ function switchTo3DView() {
     setThreeStatus('');
     update3DButtonLabel('Show 2D');
     rebuild3DScene();
+    ensureThreeRenderLoop();
     if (!useFallback3DRenderer) {
         handleThreeResize();
     }
@@ -8424,7 +8554,7 @@ function switchTo2DView() {
         canvasContainer.scrollLeft = last2DScrollLeft;
         canvasContainer.scrollTop = last2DScrollTop;
     }
-    stopFallbackAnimation();
+    teardownThreeView();
     setThreeStatus('');
     update3DButtonLabel('Show 3D');
     redrawCanvas();
