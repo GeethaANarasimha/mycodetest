@@ -2546,6 +2546,23 @@ function inchesToFeetAndInches(totalInches) {
     return { feet, inches };
 }
 
+// Global measurement offset (in inches) that can be tuned later without
+// breaking callers that expect a defined function.
+window.measurementOffsetInches = window.measurementOffsetInches || 0;
+
+/**
+ * Apply the configured measurement offset to a raw length in inches.
+ * This ensures downstream code always receives a valid, offset-adjusted
+ * measurement instead of throwing a reference error when the helper is
+ * missing.
+ */
+function applyMeasurementOffset(totalInches) {
+    const offset = typeof window.measurementOffsetInches === 'number'
+        ? window.measurementOffsetInches
+        : 0;
+    return totalInches + offset;
+}
+
 function formatMeasurementText(totalInches) {
     const { feet, inches } = inchesToFeetAndInches(Math.max(0, Math.round(totalInches)));
     return inches > 0 ? `${feet}'${inches}\"` : `${feet}'`;
