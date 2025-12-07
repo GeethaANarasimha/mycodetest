@@ -314,8 +314,8 @@
                 </div>
                 
                 <div class="model-info">
-                    <div>Demo Model: Geometric Sculpture</div>
-                    <div>Vertices: ~2,500</div>
+                    <div>Demo Model: Solid Wall Room</div>
+                    <div>Vertices: ~150</div>
                 </div>
             </div>
         </div>
@@ -410,30 +410,16 @@
                 // Create a group to hold our model
                 this.model = new THREE.Group();
 
-                // Create a central sphere
-                const sphereGeometry = new THREE.SphereGeometry(1, 32, 32);
-                const sphereMaterial = new THREE.MeshPhongMaterial({
-                    color: 0x4a6ee0,
-                    shininess: 100,
-                    specular: 0x222222,
-                    transparent: false,
-                    opacity: 1,
-                    side: THREE.DoubleSide,
-                    depthWrite: true,
-                    depthTest: true
-                });
-                const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-                sphere.castShadow = true;
-                sphere.receiveShadow = true;
-                sphere.userData.baseColor = sphereMaterial.color.getHex();
-                this.model.add(sphere);
+                // Basic dimensions for the box-like room
+                const roomWidth = 6;
+                const roomDepth = 6;
+                const roomHeight = 4;
+                const wallThickness = 0.25;
 
-                // Create surrounding rings
-                const ringGeometry = new THREE.TorusGeometry(2, 0.2, 16, 100);
-                ringGeometry.computeVertexNormals();
-                const ringMaterial = new THREE.MeshPhongMaterial({
-                    color: 0xff6b6b,
-                    shininess: 50,
+                const wallMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xe3ad8c,
+                    metalness: 0.1,
+                    roughness: 0.8,
                     transparent: false,
                     opacity: 1,
                     side: THREE.DoubleSide,
@@ -441,51 +427,49 @@
                     depthTest: true
                 });
 
-                // Create rings in different orientations
-                for (let i = 0; i < 3; i++) {
-                    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-                    ring.rotation.x = i * Math.PI / 3;
-                    ring.rotation.y = i * Math.PI / 4;
-                    ring.castShadow = true;
-                    ring.userData.baseColor = ringMaterial.color.getHex();
-                    this.model.add(ring);
-                }
+                const walls = [
+                    { width: roomWidth, height: roomHeight, depth: wallThickness, position: [0, roomHeight / 2, -roomDepth / 2] },
+                    { width: roomWidth, height: roomHeight, depth: wallThickness, position: [0, roomHeight / 2, roomDepth / 2] },
+                    { width: wallThickness, height: roomHeight, depth: roomDepth, position: [-roomWidth / 2, roomHeight / 2, 0] },
+                    { width: wallThickness, height: roomHeight, depth: roomDepth, position: [roomWidth / 2, roomHeight / 2, 0] }
+                ];
 
-                // Create floating cubes around the sphere
-                const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-                cubeGeometry.computeVertexNormals();
-                const cubeMaterial = new THREE.MeshPhongMaterial({
-                    color: 0x6bff91,
-                    shininess: 80,
+                walls.forEach(({ width, height, depth, position }) => {
+                    const geometry = new THREE.BoxGeometry(width, height, depth);
+                    geometry.computeVertexNormals();
+                    const wall = new THREE.Mesh(geometry, wallMaterial.clone());
+                    wall.position.set(...position);
+                    wall.castShadow = true;
+                    wall.receiveShadow = true;
+                    wall.userData.baseColor = wall.material.color.getHex();
+                    this.model.add(wall);
+                });
+
+                // Add a subtle floor to ground the walls
+                const floorGeometry = new THREE.BoxGeometry(roomWidth, wallThickness, roomDepth);
+                floorGeometry.computeVertexNormals();
+                const floorMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xf3d7c6,
+                    metalness: 0.05,
+                    roughness: 0.9,
                     transparent: false,
                     opacity: 1,
                     side: THREE.DoubleSide,
                     depthWrite: true,
                     depthTest: true
                 });
-
-                for (let i = 0; i < 8; i++) {
-                    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
-                    const angle = (i / 8) * Math.PI * 2;
-                    const radius = 3;
-
-                    cube.position.x = Math.cos(angle) * radius;
-                    cube.position.z = Math.sin(angle) * radius;
-                    cube.position.y = Math.sin(angle * 2) * 1.5;
-
-                    cube.castShadow = true;
-                    cube.receiveShadow = true;
-                    cube.userData.baseColor = cubeMaterial.color.getHex();
-                    this.model.add(cube);
-                }
+                const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+                floor.position.y = wallThickness / 2;
+                floor.receiveShadow = true;
+                floor.userData.baseColor = floor.material.color.getHex();
+                this.model.add(floor);
 
                 // Add the model to the scene
                 this.scene.add(this.model);
-                
-                // Add a subtle animation
+
+                // Slow rotation to showcase the walls
                 this.model.userData.animation = {
-                    rotationSpeed: 0.005,
-                    time: 0
+                    rotationSpeed: 0.002
                 };
             }
             
@@ -618,23 +602,13 @@
                 
                 // Update model animation
                 if (this.model && this.model.userData.animation) {
-                    this.model.userData.animation.time += 0.01;
-                    
-                    // Subtle floating animation for cubes
-                    this.model.children.forEach((child, index) => {
-                        if (child.geometry && child.geometry.type === 'BoxGeometry') {
-                            child.position.y = Math.sin(this.model.userData.animation.time + index) * 1.5;
-                            child.rotation.y += 0.01;
-                        }
-                    });
-                    
                     // Slow rotation of the entire model
                     this.model.rotation.y += this.model.userData.animation.rotationSpeed;
-                    
+
                     // Update slider values to match rotation
-                    document.getElementById('rotationY').value = 
+                    document.getElementById('rotationY').value =
                         (THREE.MathUtils.radToDeg(this.model.rotation.y) % 360).toFixed(0);
-                    document.getElementById('rotationYValue').textContent = 
+                    document.getElementById('rotationYValue').textContent =
                         `${(THREE.MathUtils.radToDeg(this.model.rotation.y) % 360).toFixed(0)}°`;
                 }
                 
