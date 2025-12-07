@@ -3551,22 +3551,10 @@ function convertXmlDistanceToPixels(value) {
     return feet * scale;
 }
 
-function parseWallsFromXml(xmlText) {
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(xmlText, 'text/xml');
-    const parserError = xml.querySelector('parsererror');
-    if (parserError) {
-        throw new Error('Could not read XML file.');
-    }
-
-    const wallElements = Array.from(xml.getElementsByTagName('wall'));
-    if (!wallElements.length) {
-        throw new Error('No <wall> elements were found in the XML.');
-    }
-
+function parseWallsForElements(wallElements, startingNodeId = 1, startingWallId = 1) {
     const nodesByKey = new Map();
-    let nextNode = 1;
-    let nextWall = 1;
+    let nextNode = startingNodeId;
+    let nextWall = startingWallId;
     const wallsFromXml = [];
 
     const getOrCreateNode = (x, y) => {
@@ -3605,19 +3593,17 @@ function parseWallsFromXml(xmlText) {
         });
     });
 
-    const nodeLookup = new Map(Array.from(nodesByKey.values()).map(node => [node.id, node]));
-
-    const doorsFromXml = parseDoorsFromXml(xml, nodeLookup, wallsFromXml);
-
+    const nodes = Array.from(nodesByKey.values());
     return {
-        nodes: Array.from(nodesByKey.values()),
+        nodes,
         walls: wallsFromXml,
-        doors: doorsFromXml
+        nodeLookup: new Map(nodes.map(node => [node.id, node])),
+        nextNodeId: nextNode,
+        nextWallId: nextWall
     };
 }
 
-function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
-    const doorElements = Array.from(xmlDoc.getElementsByTagName('doorOrWindow'));
+function parseDoorsFromXml(doorElements, nodeLookup, wallsFromXml) {
     if (!doorElements.length) return [];
 
     const wallsById = new Map(wallsFromXml.map(wall => [wall.id, wall]));
@@ -3749,7 +3735,105 @@ function parseDoorsFromXml(xmlDoc, nodeLookup, wallsFromXml) {
     });
 }
 
-function buildConvertedProject(nodesFromXml, wallsFromXml, objectsFromXml) {
+function parseWallsFromXml(xmlText) {
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlText, 'text/xml');
+    const parserError = xml.querySelector('parsererror');
+    if (parserError) {
+        throw new Error('Could not read XML file.');
+    }
+
+    const wallElements = Array.from(xml.getElementsByTagName('wall'));
+    if (!wallElements.length) {
+        throw new Error('No <wall> elements were found in the XML.');
+    }
+
+    const levelElements = Array.from(xml.getElementsByTagName('level'));
+    const doorElements = Array.from(xml.getElementsByTagName('doorOrWindow'));
+    const hasLevels = levelElements.length > 0;
+
+    const totals = { walls: 0, nodes: 0, doors: 0 };
+
+    if (hasLevels) {
+        const layerDrawings = {};
+        const layers = [];
+        const usedLayerIds = new Set();
+
+        const slugifyLayerId = (name) => {
+            const base = (name || 'layer').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'layer';
+            let candidate = base;
+            let suffix = 2;
+            while (usedLayerIds.has(candidate)) {
+                candidate = `${base}-${suffix++}`;
+            }
+            usedLayerIds.add(candidate);
+            return candidate;
+        };
+
+        levelElements.forEach((levelElement, index) => {
+            const levelId = levelElement.getAttribute('id');
+            const levelName = levelElement.getAttribute('name')?.trim() || `Level ${index + 1}`;
+            const layerId = slugifyLayerId(levelName);
+
+            const levelWalls = wallElements.filter(wall => wall.getAttribute('level') === levelId);
+            const { nodes, walls, nodeLookup } = parseWallsForElements(levelWalls);
+            const levelDoorElements = doorElements.filter(door => door.getAttribute('level') === levelId);
+            const doors = parseDoorsFromXml(levelDoorElements, nodeLookup, walls);
+
+            totals.walls += walls.length;
+            totals.nodes += nodes.length;
+            totals.doors += doors.length;
+
+            layerDrawings[layerId] = {
+                nodes,
+                walls,
+                objects: doors,
+                floors: [],
+                dimensions: [],
+                ids: {
+                    nextNodeId: nodes.length + 1,
+                    nextWallId: walls.length + 1,
+                    nextFloorId: 1,
+                    nextStairGroupId: 1
+                }
+            };
+
+            layers.push({ id: layerId, name: levelName });
+        });
+
+        return {
+            nodes: [],
+            walls: [],
+            doors: [],
+            layerState: { layers, activeLayerId: layers[0]?.id },
+            layerDrawings,
+            totals
+        };
+    }
+
+    const { nodes, walls, nodeLookup } = parseWallsForElements(wallElements);
+    const doorsFromXml = parseDoorsFromXml(doorElements, nodeLookup, walls);
+
+    totals.walls = walls.length;
+    totals.nodes = nodes.length;
+    totals.doors = doorsFromXml.length;
+
+    return {
+        nodes,
+        walls,
+        doors: doorsFromXml,
+        layerState: null,
+        layerDrawings: {},
+        totals
+    };
+}
+
+function buildConvertedProject(parsed) {
+    const hasLayerDrawings = parsed?.layerDrawings && Object.keys(parsed.layerDrawings).length > 0;
+    const nodesFromXml = hasLayerDrawings ? [] : (parsed.nodes || []);
+    const wallsFromXml = hasLayerDrawings ? [] : (parsed.walls || []);
+    const objectsFromXml = hasLayerDrawings ? [] : (parsed.doors || parsed.objects || []);
+
     return {
         version: 1,
         nodes: nodesFromXml,
@@ -3759,8 +3843,8 @@ function buildConvertedProject(nodesFromXml, wallsFromXml, objectsFromXml) {
         floors: [],
         dimensions: [],
         clipboard: { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 },
-        layerState: null,
-        layerDrawings: {},
+        layerState: parsed.layerState || null,
+        layerDrawings: parsed.layerDrawings || {},
         settings: {
             scale,
             gridSize,
@@ -3776,7 +3860,9 @@ function buildConvertedProject(nodesFromXml, wallsFromXml, objectsFromXml) {
             fillColor: fillColorInput?.value || '#d9d9d9'
         },
         view: { scale: viewScale, offsetX: viewOffsetX, offsetY: viewOffsetY },
-        ids: { nextNodeId: nodesFromXml.length + 1, nextWallId: wallsFromXml.length + 1, nextFloorId, nextStairGroupId },
+        ids: hasLayerDrawings
+            ? { nextNodeId: 1, nextWallId: 1, nextFloorId, nextStairGroupId }
+            : { nextNodeId: nodesFromXml.length + 1, nextWallId: wallsFromXml.length + 1, nextFloorId, nextStairGroupId },
         background: null,
         measurementDistanceFeet,
         backgroundImageVisible: false
@@ -3797,9 +3883,9 @@ function handleXmlFileUpload(event) {
     reader.onload = () => {
         try {
             const parsed = parseWallsFromXml(reader.result);
-            convertedProjectState = buildConvertedProject(parsed.nodes, parsed.walls, parsed.doors);
+            convertedProjectState = buildConvertedProject(parsed);
             resetXmlConvertStatus(
-                `Loaded ${parsed.walls.length} wall(s), ${parsed.nodes.length} node(s), and ${parsed.doors.length} door(s). Ready to download.`
+                `Loaded ${parsed.totals.walls} wall(s), ${parsed.totals.nodes} node(s), and ${parsed.totals.doors} door(s). Ready to download.`
             );
             downloadConvertedProjectButton?.removeAttribute('disabled');
         } catch (error) {
