@@ -10,7 +10,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -22,7 +22,7 @@
             padding: 20px;
             overflow-x: hidden;
         }
-        
+
         .container {
             background-color: rgba(255, 255, 255, 0.95);
             border-radius: 20px;
@@ -32,37 +32,37 @@
             width: 100%;
             margin: 20px;
         }
-        
+
         header {
             text-align: center;
             margin-bottom: 30px;
             padding-bottom: 20px;
             border-bottom: 2px solid #f0f0f0;
         }
-        
+
         h1 {
             color: #333;
             margin-bottom: 10px;
             font-size: 2.5rem;
         }
-        
+
         .subtitle {
             color: #666;
             font-size: 1.2rem;
         }
-        
+
         .viewer-container {
             display: flex;
             flex-direction: column;
             gap: 30px;
         }
-        
+
         @media (min-width: 992px) {
             .viewer-container {
                 flex-direction: row;
             }
         }
-        
+
         .model-container {
             flex: 2;
             position: relative;
@@ -72,14 +72,14 @@
             background: #000;
             height: 500px;
         }
-        
+
         #modelCanvas {
             width: 100%;
             height: 100%;
             display: block;
             outline: none;
         }
-        
+
         .controls {
             flex: 1;
             background: #f8f9fa;
@@ -87,31 +87,31 @@
             padding: 25px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
         }
-        
+
         .controls h2 {
             color: #333;
             margin-bottom: 20px;
             padding-bottom: 15px;
             border-bottom: 1px solid #e0e0e0;
         }
-        
+
         .control-group {
             margin-bottom: 25px;
         }
-        
+
         .control-group h3 {
             color: #555;
             margin-bottom: 15px;
             font-size: 1.2rem;
         }
-        
+
         .button-group {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
             gap: 10px;
             margin-bottom: 15px;
         }
-        
+
         button {
             background-color: #4a6ee0;
             color: white;
@@ -127,31 +127,31 @@
             justify-content: center;
             gap: 8px;
         }
-        
+
         button:hover {
             background-color: #3a5bd0;
             transform: translateY(-2px);
         }
-        
+
         button:active {
             transform: translateY(0);
         }
-        
+
         .icon {
             font-size: 1.2rem;
         }
-        
+
         .slider-container {
             margin-top: 10px;
         }
-        
+
         label {
             display: block;
             margin-bottom: 8px;
             color: #555;
             font-weight: 600;
         }
-        
+
         input[type="range"] {
             width: 100%;
             height: 8px;
@@ -160,7 +160,7 @@
             outline: none;
             -webkit-appearance: none;
         }
-        
+
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             width: 22px;
@@ -169,7 +169,7 @@
             background: #4a6ee0;
             cursor: pointer;
         }
-        
+
         .instructions {
             background-color: #e8f4fd;
             border-radius: 10px;
@@ -177,22 +177,22 @@
             margin-top: 20px;
             border-left: 5px solid #4a6ee0;
         }
-        
+
         .instructions h3 {
             color: #333;
             margin-bottom: 10px;
         }
-        
+
         .instructions ul {
             padding-left: 20px;
             color: #555;
             line-height: 1.6;
         }
-        
+
         .instructions li {
             margin-bottom: 8px;
         }
-        
+
         .model-info {
             display: flex;
             justify-content: space-between;
@@ -200,19 +200,19 @@
             color: #777;
             font-style: italic;
         }
-        
+
         footer {
             text-align: center;
             margin-top: 30px;
             color: white;
             padding: 20px;
         }
-        
+
         footer a {
             color: #ffde59;
             text-decoration: none;
         }
-        
+
         .loading {
             position: absolute;
             top: 50%;
@@ -222,7 +222,7 @@
             font-size: 1.5rem;
             z-index: 10;
         }
-        
+
         .hidden {
             display: none;
         }
@@ -232,9 +232,9 @@
     <div class="container">
         <header>
             <h1>3D Model Viewer</h1>
-            <p class="subtitle">Interactive Three.js Model Viewer with Controls</p>
+            <p class="subtitle">Interactive WebGL Model Viewer with Controls</p>
         </header>
-        
+
         <div class="viewer-container">
             <div class="model-container">
                 <div id="loading" class="loading">
@@ -242,10 +242,10 @@
                 </div>
                 <canvas id="modelCanvas"></canvas>
             </div>
-            
+
             <div class="controls">
                 <h2>Controls</h2>
-                
+
                 <div class="control-group">
                     <h3>Camera Views</h3>
                     <div class="button-group">
@@ -263,7 +263,7 @@
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="control-group">
                     <h3>Rotation</h3>
                     <div class="slider-container">
@@ -279,7 +279,7 @@
                         <input type="range" id="rotationZ" min="0" max="360" value="0" step="1">
                     </div>
                 </div>
-                
+
                 <div class="control-group">
                     <h3>Scale</h3>
                     <div class="slider-container">
@@ -302,7 +302,7 @@
                         Toggle between a SketchUp-style flat color (double-sided) and a shiny front-face material.
                     </p>
                 </div>
-                
+
                 <div class="instructions">
                     <h3>How to Use</h3>
                     <ul>
@@ -312,7 +312,7 @@
                         <li>Click on the camera view buttons to switch perspectives</li>
                     </ul>
                 </div>
-                
+
                 <div class="model-info">
                     <div>Demo Model: Solid Wall Room</div>
                     <div>Vertices: ~150</div>
@@ -320,312 +320,442 @@
             </div>
         </div>
     </div>
-    
+
     <footer>
-        <p>Created with <a href="https://threejs.org/" target="_blank">Three.js</a> • Try loading your own 3D model!</p>
+        <p>Powered by WebGL • Try loading your own 3D model!</p>
     </footer>
 
-    <!-- Three.js library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- OrbitControls for camera interaction -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
-    
     <script>
-        // Main Three.js application
+        // Lightweight WebGL viewer that mirrors the old Three.js controls
         class ModelViewer {
             constructor() {
-                this.scene = null;
-                this.camera = null;
-                this.renderer = null;
-                this.model = null;
-                this.controls = null;
+                this.canvas = document.getElementById('modelCanvas');
+                this.gl = this.canvas.getContext('webgl', { antialias: true });
+                if (!this.gl) {
+                    throw new Error('WebGL not supported in this browser');
+                }
+
+                this.loadingEl = document.getElementById('loading');
+
+                // Camera + transform state
+                this.distance = 12;
+                this.rotation = { x: 0, y: 0, z: 0 };
+                this.scale = 1;
+                this.dragging = false;
+                this.lastPointer = null;
+
+                // Matrices
+                this.projectionMatrix = this.identity();
+                this.viewMatrix = this.identity();
+                this.modelMatrix = this.identity();
+
                 this.currentMaterialPreset = 'phong';
-                
-                this.init();
-                this.createDemoModel();
-                this.setMaterialPreset(this.currentMaterialPreset);
+
+                this.initGL();
+                this.createGeometry();
                 this.setupControls();
+                this.resize();
+                this.hideLoading();
                 this.animate();
             }
-            
-            init() {
-                // Get canvas element
-                const canvas = document.getElementById('modelCanvas');
-                
-                // Create scene
-                this.scene = new THREE.Scene();
-                this.scene.background = new THREE.Color(0x1a1a2e);
-                
-                // Add ambient light
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-                this.scene.add(ambientLight);
-                
-                // Add directional light
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-                directionalLight.position.set(5, 10, 7);
-                this.scene.add(directionalLight);
-                
-                // Add point light
-                const pointLight = new THREE.PointLight(0xffffff, 0.8, 100);
-                pointLight.position.set(-5, 5, 5);
-                this.scene.add(pointLight);
-                
-                // Create camera
-                this.camera = new THREE.PerspectiveCamera(
-                    45, // Field of view
-                    canvas.clientWidth / canvas.clientHeight, // Aspect ratio
-                    0.1, // Near clipping plane
-                    1000 // Far clipping plane
-                );
-                this.camera.position.set(8, 5, 8);
-                
-                // Create renderer
-                this.renderer = new THREE.WebGLRenderer({ 
-                    canvas: canvas,
-                    antialias: true,
-                    alpha: false
-                });
-                this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-                this.renderer.setPixelRatio(window.devicePixelRatio);
-                this.renderer.shadowMap.enabled = true;
-                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-                
-                // Add OrbitControls
-                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-                this.controls.enableDamping = true;
-                this.controls.dampingFactor = 0.05;
-                this.controls.screenSpacePanning = false;
-                this.controls.minDistance = 2;
-                this.controls.maxDistance = 50;
-                this.controls.maxPolarAngle = Math.PI;
-                
-                // Handle window resize
-                window.addEventListener('resize', () => this.onWindowResize());
-                
-                // Hide loading indicator
-                document.getElementById('loading').classList.add('hidden');
+
+            hideLoading() {
+                if (this.loadingEl) {
+                    this.loadingEl.classList.add('hidden');
+                }
             }
-            
-            createDemoModel() {
-                // Create a group to hold our model
-                this.model = new THREE.Group();
 
-                // Basic dimensions for the box-like room
-                const roomWidth = 6;
-                const roomDepth = 6;
-                const roomHeight = 4;
-                const wallThickness = 0.25;
+            initGL() {
+                const gl = this.gl;
+                const vertexSrc = `
+                    attribute vec3 a_position;
+                    attribute vec3 a_normal;
+                    attribute vec3 a_color;
+                    uniform mat4 u_projection;
+                    uniform mat4 u_view;
+                    uniform mat4 u_model;
+                    varying vec3 v_normal;
+                    varying vec3 v_color;
+                    void main() {
+                        v_normal = mat3(u_model) * a_normal;
+                        v_color = a_color;
+                        gl_Position = u_projection * u_view * u_model * vec4(a_position, 1.0);
+                    }
+                `;
 
-                const wallMaterial = new THREE.MeshStandardMaterial({
-                    color: 0xe3ad8c,
-                    metalness: 0.1,
-                    roughness: 0.8,
-                    transparent: false,
-                    opacity: 1,
-                    side: THREE.DoubleSide,
-                    depthWrite: true,
-                    depthTest: true
-                });
+                const fragmentSrc = `
+                    precision mediump float;
+                    varying vec3 v_normal;
+                    varying vec3 v_color;
+                    uniform vec3 u_lightDir;
+                    uniform int u_material;
+                    void main() {
+                        vec3 normal = normalize(v_normal);
+                        float diffuse = max(dot(normal, normalize(u_lightDir)), 0.0);
+                        vec3 base = v_color;
+                        if (u_material == 0) {
+                            diffuse = 0.35 + diffuse * 0.4;
+                        } else {
+                            diffuse = 0.2 + diffuse * 0.8;
+                        }
+                        gl_FragColor = vec4(base * diffuse, 1.0);
+                    }
+                `;
 
-                const walls = [
-                    { width: roomWidth, height: roomHeight, depth: wallThickness, position: [0, roomHeight / 2, -roomDepth / 2] },
-                    { width: roomWidth, height: roomHeight, depth: wallThickness, position: [0, roomHeight / 2, roomDepth / 2] },
-                    { width: wallThickness, height: roomHeight, depth: roomDepth, position: [-roomWidth / 2, roomHeight / 2, 0] },
-                    { width: wallThickness, height: roomHeight, depth: roomDepth, position: [roomWidth / 2, roomHeight / 2, 0] }
+                this.program = this.createProgram(vertexSrc, fragmentSrc);
+                gl.useProgram(this.program);
+
+                this.attribs = {
+                    position: gl.getAttribLocation(this.program, 'a_position'),
+                    normal: gl.getAttribLocation(this.program, 'a_normal'),
+                    color: gl.getAttribLocation(this.program, 'a_color'),
+                };
+
+                this.uniforms = {
+                    projection: gl.getUniformLocation(this.program, 'u_projection'),
+                    view: gl.getUniformLocation(this.program, 'u_view'),
+                    model: gl.getUniformLocation(this.program, 'u_model'),
+                    lightDir: gl.getUniformLocation(this.program, 'u_lightDir'),
+                    material: gl.getUniformLocation(this.program, 'u_material'),
+                };
+
+                this.positionBuffer = gl.createBuffer();
+                this.normalBuffer = gl.createBuffer();
+                this.colorBuffer = gl.createBuffer();
+                this.indexBuffer = gl.createBuffer();
+
+                gl.enable(gl.DEPTH_TEST);
+                gl.clearColor(0.1, 0.1, 0.18, 1);
+            }
+
+            createGeometry() {
+                const size = 2;
+                const positions = [
+                    -size, -size, size,   size, -size, size,   size, size, size,   -size, size, size,
+                    size, -size, -size,  -size, -size, -size,  -size, size, -size,   size, size, -size,
+                    -size, -size, -size, -size, -size,  size,  -size, size,  size,  -size, size, -size,
+                    size, -size,  size,  size, -size, -size,   size, size, -size,   size, size,  size,
+                    -size, size,  size,   size, size,  size,   size, size, -size,  -size, size, -size,
+                    -size, -size, -size,  size, -size, -size,  size, -size,  size,  -size, -size,  size,
                 ];
 
-                walls.forEach(({ width, height, depth, position }) => {
-                    const geometry = new THREE.BoxGeometry(width, height, depth);
-                    geometry.computeVertexNormals();
-                    const wall = new THREE.Mesh(geometry, wallMaterial.clone());
-                    wall.position.set(...position);
-                    wall.castShadow = true;
-                    wall.receiveShadow = true;
-                    wall.userData.baseColor = wall.material.color.getHex();
-                    this.model.add(wall);
+                const normals = [
+                    0, 0, -1,   0, 0, -1,   0, 0, -1,   0, 0, -1,
+                    0, 0, 1,    0, 0, 1,    0, 0, 1,    0, 0, 1,
+                    1, 0, 0,    1, 0, 0,    1, 0, 0,    1, 0, 0,
+                    -1, 0, 0,   -1, 0, 0,   -1, 0, 0,   -1, 0, 0,
+                    0, -1, 0,   0, -1, 0,   0, -1, 0,   0, -1, 0,
+                    0, 1, 0,    0, 1, 0,    0, 1, 0,    0, 1, 0,
+                ];
+
+                const faceColors = [
+                    [0.78, 0.85, 0.98],
+                    [0.89, 0.95, 0.92],
+                    [0.93, 0.86, 0.96],
+                    [0.96, 0.89, 0.82],
+                    [0.78, 0.92, 0.88],
+                    [0.9, 0.9, 0.9],
+                ];
+                const colors = [];
+                faceColors.forEach(([r, g, b]) => {
+                    for (let i = 0; i < 4; i++) {
+                        colors.push(r, g, b);
+                    }
                 });
 
-                // Add a subtle floor to ground the walls
-                const floorGeometry = new THREE.BoxGeometry(roomWidth, wallThickness, roomDepth);
-                floorGeometry.computeVertexNormals();
-                const floorMaterial = new THREE.MeshStandardMaterial({
-                    color: 0xf3d7c6,
-                    metalness: 0.05,
-                    roughness: 0.9,
-                    transparent: false,
-                    opacity: 1,
-                    side: THREE.DoubleSide,
-                    depthWrite: true,
-                    depthTest: true
-                });
-                const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-                floor.position.y = wallThickness / 2;
-                floor.receiveShadow = true;
-                floor.userData.baseColor = floor.material.color.getHex();
-                this.model.add(floor);
+                const indices = [];
+                for (let face = 0; face < 6; face++) {
+                    const offset = face * 4;
+                    indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
+                }
 
-                // Add the model to the scene
-                this.scene.add(this.model);
+                this.uploadBuffer(this.positionBuffer, new Float32Array(positions), 3, this.attribs.position);
+                this.uploadBuffer(this.normalBuffer, new Float32Array(normals), 3, this.attribs.normal);
+                this.uploadBuffer(this.colorBuffer, new Float32Array(colors), 3, this.attribs.color);
 
-                // Slow rotation to showcase the walls
-                this.model.userData.animation = {
-                    rotationSpeed: 0.002
-                };
+                this.indexCount = indices.length;
+                const gl = this.gl;
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
             }
-            
+
+            uploadBuffer(buffer, data, size, attribLocation) {
+                const gl = this.gl;
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+                gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(attribLocation);
+                gl.vertexAttribPointer(attribLocation, size, gl.FLOAT, false, 0, 0);
+            }
+
+            createProgram(vsSource, fsSource) {
+                const gl = this.gl;
+                const vs = this.compileShader(gl.VERTEX_SHADER, vsSource);
+                const fs = this.compileShader(gl.FRAGMENT_SHADER, fsSource);
+                const program = gl.createProgram();
+                gl.attachShader(program, vs);
+                gl.attachShader(program, fs);
+                gl.linkProgram(program);
+                if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                    throw new Error('Program link error: ' + gl.getProgramInfoLog(program));
+                }
+                return program;
+            }
+
+            compileShader(type, source) {
+                const gl = this.gl;
+                const shader = gl.createShader(type);
+                gl.shaderSource(shader, source);
+                gl.compileShader(shader);
+                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                    throw new Error('Shader compile error: ' + gl.getShaderInfoLog(shader));
+                }
+                return shader;
+            }
+
             setupControls() {
-                // Camera view buttons
+                const updateRotationUI = () => {
+                    document.getElementById('rotationXValue').textContent = `${Math.round(this.rotation.x)}°`;
+                    document.getElementById('rotationYValue').textContent = `${Math.round(this.rotation.y)}°`;
+                    document.getElementById('rotationZValue').textContent = `${Math.round(this.rotation.z)}°`;
+                };
+
+                const syncRotationSlider = (axis, value) => {
+                    document.getElementById(`rotation${axis}`).value = value;
+                    this.rotation[axis.toLowerCase()] = parseFloat(value);
+                    updateRotationUI();
+                };
+
+                ['X', 'Y', 'Z'].forEach(axis => {
+                    document.getElementById(`rotation${axis}`).addEventListener('input', (e) => {
+                        syncRotationSlider(axis, e.target.value);
+                    });
+                });
+
+                const scaleSlider = document.getElementById('scale');
+                const scaleValueLabel = document.getElementById('scaleValue');
+                scaleSlider.addEventListener('input', (e) => {
+                    this.scale = parseFloat(e.target.value);
+                    scaleValueLabel.textContent = this.scale.toFixed(1);
+                });
+
                 document.getElementById('frontView').addEventListener('click', () => {
-                    this.camera.position.set(0, 0, 10);
-                    this.camera.lookAt(0, 0, 0);
-                    this.controls.update();
+                    syncRotationSlider('X', 0);
+                    syncRotationSlider('Y', 0);
+                    syncRotationSlider('Z', 0);
                 });
-                
+
                 document.getElementById('topView').addEventListener('click', () => {
-                    this.camera.position.set(0, 10, 0);
-                    this.camera.lookAt(0, 0, 0);
-                    this.controls.update();
+                    syncRotationSlider('X', 90);
+                    syncRotationSlider('Y', 0);
+                    syncRotationSlider('Z', 0);
                 });
-                
+
                 document.getElementById('sideView').addEventListener('click', () => {
-                    this.camera.position.set(10, 0, 0);
-                    this.camera.lookAt(0, 0, 0);
-                    this.controls.update();
+                    syncRotationSlider('X', 0);
+                    syncRotationSlider('Y', 90);
+                    syncRotationSlider('Z', 0);
                 });
-                
+
                 document.getElementById('resetView').addEventListener('click', () => {
-                    this.camera.position.set(8, 5, 8);
-                    this.camera.lookAt(0, 0, 0);
-                    this.controls.reset();
-                });
-                
-                // Rotation sliders
-                const rotationX = document.getElementById('rotationX');
-                const rotationY = document.getElementById('rotationY');
-                const rotationZ = document.getElementById('rotationZ');
-                const rotationXValue = document.getElementById('rotationXValue');
-                const rotationYValue = document.getElementById('rotationYValue');
-                const rotationZValue = document.getElementById('rotationZValue');
-                
-                rotationX.addEventListener('input', (e) => {
-                    const value = e.target.value;
-                    rotationXValue.textContent = `${value}°`;
-                    this.model.rotation.x = THREE.MathUtils.degToRad(value);
-                });
-                
-                rotationY.addEventListener('input', (e) => {
-                    const value = e.target.value;
-                    rotationYValue.textContent = `${value}°`;
-                    this.model.rotation.y = THREE.MathUtils.degToRad(value);
-                });
-                
-                rotationZ.addEventListener('input', (e) => {
-                    const value = e.target.value;
-                    rotationZValue.textContent = `${value}°`;
-                    this.model.rotation.z = THREE.MathUtils.degToRad(value);
-                });
-                
-                // Scale slider
-                const scale = document.getElementById('scale');
-                const scaleValue = document.getElementById('scaleValue');
-
-                scale.addEventListener('input', (e) => {
-                    const value = parseFloat(e.target.value);
-                    scaleValue.textContent = value.toFixed(1);
-                    this.model.scale.set(value, value, value);
+                    syncRotationSlider('X', 15);
+                    syncRotationSlider('Y', 35);
+                    syncRotationSlider('Z', 0);
+                    this.distance = 12;
                 });
 
-                // Material presets
                 document.getElementById('sketchupMaterial').addEventListener('click', () => {
-                    this.setMaterialPreset('sketchup');
+                    this.currentMaterialPreset = 'sketchup';
                 });
 
                 document.getElementById('phongMaterial').addEventListener('click', () => {
-                    this.setMaterialPreset('phong');
-                });
-            }
-
-            setMaterialPreset(preset) {
-                const presets = {
-                    sketchup: (color) => new THREE.MeshStandardMaterial({
-                        color,
-                        transparent: false,
-                        opacity: 1,
-                        side: THREE.DoubleSide,
-                        depthWrite: true,
-                        depthTest: true,
-                        metalness: 0.1,
-                        roughness: 0.7
-                    }),
-                    phong: (color) => new THREE.MeshPhongMaterial({
-                        color,
-                        shininess: 50,
-                        transparent: false,
-                        opacity: 1,
-                        side: THREE.DoubleSide,
-                        depthWrite: true,
-                        depthTest: true
-                    })
-                };
-
-                const materialFactory = presets[preset];
-                if (!materialFactory) return;
-
-                this.model.traverse((child) => {
-                    if (!child.isMesh) return;
-
-                    const baseColor = child.userData.baseColor
-                        ?? (child.material && child.material.color && child.material.color.getHex())
-                        ?? 0x00ff00;
-
-                    // Ensure smooth shading on any imported geometry
-                    if (child.geometry && child.geometry.attributes) {
-                        child.geometry.computeVertexNormals();
-                    }
-
-                    child.material = materialFactory(baseColor);
+                    this.currentMaterialPreset = 'phong';
                 });
 
-                this.currentMaterialPreset = preset;
+                this.canvas.addEventListener('pointerdown', (e) => {
+                    this.dragging = true;
+                    this.lastPointer = { x: e.clientX, y: e.clientY };
+                    this.canvas.setPointerCapture(e.pointerId);
+                });
+
+                this.canvas.addEventListener('pointermove', (e) => {
+                    if (!this.dragging || !this.lastPointer) return;
+                    const dx = e.clientX - this.lastPointer.x;
+                    const dy = e.clientY - this.lastPointer.y;
+                    this.rotation.y += dx * 0.4;
+                    this.rotation.x += dy * 0.4;
+                    updateRotationUI();
+                    this.lastPointer = { x: e.clientX, y: e.clientY };
+                });
+
+                this.canvas.addEventListener('pointerup', (e) => {
+                    this.dragging = false;
+                    this.lastPointer = null;
+                    this.canvas.releasePointerCapture(e.pointerId);
+                });
+
+                this.canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const factor = e.deltaY > 0 ? 1.1 : 0.9;
+                    this.distance = Math.min(40, Math.max(4, this.distance * factor));
+                }, { passive: false });
+
+                window.addEventListener('resize', () => this.resize());
+                updateRotationUI();
+                syncRotationSlider('X', 15);
+                syncRotationSlider('Y', 35);
             }
-            
-            onWindowResize() {
-                const canvas = document.getElementById('modelCanvas');
-                
-                this.camera.aspect = canvas.clientWidth / canvas.clientHeight;
-                this.camera.updateProjectionMatrix();
-                this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+
+            resize() {
+                const gl = this.gl;
+                const rect = this.canvas.getBoundingClientRect();
+                this.canvas.width = rect.width * (window.devicePixelRatio || 1);
+                this.canvas.height = rect.height * (window.devicePixelRatio || 1);
+                gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+
+                const aspect = this.canvas.width / this.canvas.height;
+                this.projectionMatrix = this.perspective(45 * Math.PI / 180, aspect, 0.1, 100);
             }
-            
+
             animate() {
                 requestAnimationFrame(() => this.animate());
-                
-                // Update model animation
-                if (this.model && this.model.userData.animation) {
-                    // Slow rotation of the entire model
-                    this.model.rotation.y += this.model.userData.animation.rotationSpeed;
+                this.render();
+            }
 
-                    // Update slider values to match rotation
-                    document.getElementById('rotationY').value =
-                        (THREE.MathUtils.radToDeg(this.model.rotation.y) % 360).toFixed(0);
-                    document.getElementById('rotationYValue').textContent =
-                        `${(THREE.MathUtils.radToDeg(this.model.rotation.y) % 360).toFixed(0)}°`;
+            render() {
+                const gl = this.gl;
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+                const rad = Math.PI / 180;
+                const rotationMatrix = this.multiply(
+                    this.multiply(
+                        this.rotateX(this.rotation.x * rad),
+                        this.rotateY(this.rotation.y * rad)
+                    ),
+                    this.rotateZ(this.rotation.z * rad)
+                );
+
+                const scaleMatrix = this.scaleMatrix(this.scale, this.scale, this.scale);
+                this.modelMatrix = this.multiply(scaleMatrix, rotationMatrix);
+
+                const cameraPos = [0, 3, this.distance];
+                this.viewMatrix = this.lookAt(cameraPos, [0, 0, 0], [0, 1, 0]);
+
+                gl.uniformMatrix4fv(this.uniforms.projection, false, this.projectionMatrix);
+                gl.uniformMatrix4fv(this.uniforms.view, false, this.viewMatrix);
+                gl.uniformMatrix4fv(this.uniforms.model, false, this.modelMatrix);
+                gl.uniform3fv(this.uniforms.lightDir, new Float32Array([0.3, 0.7, 0.4]));
+                gl.uniform1i(this.uniforms.material, this.currentMaterialPreset === 'sketchup' ? 0 : 1);
+
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+                gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+            }
+
+            identity() {
+                return new Float32Array([
+                    1, 0, 0, 0,
+                    0, 1, 0, 0,
+                    0, 0, 1, 0,
+                    0, 0, 0, 1,
+                ]);
+            }
+
+            multiply(a, b) {
+                const out = new Float32Array(16);
+                for (let row = 0; row < 4; row++) {
+                    for (let col = 0; col < 4; col++) {
+                        out[row * 4 + col] =
+                            a[row * 4 + 0] * b[0 * 4 + col] +
+                            a[row * 4 + 1] * b[1 * 4 + col] +
+                            a[row * 4 + 2] * b[2 * 4 + col] +
+                            a[row * 4 + 3] * b[3 * 4 + col];
+                    }
                 }
-                
-                // Update controls
-                this.controls.update();
-                
-                // Render scene
-                this.renderer.render(this.scene, this.camera);
+                return out;
+            }
+
+            perspective(fov, aspect, near, far) {
+                const f = 1.0 / Math.tan(fov / 2);
+                const nf = 1 / (near - far);
+                return new Float32Array([
+                    f / aspect, 0, 0, 0,
+                    0, f, 0, 0,
+                    0, 0, (far + near) * nf, -1,
+                    0, 0, (2 * far * near) * nf, 0,
+                ]);
+            }
+
+            lookAt(eye, center, up) {
+                const [ex, ey, ez] = eye;
+                const [cx, cy, cz] = center;
+                const [ux, uy, uz] = up;
+
+                let zx = ex - cx, zy = ey - cy, zz = ez - cz;
+                const zLen = Math.hypot(zx, zy, zz);
+                zx /= zLen; zy /= zLen; zz /= zLen;
+
+                let xx = uy * zz - uz * zy;
+                let xy = uz * zx - ux * zz;
+                let xz = ux * zy - uy * zx;
+                const xLen = Math.hypot(xx, xy, xz);
+                xx /= xLen; xy /= xLen; xz /= xLen;
+
+                const yx = zy * xz - zz * xy;
+                const yy = zz * xx - zx * xz;
+                const yz = zx * xy - zy * xx;
+
+                return new Float32Array([
+                    xx, yx, zx, 0,
+                    xy, yy, zy, 0,
+                    xz, yz, zz, 0,
+                    -(xx * ex + xy * ey + xz * ez),
+                    -(yx * ex + yy * ey + yz * ez),
+                    -(zx * ex + zy * ey + zz * ez),
+                    1,
+                ]);
+            }
+
+            rotateX(rad) {
+                const c = Math.cos(rad), s = Math.sin(rad);
+                return new Float32Array([
+                    1, 0, 0, 0,
+                    0, c, s, 0,
+                    0, -s, c, 0,
+                    0, 0, 0, 1,
+                ]);
+            }
+
+            rotateY(rad) {
+                const c = Math.cos(rad), s = Math.sin(rad);
+                return new Float32Array([
+                    c, 0, -s, 0,
+                    0, 1, 0, 0,
+                    s, 0, c, 0,
+                    0, 0, 0, 1,
+                ]);
+            }
+
+            rotateZ(rad) {
+                const c = Math.cos(rad), s = Math.sin(rad);
+                return new Float32Array([
+                    c, s, 0, 0,
+                    -s, c, 0, 0,
+                    0, 0, 1, 0,
+                    0, 0, 0, 1,
+                ]);
+            }
+
+            scaleMatrix(x, y, z) {
+                return new Float32Array([
+                    x, 0, 0, 0,
+                    0, y, 0, 0,
+                    0, 0, z, 0,
+                    0, 0, 0, 1,
+                ]);
             }
         }
-        
-        // Initialize the viewer when the page loads
+
         window.addEventListener('DOMContentLoaded', () => {
-            const viewer = new ModelViewer();
-            
-            // Expose viewer globally for debugging
-            window.viewer = viewer;
+            new ModelViewer();
         });
     </script>
 </body>
