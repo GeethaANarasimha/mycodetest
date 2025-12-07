@@ -7622,6 +7622,44 @@ function stopThreeRenderLoop() {
     threeRenderLoopId = null;
 }
 
+function teardownThreeView() {
+    stopThreeRenderLoop();
+    teardownFallback3DView();
+
+    if (threeControls && typeof threeControls.dispose === 'function') {
+        threeControls.dispose();
+    }
+    threeControls = null;
+
+    window.removeEventListener('resize', handleThreeResize);
+
+    clearThreeContent();
+    if (threeContentGroup && threeScene) {
+        threeScene.remove(threeContentGroup);
+    }
+    threeContentGroup = null;
+
+    if (threeScene) {
+        threeScene.traverse(obj => disposeThreeObject(obj));
+    }
+    threeScene = null;
+    threeCamera = null;
+
+    if (threeRenderer) {
+        if (threeRenderer.domElement?.parentElement === threeContainer) {
+            threeRenderer.domElement.remove();
+        }
+        if (typeof threeRenderer.dispose === 'function') {
+            threeRenderer.dispose();
+        }
+    }
+    threeRenderer = null;
+
+    if (threeContainer && !is3DView) {
+        threeContainer.innerHTML = '';
+    }
+}
+
 function getPlanBounds() {
     let minX = Infinity;
     let minZ = Infinity;
@@ -7679,6 +7717,10 @@ function buildOrbitBoundingBox() {
     return new THREE.Box3(min, max);
 }
 
+function preventFallbackContextMenu(e) {
+    e.preventDefault();
+}
+
 function ensureFallback3DView() {
     if (!threeContainer) return;
 
@@ -7695,13 +7737,34 @@ function ensureFallback3DView() {
         fallback3DCanvas.addEventListener('pointerup', handleFallbackPointerUp);
         fallback3DCanvas.addEventListener('pointerleave', handleFallbackPointerUp);
         fallback3DCanvas.addEventListener('wheel', handleFallbackWheel, { passive: false });
-        fallback3DCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        fallback3DCanvas.addEventListener('contextmenu', preventFallbackContextMenu);
         window.addEventListener('resize', resizeFallbackCanvas);
     }
 
     resizeFallbackCanvas();
     updateFallbackCameraTarget();
     startFallbackAnimation();
+}
+
+function teardownFallback3DView() {
+    if (!fallback3DCanvas) return;
+
+    stopFallbackAnimation();
+    fallback3DCamera.isDragging = false;
+    fallback3DCamera.lastPointer = null;
+    fallback3DCamera.autoRotate = false;
+
+    fallback3DCanvas.removeEventListener('pointerdown', handleFallbackPointerDown);
+    fallback3DCanvas.removeEventListener('pointermove', handleFallbackPointerMove);
+    fallback3DCanvas.removeEventListener('pointerup', handleFallbackPointerUp);
+    fallback3DCanvas.removeEventListener('pointerleave', handleFallbackPointerUp);
+    fallback3DCanvas.removeEventListener('wheel', handleFallbackWheel);
+    fallback3DCanvas.removeEventListener('contextmenu', preventFallbackContextMenu);
+    window.removeEventListener('resize', resizeFallbackCanvas);
+
+    fallback3DCanvas.remove();
+    fallback3DCanvas = null;
+    fallback3DCtx = null;
 }
 
 function resizeFallbackCanvas() {
@@ -8491,8 +8554,7 @@ function switchTo2DView() {
         canvasContainer.scrollLeft = last2DScrollLeft;
         canvasContainer.scrollTop = last2DScrollTop;
     }
-    stopFallbackAnimation();
-    stopThreeRenderLoop();
+    teardownThreeView();
     setThreeStatus('');
     update3DButtonLabel('Show 3D');
     redrawCanvas();
