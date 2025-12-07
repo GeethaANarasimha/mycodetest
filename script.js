@@ -7425,14 +7425,38 @@ function loadScriptOnce(src) {
     });
 }
 
+function resetFailedThreeLoadState() {
+    useFallback3DRenderer = false;
+    threeLibsPromise = null;
+}
+
+let lastThreeLibErrorTime = 0;
+
 function ensureThreeLibraries() {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         useFallback3DRenderer = true;
+        lastThreeLibErrorTime = Date.now();
         if (!threeLibsPromise) {
             threeLibsPromise = Promise.resolve(false);
         }
         setThreeStatus('Offline mode: using built-in 3D preview.');
         return threeLibsPromise;
+    }
+
+    if (useFallback3DRenderer) {
+        if (!lastThreeLibErrorTime) {
+            lastThreeLibErrorTime = Date.now();
+        }
+
+        const elapsed = Date.now() - lastThreeLibErrorTime;
+        if (elapsed < 5000) {
+            if (!threeLibsPromise) {
+                threeLibsPromise = Promise.resolve(false);
+            }
+            return threeLibsPromise;
+        }
+
+        resetFailedThreeLoadState();
     }
 
     if (typeof THREE !== 'undefined' && THREE.Scene && THREE.PerspectiveCamera) {
@@ -7465,6 +7489,14 @@ function ensureThreeLibraries() {
             console.warn('Falling back to offline 3D renderer', err);
             setThreeStatus('Using offline 3D preview (Three.js unreachable).');
             useFallback3DRenderer = true;
+            lastThreeLibErrorTime = Date.now();
+
+            // Remove any errored scripts so a later attempt can retry cleanly.
+            document.querySelectorAll('script[src*="three.js/r155"]')
+                .forEach(tag => tag.dataset.loaded === 'error' ? tag.remove() : null);
+
+            // Allow later toggles to re-attempt loading when connectivity returns.
+            threeLibsPromise = null;
             return false;
         });
     }
