@@ -300,6 +300,7 @@ let threeScene = null;
 let threeRenderer = null;
 let threeCamera = null;
 let threeControls = null;
+let threeRenderLoopId = null;
 let wallMeshes = [];
 let threeContentGroup = null;
 let orbitCenterHelper = null;
@@ -7554,14 +7555,39 @@ function ensureThreeView() {
     threeScene.add(threeContentGroup);
 
     window.addEventListener('resize', handleThreeResize);
+    startThreeRenderLoop();
+}
+
+function startThreeRenderLoop() {
+    if (threeRenderLoopId || !threeRenderer || !threeScene || !threeCamera) return;
 
     const renderLoop = () => {
-        requestAnimationFrame(renderLoop);
-        if (!threeRenderer || !threeScene || !threeCamera) return;
+        if (!threeRenderer || !threeScene || !threeCamera) {
+            threeRenderLoopId = null;
+            return;
+        }
+        if (!is3DView) {
+            threeRenderLoopId = null;
+            return;
+        }
+
         if (threeControls) threeControls.update();
         threeRenderer.render(threeScene, threeCamera);
+        threeRenderLoopId = requestAnimationFrame(renderLoop);
     };
-    renderLoop();
+
+    threeRenderLoopId = requestAnimationFrame(renderLoop);
+}
+
+function ensureThreeRenderLoop() {
+    if (!useFallback3DRenderer && !threeRenderLoopId) {
+        startThreeRenderLoop();
+    }
+}
+
+function stopThreeRenderLoop() {
+    if (threeRenderLoopId) cancelAnimationFrame(threeRenderLoopId);
+    threeRenderLoopId = null;
 }
 
 function getPlanBounds() {
@@ -8419,6 +8445,7 @@ function switchTo3DView() {
     setThreeStatus('');
     update3DButtonLabel('Show 2D');
     rebuild3DScene();
+    ensureThreeRenderLoop();
     if (!useFallback3DRenderer) {
         handleThreeResize();
     }
@@ -8433,6 +8460,7 @@ function switchTo2DView() {
         canvasContainer.scrollTop = last2DScrollTop;
     }
     stopFallbackAnimation();
+    stopThreeRenderLoop();
     setThreeStatus('');
     update3DButtonLabel('Show 3D');
     redrawCanvas();
