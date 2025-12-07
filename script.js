@@ -7393,6 +7393,10 @@ function setThreeStatus(message = '', isError = false) {
 function loadScriptOnce(src) {
     const existing = document.querySelector(`script[src="${src}"]`);
     if (existing) {
+        if (existing.dataset.loaded === 'error') {
+            existing.remove();
+            return loadScriptOnce(src);
+        }
         if (existing.dataset.loaded === 'true' || existing.readyState === 'complete') {
             return Promise.resolve();
         }
@@ -7411,7 +7415,11 @@ function loadScriptOnce(src) {
             script.dataset.loaded = 'true';
             resolve();
         };
-        script.onerror = (err) => reject(err);
+        script.onerror = (err) => {
+            script.dataset.loaded = 'error';
+            script.remove();
+            reject(err);
+        };
         document.head.appendChild(script);
     });
 }
