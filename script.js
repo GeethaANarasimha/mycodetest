@@ -3608,6 +3608,119 @@ function parseWallsForElements(wallElements, startingNodeId = 1, startingWallId 
     };
 }
 
+function parseDimensionsFromXml(dimensionElements, startingDimensionId = 1) {
+    if (!dimensionElements.length) {
+        return { dimensions: [], nextDimensionId: startingDimensionId };
+    }
+
+    let nextDimensionId = startingDimensionId;
+    const dimensions = [];
+
+    dimensionElements.forEach((dimensionElement) => {
+        const xStartAttr = dimensionElement.getAttribute('xStart');
+        const yStartAttr = dimensionElement.getAttribute('yStart');
+        const xEndAttr = dimensionElement.getAttribute('xEnd');
+        const yEndAttr = dimensionElement.getAttribute('yEnd');
+        const offsetAttr = dimensionElement.getAttribute('offset');
+
+        const xStart = convertXmlDistanceToPixels(xStartAttr);
+        const yStart = convertXmlDistanceToPixels(yStartAttr);
+        const xEnd = convertXmlDistanceToPixels(xEndAttr);
+        const yEnd = convertXmlDistanceToPixels(yEndAttr);
+
+        if ([xStart, yStart, xEnd, yEnd].some((v) => v === null)) {
+            throw new Error('Missing dimension line coordinates in XML.');
+        }
+
+        const offsetPx = convertXmlDistanceToPixels(offsetAttr) || 0;
+        const dx = xEnd - xStart;
+        const dy = yEnd - yStart;
+        const length = Math.hypot(dx, dy);
+        const normal = length > 0 ? { x: -dy / length, y: dx / length } : { x: 0, y: 0 };
+
+        const startX = xStart + normal.x * offsetPx;
+        const startY = yStart + normal.y * offsetPx;
+        const endX = xEnd + normal.x * offsetPx;
+        const endY = yEnd + normal.y * offsetPx;
+
+        const dimension = {
+            id: nextDimensionId++,
+            startX,
+            startY,
+            endX,
+            endY,
+            lineColor: '#3498db',
+            lineWidth: 2,
+            isAuto: false,
+            offsetSign: offsetPx >= 0 ? 1 : -1,
+            sourceDimensionId: dimensionElement.getAttribute('id') || null
+        };
+
+        const measuredLength = Math.hypot(endX - startX, endY - startY);
+        dimension.length = measuredLength;
+        const totalInches = Math.round((measuredLength / scale) * 12);
+        dimension.text = formatMeasurementText(totalInches);
+
+        dimensions.push(dimension);
+    });
+
+    return { dimensions, nextDimensionId };
+}
+
+function parseLabelsFromXml(labelElements) {
+    if (!labelElements.length) return [];
+
+    const textObjects = [];
+
+    labelElements.forEach((labelElement) => {
+        const xAttr = labelElement.getAttribute('x');
+        const yAttr = labelElement.getAttribute('y');
+        const pitchAttr = labelElement.getAttribute('pitch');
+        const textContent = labelElement.getElementsByTagName('text')?.[0]?.textContent?.trim();
+
+        if (!textContent) return;
+
+        const x = convertXmlDistanceToPixels(xAttr);
+        const y = convertXmlDistanceToPixels(yAttr);
+
+        if (x === null || y === null) {
+            throw new Error('Missing label coordinates in XML.');
+        }
+
+        const textStyle = labelElement.getElementsByTagName('textStyle')?.[0];
+        const fontSizeAttr = textStyle?.getAttribute('fontSize');
+        const fontSize = parseFloat(fontSizeAttr) || textFontSize || 18;
+        const color = textColorInput?.value || '#000000';
+        const fontWeight = 'normal';
+        const fontStyle = 'normal';
+        const dimensions = measureTextDimensions(textContent, fontSize, fontWeight, fontStyle);
+        const pitchRad = parseFloat(pitchAttr) || 0;
+        const rotation = (pitchRad * 180) / Math.PI;
+
+        textObjects.push({
+            type: 'text',
+            text: textContent,
+            x,
+            y,
+            width: dimensions.width,
+            height: dimensions.height,
+            lineWidth: 0,
+            lineColor: color,
+            fillColor: 'transparent',
+            textColor: color,
+            fontSize,
+            fontWeight,
+            fontStyle,
+            rotation,
+            flipH: false,
+            flipV: false,
+            sourceLabelId: labelElement.getAttribute('id') || null
+        });
+    });
+
+    return textObjects;
+}
+
 function parseFloorsFromRooms(roomElements, nodesByPosition, startingNodeId = 1, startingFloorId = 1) {
     if (!roomElements.length) return { floors: [], nodes: Array.from(nodesByPosition.values()), nextNodeId: startingNodeId, nextFloorId: startingFloorId };
 
@@ -3801,9 +3914,11 @@ function parseWallsFromXml(xmlText) {
     const levelElements = Array.from(xml.getElementsByTagName('level'));
     const doorElements = Array.from(xml.getElementsByTagName('doorOrWindow'));
     const roomElements = Array.from(xml.getElementsByTagName('room'));
+    const dimensionElements = Array.from(xml.getElementsByTagName('dimensionLine'));
+    const labelElements = Array.from(xml.getElementsByTagName('label'));
     const hasLevels = levelElements.length > 0;
 
-    const totals = { walls: 0, nodes: 0, doors: 0, floors: 0 };
+    const totals = { walls: 0, nodes: 0, doors: 0, floors: 0, dimensions: 0, labels: 0 };
 
     if (hasLevels) {
         const layerDrawings = {};
@@ -3837,22 +3952,28 @@ function parseWallsFromXml(xmlText) {
                 nextNodeId,
                 1
             );
+            const levelDimensionElements = dimensionElements.filter(dimension => dimension.getAttribute('level') === levelId);
+            const { dimensions, nextDimensionId } = parseDimensionsFromXml(levelDimensionElements, 1);
+            const levelLabels = parseLabelsFromXml(labelElements.filter(label => label.getAttribute('level') === levelId));
 
             totals.walls += walls.length;
             totals.nodes += nodesWithRooms.length;
             totals.doors += doors.length;
             totals.floors += floors.length;
+            totals.dimensions += dimensions.length;
+            totals.labels += levelLabels.length;
 
             layerDrawings[layerId] = {
                 nodes: nodesWithRooms,
                 walls,
-                objects: doors,
+                objects: [...doors, ...levelLabels],
                 floors,
-                dimensions: [],
+                dimensions,
                 ids: {
                     nextNodeId: nextNodeAfterRooms,
                     nextWallId: walls.length + 1,
                     nextFloorId,
+                    nextDimensionId,
                     nextStairGroupId: 1
                 }
             };
@@ -3878,21 +3999,33 @@ function parseWallsFromXml(xmlText) {
         nextNodeId,
         1
     );
+    const dimensionLines = parseDimensionsFromXml(dimensionElements, 1);
+    const labels = parseLabelsFromXml(labelElements);
     const nodesFinal = nodesWithRooms;
 
     totals.walls = walls.length;
     totals.nodes = nodesFinal.length;
     totals.doors = doorsFromXml.length;
     totals.floors = floors.length;
+    totals.dimensions = dimensionLines.dimensions.length;
+    totals.labels = labels.length;
 
     return {
         nodes: nodesFinal,
         walls,
         doors: doorsFromXml,
         floors,
+        dimensions: dimensionLines.dimensions,
+        objects: [...doorsFromXml, ...labels],
         layerState: null,
         layerDrawings: {},
-        ids: { nextNodeId: nextNodeAfterRooms, nextWallId: walls.length + 1, nextFloorId, nextStairGroupId: 1 },
+        ids: {
+            nextNodeId: nextNodeAfterRooms,
+            nextWallId: walls.length + 1,
+            nextFloorId,
+            nextDimensionId: dimensionLines.nextDimensionId,
+            nextStairGroupId: 1
+        },
         totals
     };
 }
@@ -3901,8 +4034,9 @@ function buildConvertedProject(parsed) {
     const hasLayerDrawings = parsed?.layerDrawings && Object.keys(parsed.layerDrawings).length > 0;
     const nodesFromXml = hasLayerDrawings ? [] : (parsed.nodes || []);
     const wallsFromXml = hasLayerDrawings ? [] : (parsed.walls || []);
-    const objectsFromXml = hasLayerDrawings ? [] : (parsed.doors || parsed.objects || []);
+    const objectsFromXml = hasLayerDrawings ? [] : (parsed.objects || parsed.doors || []);
     const floorsFromXml = hasLayerDrawings ? [] : (parsed.floors || []);
+    const dimensionsFromXml = hasLayerDrawings ? [] : (parsed.dimensions || []);
 
     return {
         version: 1,
@@ -3911,7 +4045,7 @@ function buildConvertedProject(parsed) {
         objects: objectsFromXml,
         directLines: [],
         floors: floorsFromXml,
-        dimensions: [],
+        dimensions: dimensionsFromXml,
         clipboard: { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 },
         layerState: parsed.layerState || null,
         layerDrawings: parsed.layerDrawings || {},
@@ -3931,11 +4065,12 @@ function buildConvertedProject(parsed) {
         },
         view: { scale: viewScale, offsetX: viewOffsetX, offsetY: viewOffsetY },
         ids: hasLayerDrawings
-            ? { nextNodeId: 1, nextWallId: 1, nextFloorId, nextStairGroupId }
+            ? { nextNodeId: 1, nextWallId: 1, nextFloorId, nextDimensionId: 1, nextStairGroupId }
             : {
                 nextNodeId: parsed?.ids?.nextNodeId ?? (nodesFromXml.length + 1),
                 nextWallId: parsed?.ids?.nextWallId ?? (wallsFromXml.length + 1),
                 nextFloorId: parsed?.ids?.nextFloorId ?? (floorsFromXml.length + 1),
+                nextDimensionId: parsed?.ids?.nextDimensionId ?? (dimensionsFromXml.length + 1),
                 nextStairGroupId
             },
         background: null,
@@ -3960,7 +4095,7 @@ function handleXmlFileUpload(event) {
             const parsed = parseWallsFromXml(reader.result);
             convertedProjectState = buildConvertedProject(parsed);
             resetXmlConvertStatus(
-                `Loaded ${parsed.totals.walls} wall(s), ${parsed.totals.nodes} node(s), ${parsed.totals.doors} door(s), and ${parsed.totals.floors || 0} floor(s). Ready to download.`
+                `Loaded ${parsed.totals.walls} wall(s), ${parsed.totals.nodes} node(s), ${parsed.totals.doors} door(s), ${parsed.totals.floors || 0} floor(s), ${parsed.totals.dimensions || 0} dimension line(s), and ${parsed.totals.labels || 0} label(s). Ready to download.`
             );
             downloadConvertedProjectButton?.removeAttribute('disabled');
         } catch (error) {
