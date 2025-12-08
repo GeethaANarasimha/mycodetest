@@ -2794,18 +2794,26 @@ function findRoomPolygonAtPoint(x, y) {
     });
     if (!best) return null;
 
-    const polygon = best.polygon;
-    const centroid = polygon.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
-    centroid.x /= polygon.length;
-    centroid.y /= polygon.length;
+    const polygon = best.polygon.slice();
 
-    const orderedPolygon = polygon.slice().sort((a, b) => {
-        const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
-        const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
-        return angleA - angleB;
-    });
+    if (polygon.length < 3) return null;
 
-    return orderedPolygon;
+    if (polygon[0].id === polygon[polygon.length - 1].id) {
+        polygon.pop();
+    }
+
+    if (polygonArea(polygon) > 0) {
+        polygon.reverse();
+    }
+
+    const startIndex = polygon.reduce((bestIndex, point, index) => {
+        const bestPoint = polygon[bestIndex];
+        const bestDistSq = (bestPoint.x - x) ** 2 + (bestPoint.y - y) ** 2;
+        const currentDistSq = (point.x - x) ** 2 + (point.y - y) ** 2;
+        return currentDistSq < bestDistSq ? index : bestIndex;
+    }, 0);
+
+    return polygon.slice(startIndex).concat(polygon.slice(0, startIndex));
 }
 
 function ensureFloorPattern(floor) {
