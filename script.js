@@ -6193,6 +6193,7 @@ function handleMouseMove(e) {
                 }
             }
 
+            obj.lengthPx = Math.max(obj.width, obj.height);
             trackDoorDistancePreview = buildTrackDoorDistancePreview(obj);
             coordinatesDisplay.textContent = `${trackDoorDistancePreview.label}: ${trackDoorDistancePreview.text}`;
             redrawCanvas();
