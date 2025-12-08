@@ -268,7 +268,7 @@ input[type="number"] {
 .canvas-container {
     flex: 1;
     overflow: auto;
-    padding: 0px 14px 14px 28px;
+    padding: 0px 14px 14px 0px;
     display: flex;
     justify-content: flex-start;
     align-items: flex-start;
@@ -609,3 +609,4 @@ input[type="number"] {
 .modal.measurement-mode .modal-content {
     pointer-events: auto;
 }
+
