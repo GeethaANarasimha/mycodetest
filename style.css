@@ -518,6 +518,14 @@ input[type="number"] {
     align-items: start;
 }
 
+.preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
 .preview-box,
 .measurement-box {
     background: #f8f8f8;
@@ -544,6 +552,7 @@ input[type="number"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    cursor: grab;
 }
 
 #backgroundPreview {
@@ -581,12 +590,8 @@ input[type="number"] {
 }
 
 .preview-zoom-controls {
-    position: absolute;
-    top: 8px;
-    right: 8px;
     display: flex;
     gap: 6px;
-    z-index: 3;
 }
 
 .preview-zoom-btn {
@@ -614,6 +619,10 @@ input[type="number"] {
 
 .preview-zoom-btn.zoom-out {
     background-image: url('https://static.wixstatic.com/shapes/602ad4_8998c783b00a40fa925870fdafabf95c.svg');
+}
+
+.preview-frame.panning {
+    cursor: grabbing;
 }
 
 #backgroundStartPointStatus {
