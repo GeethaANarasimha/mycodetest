@@ -56,7 +56,7 @@ const cancelBackgroundMeasurementButton = document.getElementById('cancelBackgro
 const finishBackgroundMeasurementButton = document.getElementById('finishBackgroundMeasurement');
 const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
 const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
-const toggle3DViewButton = document.getElementById('toggle3DView');
+ 
 const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
 const textModalConfirm = document.getElementById('textModalConfirm');
@@ -95,8 +95,14 @@ const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
 const downloadPdfButton = document.getElementById('downloadPdf');
-const threeContainer = document.getElementById('threeContainer');
-const threeStatus = document.getElementById('threeStatus');
+const openXmlConverterButton = document.getElementById('openXmlConverter');
+const xmlConverterModal = document.getElementById('xmlConverterModal');
+const xmlUploadButton = document.getElementById('xmlUploadButton');
+const xmlFileInput = document.getElementById('xmlFileInput');
+const xmlConvertStatus = document.getElementById('xmlConvertStatus');
+const downloadConvertedProjectButton = document.getElementById('downloadConvertedProject');
+const closeXmlConverterButton = document.getElementById('closeXmlConverter');
+ 
 const horizontalRuler = document.getElementById('horizontalRuler');
 const verticalRuler = document.getElementById('verticalRuler');
 
@@ -124,7 +130,6 @@ const ALIGN_HINT_COLOR = '#e74c3c';
 const MAX_HISTORY = 50;
 const INTERSECTION_TOLERANCE = 5;
 const DEFAULT_WALL_COLOR = '#000000';
-const DEFAULT_3D_WALL_COLOR = '#e0dcdc';
 const DEFAULT_DOOR_LINE = '#8b5a2b';
 const DEFAULT_DOOR_FILL = '#e6c9a8';
 const DEFAULT_WINDOW_LINE = '#3b83bd';
@@ -183,6 +188,9 @@ let staircaseSettings = {
     landingLengthInches: 0,
     treadDepthInches: DEFAULT_TREAD_DEPTH_INCHES
 };
+
+let convertedProjectState = null;
+let convertedProjectName = 'converted-project';
 
 function setSelectedDimension(index) {
     selectedDimensionIndex = index;
@@ -268,6 +276,9 @@ let draggingObjectIndex = null;
 let objectDragOffset = null;
 let objectDragUndoApplied = false;
 let windowHandleDrag = null;
+let trackDoorHandleDrag = null;
+let trackDoorDistancePreview = null;
+let windowDistancePreview = null;
 let staircaseHandleDrag = null;
 let staircaseEditTargetIndex = null;
 let groupDragOffsets = null;
@@ -291,34 +302,6 @@ let floorLassoPoints = [];
 let floorLassoPreview = null;
 let floorHoverCorner = null;
 let floorDragData = null;
-
-// View mode (2D/3D)
-let is3DView = false;
-let threeScene = null;
-let threeRenderer = null;
-let threeCamera = null;
-let threeControls = null;
-let wallMeshes = [];
-let threeContentGroup = null;
-let orbitCenterHelper = null;
-let threeLibsPromise = null;
-let useFallback3DRenderer = false;
-let fallback3DCanvas = null;
-let fallback3DCtx = null;
-let fallback3DAnimationId = null;
-let fallback3DCamera = {
-    distance: 80,
-    theta: Math.PI / 4,
-    phi: Math.PI / 4,
-    target: { x: 0, y: 5, z: 0 },
-    autoRotate: false,
-    isDragging: false,
-    dragMode: 'orbit',
-    lastPointer: null
-};
-const THREE_WALL_HEIGHT_FEET = 10;
-const THREE_FLOOR_THICKNESS_FEET = 5;
-const THREE_PLAN_OUTLINE_HEIGHT = 0.05;
 
 // undo / redo
 let undoStack = [];
@@ -818,10 +801,6 @@ function drawVerticalRuler() {
 }
 
 function drawRulers() {
-    const shouldHide = is3DView;
-    if (horizontalRuler) horizontalRuler.classList.toggle('hidden', shouldHide);
-    if (verticalRuler) verticalRuler.classList.toggle('hidden', shouldHide);
-    if (shouldHide) return;
     drawHorizontalRuler();
     drawVerticalRuler();
 }
@@ -2017,12 +1996,9 @@ function drawPastePreview() {
         ctx.lineWidth = oldObj.lineWidth || 2;
         ctx.strokeStyle = oldObj.lineColor || '#000000';
         ctx.fillStyle = oldObj.fillColor || '#cccccc';
-        
+
         if (oldObj.type === 'door') {
-            ctx.strokeRect(x, y, w, h);
-            ctx.beginPath();
-            ctx.arc(x + w, y + h / 2, w, Math.PI, Math.PI * 1.5);
-            ctx.stroke();
+            drawDoorGraphic(oldObj, x, y, w, h);
         } else if (oldObj.type === 'window') {
             ctx.strokeRect(x, y, w, h);
             ctx.beginPath();
@@ -2417,11 +2393,13 @@ function findWallAtPoint(x, y, tolerance = 8) {
     for (const wall of walls) {
         const n1 = getNodeById(wall.startNodeId);
         const n2 = getNodeById(wall.endNodeId);
-        
+
         if (!n1 || !n2) continue;
-        
+
+        const wallThickness = wall.thicknessPx ?? scale * 0.5;
+        const hitTolerance = Math.max(tolerance, wallThickness / 2 + 6);
         const distance = distanceToSegment(x, y, n1.x, n1.y, n2.x, n2.y);
-        if (distance <= tolerance) {
+        if (distance <= hitTolerance) {
             return wall;
         }
     }
@@ -2571,6 +2549,49 @@ function findOrCreateNode(x, y) {
     const node = { id: nextNodeId++, x, y };
     nodes.push(node);
     return node;
+}
+
+function inchesToFeetAndInches(totalInches) {
+    const safeInches = Math.max(0, Math.round(totalInches));
+    const feet = Math.floor(safeInches / 12);
+    const inches = safeInches % 12;
+    return { feet, inches };
+}
+
+// Global measurement offset (in inches) that can be tuned later without
+// breaking callers that expect a defined function.
+window.measurementOffsetInches = window.measurementOffsetInches || 0;
+
+/**
+ * Apply the configured measurement offset to a raw length in inches.
+ * This ensures downstream code always receives a valid, offset-adjusted
+ * measurement instead of throwing a reference error when the helper is
+ * missing.
+ */
+function applyMeasurementOffset(totalInches) {
+    const offset = typeof window.measurementOffsetInches === 'number'
+        ? window.measurementOffsetInches
+        : 0;
+    return totalInches + offset;
+}
+
+function formatMeasurementText(totalInches) {
+    const adjustedInches = applyMeasurementOffset(totalInches);
+    const roundedInches = Math.max(0, Math.round(adjustedInches));
+    const { feet, inches } = inchesToFeetAndInches(roundedInches);
+    return `${feet}'${inches}\"`;
+}
+
+function formatInchesOnly(totalInches) {
+    const inches = Math.max(0, Math.round(totalInches));
+    return `${inches}\"`;
+}
+
+function refreshDimensionLabels() {
+    if (!window.dimensions || !Array.isArray(window.dimensions)) return;
+    if (typeof window.updateDimensionMeasurement !== 'function') return;
+
+    window.dimensions.forEach(dim => window.updateDimensionMeasurement(dim));
 }
 
 // ============================================================
@@ -3206,10 +3227,11 @@ function applyProjectState(state) {
      updateMeasurementPreview();
      updateToolInfo();
      updatePropertiesPanel();
+     refreshDimensionLabels();
      redrawCanvas();
 
      isProjectLoading = false;
- }
+}
 
 let jsPdfLoader = null;
 
@@ -3330,11 +3352,6 @@ async function downloadPlanAsPDF(options = {}) {
     if (!jsPDFConstructor) {
         alert('Could not load PDF generator. Please check your connection and try again.');
         return;
-    }
-
-    const was3DView = is3DView;
-    if (was3DView) {
-        switchTo2DView();
     }
 
     const originalShowGrid = showGrid;
@@ -3471,10 +3488,6 @@ async function downloadPlanAsPDF(options = {}) {
         showGrid = originalShowGrid;
         redrawCanvas();
         syncCanvasScrollArea();
-
-        if (was3DView) {
-            switchTo3DView();
-        }
     }
 }
 
@@ -3518,6 +3531,629 @@ function handleProjectFileUpload(event) {
         }
     };
     reader.readAsText(file);
+}
+
+function resetXmlConvertStatus(message, isError = false) {
+    if (!xmlConvertStatus) return;
+    xmlConvertStatus.textContent = message;
+    xmlConvertStatus.style.color = isError ? '#c0392b' : '#555';
+}
+
+function openXmlConverterModal() {
+    if (!xmlConverterModal) return;
+    resetXmlConvertStatus(convertedProjectState ? 'Ready to download the last conversion or upload a new XML file.' : 'Choose an XML file to convert.');
+    downloadConvertedProjectButton?.toggleAttribute('disabled', !convertedProjectState);
+    xmlConverterModal.classList.remove('hidden');
+}
+
+function closeXmlConverterModal() {
+    if (!xmlConverterModal) return;
+    xmlConverterModal.classList.add('hidden');
+}
+
+function convertXmlDistanceToPixels(value) {
+    const numeric = parseFloat(value);
+    if (Number.isNaN(numeric)) return null;
+
+    // XML values are treated as centimeters; convert to feet and then to canvas pixels.
+    const feet = numeric / 30.48;
+    return feet * scale;
+}
+
+function keyForPoint(xPx, yPx) {
+    return `${xPx.toFixed(3)},${yPx.toFixed(3)}`;
+}
+
+function parseWallsForElements(wallElements, startingNodeId = 1, startingWallId = 1) {
+    const nodesByKey = new Map();
+    let nextNode = startingNodeId;
+    let nextWall = startingWallId;
+    const wallsFromXml = [];
+
+    const getOrCreateNode = (x, y) => {
+        const xPx = convertXmlDistanceToPixels(x);
+        const yPx = convertXmlDistanceToPixels(y);
+
+        if (xPx === null || yPx === null) {
+            throw new Error('Missing wall coordinates in XML.');
+        }
+
+        const key = keyForPoint(xPx, yPx);
+        if (!nodesByKey.has(key)) {
+            nodesByKey.set(key, { id: nextNode++, x: xPx, y: yPx });
+        }
+        return nodesByKey.get(key);
+    };
+
+    wallElements.forEach((wallElement) => {
+        const xStart = wallElement.getAttribute('xStart');
+        const yStart = wallElement.getAttribute('yStart');
+        const xEnd = wallElement.getAttribute('xEnd');
+        const yEnd = wallElement.getAttribute('yEnd');
+        const thicknessValue = wallElement.getAttribute('thickness');
+
+        const startNode = getOrCreateNode(xStart, yStart);
+        const endNode = getOrCreateNode(xEnd, yEnd);
+        const thicknessPx = convertXmlDistanceToPixels(thicknessValue) ?? convertXmlDistanceToPixels(15.24);
+
+        wallsFromXml.push({
+            id: nextWall++,
+            startNodeId: startNode.id,
+            endNodeId: endNode.id,
+            lineColor: DEFAULT_WALL_COLOR,
+            outlineWidth: parseInt(lineWidthInput?.value, 10) || 2,
+            thicknessPx: thicknessPx ?? 0
+        });
+    });
+
+    const nodes = Array.from(nodesByKey.values());
+    return {
+        nodes,
+        walls: wallsFromXml,
+        nodeLookup: new Map(nodes.map(node => [node.id, node])),
+        nodeLookupByPosition: nodesByKey,
+        nextNodeId: nextNode,
+        nextWallId: nextWall
+    };
+}
+
+function parseDimensionsFromXml(dimensionElements, startingDimensionId = 1) {
+    if (!dimensionElements.length) {
+        return { dimensions: [], nextDimensionId: startingDimensionId };
+    }
+
+    let nextDimensionId = startingDimensionId;
+    const dimensions = [];
+
+    dimensionElements.forEach((dimensionElement) => {
+        const xStartAttr = dimensionElement.getAttribute('xStart');
+        const yStartAttr = dimensionElement.getAttribute('yStart');
+        const xEndAttr = dimensionElement.getAttribute('xEnd');
+        const yEndAttr = dimensionElement.getAttribute('yEnd');
+        const offsetAttr = dimensionElement.getAttribute('offset');
+
+        const xStart = convertXmlDistanceToPixels(xStartAttr);
+        const yStart = convertXmlDistanceToPixels(yStartAttr);
+        const xEnd = convertXmlDistanceToPixels(xEndAttr);
+        const yEnd = convertXmlDistanceToPixels(yEndAttr);
+
+        if ([xStart, yStart, xEnd, yEnd].some((v) => v === null)) {
+            throw new Error('Missing dimension line coordinates in XML.');
+        }
+
+        const offsetPx = convertXmlDistanceToPixels(offsetAttr) || 0;
+        const dx = xEnd - xStart;
+        const dy = yEnd - yStart;
+        const length = Math.hypot(dx, dy);
+        const normal = length > 0 ? { x: -dy / length, y: dx / length } : { x: 0, y: 0 };
+
+        const startX = xStart + normal.x * offsetPx;
+        const startY = yStart + normal.y * offsetPx;
+        const endX = xEnd + normal.x * offsetPx;
+        const endY = yEnd + normal.y * offsetPx;
+
+        const dimension = {
+            id: nextDimensionId++,
+            startX,
+            startY,
+            endX,
+            endY,
+            lineColor: '#3498db',
+            lineWidth: 2,
+            isAuto: false,
+            offsetSign: offsetPx >= 0 ? 1 : -1,
+            sourceDimensionId: dimensionElement.getAttribute('id') || null
+        };
+
+        const measuredLength = Math.hypot(endX - startX, endY - startY);
+        dimension.length = measuredLength;
+        const totalInches = Math.round((measuredLength / scale) * 12);
+        dimension.text = formatMeasurementText(totalInches);
+
+        dimensions.push(dimension);
+    });
+
+    return { dimensions, nextDimensionId };
+}
+
+function parseLabelsFromXml(labelElements) {
+    if (!labelElements.length) return [];
+
+    const textObjects = [];
+
+    labelElements.forEach((labelElement) => {
+        const xAttr = labelElement.getAttribute('x');
+        const yAttr = labelElement.getAttribute('y');
+        const pitchAttr = labelElement.getAttribute('pitch');
+        const textContent = labelElement.getElementsByTagName('text')?.[0]?.textContent?.trim();
+
+        if (!textContent) return;
+
+        const x = convertXmlDistanceToPixels(xAttr);
+        const y = convertXmlDistanceToPixels(yAttr);
+
+        if (x === null || y === null) {
+            throw new Error('Missing label coordinates in XML.');
+        }
+
+        const textStyle = labelElement.getElementsByTagName('textStyle')?.[0];
+        const fontSizeAttr = textStyle?.getAttribute('fontSize');
+        const fontSize = parseFloat(fontSizeAttr) || textFontSize || 18;
+        const color = textColorInput?.value || '#000000';
+        const fontWeight = 'normal';
+        const fontStyle = 'normal';
+        const dimensions = measureTextDimensions(textContent, fontSize, fontWeight, fontStyle);
+        const pitchRad = parseFloat(pitchAttr) || 0;
+        const rotation = (pitchRad * 180) / Math.PI;
+
+        textObjects.push({
+            type: 'text',
+            text: textContent,
+            x,
+            y,
+            width: dimensions.width,
+            height: dimensions.height,
+            lineWidth: 0,
+            lineColor: color,
+            fillColor: 'transparent',
+            textColor: color,
+            fontSize,
+            fontWeight,
+            fontStyle,
+            rotation,
+            flipH: false,
+            flipV: false,
+            sourceLabelId: labelElement.getAttribute('id') || null
+        });
+    });
+
+    return textObjects;
+}
+
+function parseFloorsFromRooms(roomElements, nodesByPosition, startingNodeId = 1, startingFloorId = 1) {
+    if (!roomElements.length) return { floors: [], nodes: Array.from(nodesByPosition.values()), nextNodeId: startingNodeId, nextFloorId: startingFloorId };
+
+    let nextNodeId = startingNodeId;
+    let nextFloorId = startingFloorId;
+    const floorsFromRooms = [];
+
+    const ensureNode = (xAttr, yAttr) => {
+        const xPx = convertXmlDistanceToPixels(xAttr);
+        const yPx = convertXmlDistanceToPixels(yAttr);
+        if (xPx === null || yPx === null) {
+            throw new Error('Missing room coordinates in XML.');
+        }
+
+        const key = keyForPoint(xPx, yPx);
+        if (!nodesByPosition.has(key)) {
+            nodesByPosition.set(key, { id: nextNodeId++, x: xPx, y: yPx });
+        }
+        return nodesByPosition.get(key);
+    };
+
+    roomElements.forEach((roomElement) => {
+        const pointElements = Array.from(roomElement.getElementsByTagName('point'));
+        if (pointElements.length < 3) return;
+
+        const nodeIds = pointElements.map((pt) => ensureNode(pt.getAttribute('x'), pt.getAttribute('y')).id);
+        floorsFromRooms.push({
+            id: nextFloorId++,
+            sourceRoomId: roomElement.getAttribute('id') || null,
+            nodeIds,
+            texture: {
+                type: 'color',
+                color: fillColorInput?.value || '#d9d9d9'
+            }
+        });
+    });
+
+    return {
+        floors: floorsFromRooms,
+        nodes: Array.from(nodesByPosition.values()),
+        nextNodeId,
+        nextFloorId
+    };
+}
+
+function parseDoorsFromXml(doorElements, nodeLookup, wallsFromXml) {
+    if (!doorElements.length) return [];
+
+    const wallsById = new Map(wallsFromXml.map(wall => [wall.id, wall]));
+
+    const findNearestWall = (cx, cy, maxDistance = 5) => {
+        let closest = null;
+        let bestDistance = Infinity;
+
+        wallsById.forEach((wall) => {
+            const n1 = nodeLookup.get(wall.startNodeId);
+            const n2 = nodeLookup.get(wall.endNodeId);
+            if (!n1 || !n2) return;
+
+            const projection = projectPointToWallSegment(cx, cy, n1.x, n1.y, n2.x, n2.y);
+            const distance = Math.hypot(cx - projection.x, cy - projection.y);
+
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                closest = { wall, n1, n2, projection, distance };
+            }
+        });
+
+        if (bestDistance <= maxDistance) {
+            return closest;
+        }
+
+        return null;
+    };
+
+    const resolveOrientationFromAngle = (angleRad) => {
+        const sin = Math.sin(angleRad);
+        const cos = Math.cos(angleRad);
+        return Math.abs(sin) > Math.abs(cos) ? 'vertical' : 'horizontal';
+    };
+
+    const normalizeAngleDegrees = (degrees) => {
+        const normalized = degrees % 360;
+        return normalized < 0 ? normalized + 360 : normalized;
+    };
+
+    const normalizeSignedAngleDifference = (degrees) => {
+        const normalized = ((degrees % 360) + 540) % 360 - 180;
+        return normalized;
+    };
+
+    const smallestAngleDifference = (aDeg, bDeg) => {
+        const diff = Math.abs(normalizeAngleDegrees(aDeg) - normalizeAngleDegrees(bDeg));
+        return diff > 180 ? 360 - diff : diff;
+    };
+
+    const fallbackWindowLength = () => {
+        if (typeof window.getWindowLengthPx === 'function') {
+            return window.getWindowLengthPx(null, scale);
+        }
+        return 5 * scale;
+    };
+
+    return doorElements.map((doorElement, index) => {
+        const nameAttr = (doorElement.getAttribute('name') || '').toLowerCase();
+        const isWindow = nameAttr.includes('window');
+        const isDoor = nameAttr.includes('door') || !isWindow;
+
+        const doorType = isDoor
+            ? (nameAttr.includes('rolling shutter')
+                ? 'rollingShutter'
+                : nameAttr.includes('sliding door')
+                    ? 'slidingDoor'
+                    : 'normal')
+            : undefined;
+
+        const xAttr = doorElement.getAttribute('x');
+        const yAttr = doorElement.getAttribute('y');
+        const angleAttr = doorElement.getAttribute('angle') || '0';
+        const widthAttr = doorElement.getAttribute('width');
+        const depthAttr = doorElement.getAttribute('depth');
+
+        const centerX = convertXmlDistanceToPixels(xAttr);
+        const centerY = convertXmlDistanceToPixels(yAttr);
+
+        if (centerX === null || centerY === null) {
+            throw new Error('Missing door coordinates in XML.');
+        }
+
+        const angleRad = parseFloat(angleAttr) || 0;
+        const angleDeg = normalizeAngleDegrees((angleRad * 180) / Math.PI);
+        const orientationHint = resolveOrientationFromAngle(angleRad);
+
+        const defaultAlong = isWindow ? fallbackWindowLength() : getDoorLengthPx(doorType || 'normal', scale);
+        const lengthPx = convertXmlDistanceToPixels(widthAttr) ?? defaultAlong;
+        const thicknessFromXml = convertXmlDistanceToPixels(depthAttr);
+
+        const nearestWall = findNearestWall(centerX, centerY, 5);
+        const nearestWallThickness = nearestWall?.wall?.thicknessPx ?? getWallThicknessForDoor(nearestWall?.wall, scale);
+        const alongWall = lengthPx ?? defaultAlong;
+        const acrossWall = thicknessFromXml ?? nearestWallThickness ?? convertXmlDistanceToPixels(15.24) ?? (0.5 * scale);
+
+        const orientation = nearestWall
+            ? (Math.abs(nearestWall.n2.x - nearestWall.n1.x) >= Math.abs(nearestWall.n2.y - nearestWall.n1.y)
+                ? 'horizontal'
+                : 'vertical')
+            : orientationHint;
+
+        const wallAngleDeg = nearestWall
+            ? normalizeAngleDegrees((Math.atan2(nearestWall.n2.y - nearestWall.n1.y, nearestWall.n2.x - nearestWall.n1.x) * 180) / Math.PI)
+            : null;
+
+        let wallAngleOffset = 0;
+        let rotationDeg;
+
+        if (wallAngleDeg !== null) {
+            if (Number.isFinite(angleDeg)) {
+                wallAngleOffset = normalizeSignedAngleDifference(angleDeg - wallAngleDeg);
+                rotationDeg = normalizeAngleDegrees(wallAngleDeg + wallAngleOffset);
+            } else {
+                rotationDeg = wallAngleDeg;
+            }
+        } else {
+            rotationDeg = Number.isFinite(angleDeg) ? angleDeg : (orientation === 'horizontal' ? 0 : 90);
+        }
+
+        const width = orientation === 'horizontal' ? alongWall : acrossWall;
+        const height = orientation === 'horizontal' ? acrossWall : alongWall;
+
+        const centerProjection = nearestWall?.projection || { x: centerX, y: centerY };
+
+        const opening = {
+            id: `converted-${isWindow ? 'window' : 'door'}-${index + 1}`,
+            type: isWindow ? 'window' : 'door',
+            doorType: isDoor ? doorType : undefined,
+            x: centerProjection.x - width / 2,
+            y: centerProjection.y - height / 2,
+            width,
+            height,
+            lineWidth: parseInt(lineWidthInput?.value, 10) || 2,
+            lineColor: isWindow ? DEFAULT_WINDOW_LINE : DEFAULT_DOOR_LINE,
+            fillColor: isWindow ? DEFAULT_WINDOW_FILL : DEFAULT_DOOR_FILL,
+            rotation: rotationDeg,
+            wallAngleOffset,
+            flipH: false,
+            flipV: false,
+            orientation,
+            sourceDoorOrWindowId: doorElement.getAttribute('id') || null
+        };
+
+        if (nearestWall) {
+            opening.attachedWallId = nearestWall.wall.id;
+        }
+
+        return opening;
+    });
+}
+
+function parseWallsFromXml(xmlText) {
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlText, 'text/xml');
+    const parserError = xml.querySelector('parsererror');
+    if (parserError) {
+        throw new Error('Could not read XML file.');
+    }
+
+    const wallElements = Array.from(xml.getElementsByTagName('wall'));
+    if (!wallElements.length) {
+        throw new Error('No <wall> elements were found in the XML.');
+    }
+
+    const levelElements = Array.from(xml.getElementsByTagName('level'));
+    const doorElements = Array.from(xml.getElementsByTagName('doorOrWindow'));
+    const roomElements = Array.from(xml.getElementsByTagName('room'));
+    const dimensionElements = Array.from(xml.getElementsByTagName('dimensionLine'));
+    const labelElements = Array.from(xml.getElementsByTagName('label'));
+    const hasLevels = levelElements.length > 0;
+
+    const totals = { walls: 0, nodes: 0, doors: 0, floors: 0, dimensions: 0, labels: 0 };
+
+    if (hasLevels) {
+        const layerDrawings = {};
+        const layers = [];
+        const usedLayerIds = new Set();
+
+        const slugifyLayerId = (name) => {
+            const base = (name || 'layer').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'layer';
+            let candidate = base;
+            let suffix = 2;
+            while (usedLayerIds.has(candidate)) {
+                candidate = `${base}-${suffix++}`;
+            }
+            usedLayerIds.add(candidate);
+            return candidate;
+        };
+
+        levelElements.forEach((levelElement, index) => {
+            const levelId = levelElement.getAttribute('id');
+            const levelName = levelElement.getAttribute('name')?.trim() || `Level ${index + 1}`;
+            const layerId = slugifyLayerId(levelName);
+
+            const levelWalls = wallElements.filter(wall => wall.getAttribute('level') === levelId);
+            const { nodes, walls, nodeLookup, nodeLookupByPosition, nextNodeId } = parseWallsForElements(levelWalls);
+            const levelDoorElements = doorElements.filter(door => door.getAttribute('level') === levelId);
+            const doors = parseDoorsFromXml(levelDoorElements, nodeLookup, walls);
+            const levelRoomElements = roomElements.filter(room => room.getAttribute('level') === levelId);
+            const { floors, nodes: nodesWithRooms, nextNodeId: nextNodeAfterRooms, nextFloorId } = parseFloorsFromRooms(
+                levelRoomElements,
+                nodeLookupByPosition,
+                nextNodeId,
+                1
+            );
+            const levelDimensionElements = dimensionElements.filter(dimension => dimension.getAttribute('level') === levelId);
+            const { dimensions, nextDimensionId } = parseDimensionsFromXml(levelDimensionElements, 1);
+            const levelLabels = parseLabelsFromXml(labelElements.filter(label => label.getAttribute('level') === levelId));
+
+            totals.walls += walls.length;
+            totals.nodes += nodesWithRooms.length;
+            totals.doors += doors.length;
+            totals.floors += floors.length;
+            totals.dimensions += dimensions.length;
+            totals.labels += levelLabels.length;
+
+            layerDrawings[layerId] = {
+                nodes: nodesWithRooms,
+                walls,
+                objects: [...doors, ...levelLabels],
+                floors,
+                dimensions,
+                ids: {
+                    nextNodeId: nextNodeAfterRooms,
+                    nextWallId: walls.length + 1,
+                    nextFloorId,
+                    nextDimensionId,
+                    nextStairGroupId: 1
+                }
+            };
+
+            layers.push({ id: layerId, name: levelName });
+        });
+
+        return {
+            nodes: [],
+            walls: [],
+            doors: [],
+            layerState: { layers, activeLayerId: layers[0]?.id },
+            layerDrawings,
+            totals
+        };
+    }
+
+    const { nodes, walls, nodeLookup, nodeLookupByPosition, nextNodeId } = parseWallsForElements(wallElements);
+    const doorsFromXml = parseDoorsFromXml(doorElements, nodeLookup, walls);
+    const { floors, nodes: nodesWithRooms, nextNodeId: nextNodeAfterRooms, nextFloorId } = parseFloorsFromRooms(
+        roomElements,
+        nodeLookupByPosition,
+        nextNodeId,
+        1
+    );
+    const dimensionLines = parseDimensionsFromXml(dimensionElements, 1);
+    const labels = parseLabelsFromXml(labelElements);
+    const nodesFinal = nodesWithRooms;
+
+    totals.walls = walls.length;
+    totals.nodes = nodesFinal.length;
+    totals.doors = doorsFromXml.length;
+    totals.floors = floors.length;
+    totals.dimensions = dimensionLines.dimensions.length;
+    totals.labels = labels.length;
+
+    return {
+        nodes: nodesFinal,
+        walls,
+        doors: doorsFromXml,
+        floors,
+        dimensions: dimensionLines.dimensions,
+        objects: [...doorsFromXml, ...labels],
+        layerState: null,
+        layerDrawings: {},
+        ids: {
+            nextNodeId: nextNodeAfterRooms,
+            nextWallId: walls.length + 1,
+            nextFloorId,
+            nextDimensionId: dimensionLines.nextDimensionId,
+            nextStairGroupId: 1
+        },
+        totals
+    };
+}
+
+function buildConvertedProject(parsed) {
+    const hasLayerDrawings = parsed?.layerDrawings && Object.keys(parsed.layerDrawings).length > 0;
+    const nodesFromXml = hasLayerDrawings ? [] : (parsed.nodes || []);
+    const wallsFromXml = hasLayerDrawings ? [] : (parsed.walls || []);
+    const objectsFromXml = hasLayerDrawings ? [] : (parsed.objects || parsed.doors || []);
+    const floorsFromXml = hasLayerDrawings ? [] : (parsed.floors || []);
+    const dimensionsFromXml = hasLayerDrawings ? [] : (parsed.dimensions || []);
+
+    return {
+        version: 1,
+        nodes: nodesFromXml,
+        walls: wallsFromXml,
+        objects: objectsFromXml,
+        directLines: [],
+        floors: floorsFromXml,
+        dimensions: dimensionsFromXml,
+        clipboard: { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 },
+        layerState: parsed.layerState || null,
+        layerDrawings: parsed.layerDrawings || {},
+        settings: {
+            scale,
+            gridSize,
+            snapToGrid,
+            showDimensions,
+            showGrid,
+            measurementFontSize,
+            textFontSize,
+            textIsBold,
+            textIsItalic,
+            lineWidth: parseInt(lineWidthInput?.value, 10) || 2,
+            lineColor: lineColorInput?.value || DEFAULT_WALL_COLOR,
+            fillColor: fillColorInput?.value || '#d9d9d9'
+        },
+        view: { scale: viewScale, offsetX: viewOffsetX, offsetY: viewOffsetY },
+        ids: hasLayerDrawings
+            ? { nextNodeId: 1, nextWallId: 1, nextFloorId, nextDimensionId: 1, nextStairGroupId }
+            : {
+                nextNodeId: parsed?.ids?.nextNodeId ?? (nodesFromXml.length + 1),
+                nextWallId: parsed?.ids?.nextWallId ?? (wallsFromXml.length + 1),
+                nextFloorId: parsed?.ids?.nextFloorId ?? (floorsFromXml.length + 1),
+                nextDimensionId: parsed?.ids?.nextDimensionId ?? (dimensionsFromXml.length + 1),
+                nextStairGroupId
+            },
+        background: null,
+        measurementDistanceFeet,
+        backgroundImageVisible: false
+    };
+}
+
+function handleXmlFileUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.xml')) {
+        resetXmlConvertStatus('Please select a valid XML file.', true);
+        return;
+    }
+
+    convertedProjectName = file.name.replace(/\.xml$/i, '') || 'converted-project';
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const parsed = parseWallsFromXml(reader.result);
+            convertedProjectState = buildConvertedProject(parsed);
+            resetXmlConvertStatus(
+                `Loaded ${parsed.totals.walls} wall(s), ${parsed.totals.nodes} node(s), ${parsed.totals.doors} door(s), ${parsed.totals.floors || 0} floor(s), ${parsed.totals.dimensions || 0} dimension line(s), and ${parsed.totals.labels || 0} label(s). Ready to download.`
+            );
+            downloadConvertedProjectButton?.removeAttribute('disabled');
+        } catch (error) {
+            console.error('Failed to convert XML', error);
+            resetXmlConvertStatus(`Conversion failed: ${error.message}`, true);
+            convertedProjectState = null;
+            downloadConvertedProjectButton?.setAttribute('disabled', 'true');
+        }
+    };
+    reader.readAsText(file);
+}
+
+function downloadConvertedProjectFile() {
+    if (!convertedProjectState) {
+        resetXmlConvertStatus('Upload an XML file before downloading.', true);
+        return;
+    }
+
+    const encrypted = xorEncrypt(JSON.stringify(convertedProjectState), SAVE_SECRET);
+    const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${convertedProjectName || 'converted-project'}${SAVE_FILE_EXTENSION}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 
 // ============================================================
@@ -3691,6 +4327,22 @@ function init() {
             handleProjectFileUpload(event);
             projectFileInput.value = '';
         });
+    }
+    if (openXmlConverterButton) {
+        openXmlConverterButton.addEventListener('click', openXmlConverterModal);
+    }
+    if (xmlUploadButton && xmlFileInput) {
+        xmlUploadButton.addEventListener('click', () => xmlFileInput.click());
+        xmlFileInput.addEventListener('change', (event) => {
+            handleXmlFileUpload(event);
+            xmlFileInput.value = '';
+        });
+    }
+    if (downloadConvertedProjectButton) {
+        downloadConvertedProjectButton.addEventListener('click', downloadConvertedProjectFile);
+    }
+    if (closeXmlConverterButton) {
+        closeXmlConverterButton.addEventListener('click', closeXmlConverterModal);
     }
     if (downloadPdfButton) {
         downloadPdfButton.addEventListener('click', openPdfOptionsModal);
@@ -3912,10 +4564,6 @@ function init() {
         toggleBackgroundImageButton.addEventListener('click', toggleBackgroundImageVisibility);
     }
 
-    if (toggle3DViewButton) {
-        toggle3DViewButton.addEventListener('click', toggleViewMode);
-    }
-
     canvas.addEventListener('keydown', handleKeyDown);
 
     toolButtons.forEach(btn => {
@@ -3931,7 +4579,6 @@ function init() {
     updateStaircaseSummary();
     updateToolInfo();
     updatePropertiesPanel();
-    update3DButtonLabel('Show 3D');
     drawRulers();
 }
 
@@ -4390,11 +5037,42 @@ function getObjectAt(x, y, includeSelectionPadding = false) {
     for (let i = objects.length - 1; i >= 0; i--) {
         const obj = objects[i];
         const padding = includeSelectionPadding && selectedObjectIndices.has(i) ? 8 : 0;
-        if (
-            x >= obj.x - padding && x <= obj.x + obj.width + padding &&
-            y >= obj.y - padding && y <= obj.y + obj.height + padding
-        ) {
-            return i;
+
+        const corners = getObjectTransformedCorners(obj);
+        if (corners && corners.length === 4) {
+            const bounds = corners.reduce((acc, pt) => ({
+                minX: Math.min(acc.minX, pt.x),
+                maxX: Math.max(acc.maxX, pt.x),
+                minY: Math.min(acc.minY, pt.y),
+                maxY: Math.max(acc.maxY, pt.y)
+            }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+
+            if (
+                x < bounds.minX - padding || x > bounds.maxX + padding ||
+                y < bounds.minY - padding || y > bounds.maxY + padding
+            ) {
+                continue;
+            }
+
+            if (pointInPolygon({ x, y }, corners)) {
+                return i;
+            }
+
+            if (padding > 0) {
+                for (let j = 0; j < corners.length; j++) {
+                    const a = corners[j];
+                    const b = corners[(j + 1) % corners.length];
+                    const dist = distanceToSegment(x, y, a.x, a.y, b.x, b.y);
+                    if (dist <= padding) return i;
+                }
+            }
+        } else {
+            if (
+                x >= obj.x - padding && x <= obj.x + obj.width + padding &&
+                y >= obj.y - padding && y <= obj.y + obj.height + padding
+            ) {
+                return i;
+            }
         }
     }
     return -1;
@@ -4655,8 +5333,12 @@ function maintainDoorAttachmentForSelection() {
             sizeDoorToWall(obj, { wall, n1, n2, projection, orientation }, scale);
         }
 
-        // Keep the door's rotation aligned with the wall direction so it doesn't double-rotate
-        obj.rotation = orientation === 'horizontal' ? 0 : 90;
+        const baseWallAngleDeg = (Math.atan2(n2.y - n1.y, n2.x - n1.x) * 180) / Math.PI;
+        const wallOffsetDeg = obj.wallAngleOffset || 0;
+        const alignedRotation = baseWallAngleDeg + wallOffsetDeg;
+
+        obj.rotation = ((alignedRotation % 360) + 360) % 360;
+        obj.orientation = orientation;
     });
 }
 
@@ -4986,6 +5668,34 @@ function handleMouseDown(e) {
             return;
         }
 
+        const trackDoorHandle = getTrackDoorHandleHit(x, y);
+        if (trackDoorHandle) {
+                const obj = objects[trackDoorHandle.index];
+                if (obj) {
+                    pushUndoState();
+                    trackDoorHandleDrag = {
+                        index: trackDoorHandle.index,
+                    handle: trackDoorHandle.type,
+                    isHorizontal: trackDoorHandle.isHorizontal,
+                    startMouse: { x, y },
+                    initial: {
+                        x: obj.x,
+                        y: obj.y,
+                        width: obj.width,
+                        height: obj.height
+                    }
+                };
+                trackDoorDistancePreview = buildTrackDoorDistancePreview(obj);
+                windowDistancePreview = null;
+                selectAllMode = false;
+                selectedObjectIndices = new Set([trackDoorHandle.index]);
+                expandSelectionWithGroups();
+                coordinatesDisplay.textContent = `${trackDoorDistancePreview.label}: ${trackDoorDistancePreview.text}`;
+                redrawCanvas();
+            }
+            return;
+        }
+
         const windowHandle = getWindowHandleHit(x, y);
         if (windowHandle) {
             if (windowHandle.type === 'move') {
@@ -4996,11 +5706,19 @@ function handleMouseDown(e) {
                 const obj = objects[windowHandle.index];
                 if (obj) {
                     pushUndoState();
+                    const handles = getWindowHandles(obj);
+                    const dir = {
+                        x: handles.end.x - handles.start.x,
+                        y: handles.end.y - handles.start.y
+                    };
                     windowHandleDrag = {
                         index: windowHandle.index,
                         handle: windowHandle.type,
                         isHorizontal: windowHandle.isHorizontal,
                         startMouse: { x, y },
+                        direction: dir,
+                        initialStart: handles.start,
+                        initialEnd: handles.end,
                         initial: {
                             x: obj.x,
                             y: obj.y,
@@ -5009,6 +5727,8 @@ function handleMouseDown(e) {
                             lengthPx: obj.lengthPx || Math.max(obj.width, obj.height)
                         }
                     };
+                    windowDistancePreview = buildWindowDistancePreview(obj);
+                    coordinatesDisplay.textContent = `${windowDistancePreview.label}: ${windowDistancePreview.text}`;
                 }
             }
             redrawCanvas();
@@ -5477,12 +6197,12 @@ function handleMouseMove(e) {
         return;
     }
 
-    if (windowHandleDrag) {
-        const obj = objects[windowHandleDrag.index];
+    if (trackDoorHandleDrag) {
+        const obj = objects[trackDoorHandleDrag.index];
         if (obj) {
-            const { isHorizontal, handle, initial } = windowHandleDrag;
-            ({ x, y } = snapToGridPoint(x, y));
-            const minLength = scale * 1.5;
+            const { isHorizontal, handle, initial } = trackDoorHandleDrag;
+            ({ x, y } = snapPointToInch(x, y));
+            const minLength = scale * 2;
 
             if (isHorizontal) {
                 if (handle === 'start') {
@@ -5494,11 +6214,9 @@ function handleMouseMove(e) {
                     }
                     obj.x = newStart;
                     obj.width = newWidth;
-                    obj.lengthPx = newWidth;
                 } else if (handle === 'end') {
                     let newWidth = Math.max(minLength, x - initial.x);
                     obj.width = newWidth;
-                    obj.lengthPx = newWidth;
                 }
             } else {
                 if (handle === 'start') {
@@ -5510,19 +6228,56 @@ function handleMouseMove(e) {
                     }
                     obj.y = newStartY;
                     obj.height = newHeight;
-                    obj.lengthPx = newHeight;
                 } else if (handle === 'end') {
                     let newHeight = Math.max(minLength, y - initial.y);
                     obj.height = newHeight;
-                    obj.lengthPx = newHeight;
                 }
             }
+
+            obj.lengthPx = Math.max(obj.width, obj.height);
+            trackDoorDistancePreview = buildTrackDoorDistancePreview(obj);
+            coordinatesDisplay.textContent = `${trackDoorDistancePreview.label}: ${trackDoorDistancePreview.text}`;
+            redrawCanvas();
+        }
+        return;
+    }
+
+    if (windowHandleDrag) {
+        const obj = objects[windowHandleDrag.index];
+        if (obj) {
+            const { handle, direction, initialStart, initialEnd, initial } = windowHandleDrag;
+            const dirLength = Math.hypot(direction.x, direction.y) || 1;
+            const dirUnit = { x: direction.x / dirLength, y: direction.y / dirLength };
+            const anchor = handle === 'start' ? initialEnd : initialStart;
+            const sign = handle === 'start' ? -1 : 1;
+            const inchPx = scale / 12;
+            const minLength = scale * 1.5;
+
+            const vecToMouse = { x: x - anchor.x, y: y - anchor.y };
+            const projection = (vecToMouse.x * dirUnit.x + vecToMouse.y * dirUnit.y) * sign;
+            const snappedLength = Math.max(minLength, Math.round(projection / inchPx) * inchPx);
+
+            const startPoint = handle === 'start'
+                ? { x: anchor.x - dirUnit.x * snappedLength, y: anchor.y - dirUnit.y * snappedLength }
+                : { ...initialStart };
+            const endPoint = handle === 'start'
+                ? { ...initialEnd }
+                : { x: anchor.x + dirUnit.x * snappedLength, y: anchor.y + dirUnit.y * snappedLength };
+
+            const center = { x: (startPoint.x + endPoint.x) / 2, y: (startPoint.y + endPoint.y) / 2 };
+
+            obj.width = snappedLength;
+            obj.lengthPx = snappedLength;
+            obj.height = initial.height;
+            obj.x = center.x - obj.width / 2;
+            obj.y = center.y - obj.height / 2;
 
             if (obj.type === 'window' && typeof window.snapWindowToNearestWall === 'function') {
                 window.snapWindowToNearestWall(obj, walls, scale);
             }
 
-            coordinatesDisplay.textContent = `X: ${obj.x.toFixed(1)}, Y: ${obj.y.toFixed(1)}`;
+            windowDistancePreview = buildWindowDistancePreview(obj);
+            coordinatesDisplay.textContent = `${windowDistancePreview.label}: ${windowDistancePreview.text}`;
             redrawCanvas();
         }
         return;
@@ -5793,8 +6548,16 @@ function handleMouseUp() {
         return;
     }
 
+    if (trackDoorHandleDrag) {
+        trackDoorHandleDrag = null;
+        trackDoorDistancePreview = null;
+        redrawCanvas();
+        return;
+    }
+
     if (windowHandleDrag) {
         windowHandleDrag = null;
+        windowDistancePreview = null;
         redrawCanvas();
         return;
     }
@@ -6385,9 +7148,7 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     if (len < 1) return;
 
     const totalInches = Math.round((len / scale) * 12);
-    const feet = Math.floor(totalInches / 12);
-    const inches = totalInches % 12;
-    const text = `${feet}'${inches}"`;
+    const text = formatMeasurementText(totalInches);
 
     const midX = (x1 + x2) / 2;
     const midY = (y1 + y2) / 2;
@@ -6620,6 +7381,179 @@ function drawStaircaseGraphic(obj, originX, originY, drawWidth, drawHeight) {
     ctx.restore();
 }
 
+function drawRollingShutterGraphic(localX, localY, drawWidth, drawHeight) {
+    const headerHeight = Math.min(drawHeight * 0.2, 12);
+    const railWidth = Math.min(drawWidth * 0.1, 8);
+    const slatCount = Math.max(5, Math.floor(drawHeight / 12));
+    const slatSpacing = drawHeight / slatCount;
+    const zigzagAmplitude = Math.min(drawHeight * 0.08, 8);
+    const zigzagSpacing = Math.max(10, (drawWidth - railWidth * 2) / 8);
+    const zigzagStartY = localY + headerHeight + Math.max(zigzagAmplitude * 2, slatSpacing * 1.5);
+    const frontZigzagAmplitude = Math.max(2, zigzagAmplitude * 0.5);
+    const frontZigzagSpacing = Math.max(8, (drawWidth - railWidth * 2) / 12);
+    const frontZigzagY = localY + headerHeight + frontZigzagAmplitude * 1.5;
+
+    ctx.save();
+
+    // Main curtain body
+    ctx.beginPath();
+    ctx.rect(localX + railWidth, localY + headerHeight, drawWidth - railWidth * 2, drawHeight - headerHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Header box
+    ctx.beginPath();
+    ctx.rect(localX, localY, drawWidth, headerHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Side rails
+    ctx.beginPath();
+    ctx.rect(localX, localY, railWidth, drawHeight);
+    ctx.rect(localX + drawWidth - railWidth, localY, railWidth, drawHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Slat lines
+    ctx.beginPath();
+    for (let i = 1; i < slatCount; i++) {
+        const y = localY + headerHeight + i * slatSpacing;
+        ctx.moveTo(localX + railWidth, y);
+        ctx.lineTo(localX + drawWidth - railWidth, y);
+    }
+    ctx.stroke();
+
+    // Zigzag design across the curtain body
+    ctx.beginPath();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    let zigX = localX + railWidth;
+    let zigY = zigzagStartY;
+    let goingUp = true;
+
+    ctx.moveTo(zigX, zigY);
+
+    while (zigX < localX + drawWidth - railWidth) {
+        zigX += zigzagSpacing;
+        zigY = zigzagStartY + (goingUp ? -zigzagAmplitude : zigzagAmplitude);
+        ctx.lineTo(Math.min(zigX, localX + drawWidth - railWidth), zigY);
+        goingUp = !goingUp;
+    }
+
+    ctx.stroke();
+
+    // Front-facing small zigzag accent near the header
+    ctx.beginPath();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1, ctx.lineWidth * 0.85);
+
+    let frontX = localX + railWidth;
+    let frontY = frontZigzagY;
+    let frontUp = true;
+
+    ctx.moveTo(frontX, frontY);
+
+    while (frontX < localX + drawWidth - railWidth) {
+        frontX += frontZigzagSpacing;
+        frontY = frontZigzagY + (frontUp ? -frontZigzagAmplitude : frontZigzagAmplitude);
+        ctx.lineTo(Math.min(frontX, localX + drawWidth - railWidth), frontY);
+        frontUp = !frontUp;
+    }
+
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawSlidingDoorGraphic(localX, localY, drawWidth, drawHeight) {
+    const headerHeight = Math.min(drawHeight * 0.18, 12);
+    const railWidth = Math.min(drawWidth * 0.08, 8);
+    const bodyWidth = drawWidth - railWidth * 2;
+    const bodyHeight = drawHeight - headerHeight;
+    const panelWidth = bodyWidth / 2;
+
+    ctx.save();
+
+    // Outer rails and header
+    ctx.beginPath();
+    ctx.rect(localX, localY, drawWidth, headerHeight);
+    ctx.rect(localX, localY, railWidth, drawHeight);
+    ctx.rect(localX + drawWidth - railWidth, localY, railWidth, drawHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Door body fill
+    ctx.beginPath();
+    ctx.rect(localX + railWidth, localY + headerHeight, bodyWidth, bodyHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Two-tone sliding panels
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(localX + railWidth + 2, localY + headerHeight + 2, panelWidth - 4, bodyHeight - 4);
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(localX + railWidth + panelWidth + 2, localY + headerHeight + 2, panelWidth - 4, bodyHeight - 4);
+    ctx.restore();
+
+    // Cross-connect lines on each panel
+    const segments = Math.max(3, Math.floor(bodyHeight / 18));
+    const segmentHeight = bodyHeight / segments;
+    ctx.beginPath();
+    for (let i = 0; i < segments; i++) {
+        const yTop = localY + headerHeight + i * segmentHeight;
+        const yBottom = yTop + segmentHeight;
+
+        // Left panel X
+        ctx.moveTo(localX + railWidth, yTop);
+        ctx.lineTo(localX + railWidth + panelWidth, yBottom);
+        ctx.moveTo(localX + railWidth, yBottom);
+        ctx.lineTo(localX + railWidth + panelWidth, yTop);
+
+        // Right panel X
+        ctx.moveTo(localX + railWidth + panelWidth, yTop);
+        ctx.lineTo(localX + railWidth + bodyWidth, yBottom);
+        ctx.moveTo(localX + railWidth + panelWidth, yBottom);
+        ctx.lineTo(localX + railWidth + bodyWidth, yTop);
+
+        // Center connector between panels
+        ctx.moveTo(localX + railWidth + panelWidth, yTop);
+        ctx.lineTo(localX + railWidth + panelWidth, yBottom);
+    }
+    ctx.stroke();
+
+    // Bottom track accent
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(1, ctx.lineWidth * 0.9);
+    ctx.moveTo(localX + railWidth, localY + drawHeight - 2);
+    ctx.lineTo(localX + drawWidth - railWidth, localY + drawHeight - 2);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawDoorGraphic(obj, localX, localY, drawWidth, drawHeight) {
+    if (obj.doorType === 'rollingShutter') {
+        drawRollingShutterGraphic(localX, localY, drawWidth, drawHeight);
+        return;
+    }
+
+    if (obj.doorType === 'slidingDoor') {
+        drawSlidingDoorGraphic(localX, localY, drawWidth, drawHeight);
+        return;
+    }
+
+    ctx.fillRect(localX, localY, drawWidth, drawHeight);
+    ctx.strokeRect(localX, localY, drawWidth, drawHeight);
+    ctx.beginPath();
+    ctx.arc(localX + drawWidth, localY + drawHeight / 2, drawWidth, Math.PI, Math.PI * 1.5);
+    ctx.moveTo(localX + drawWidth, localY + drawHeight / 2);
+    ctx.lineTo(localX + drawWidth, localY + drawHeight / 2 - drawWidth);
+    ctx.stroke();
+}
+
 function getObjectTransformInfo(obj) {
     const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
     const drawWidth = isVerticalDoor ? obj.height : obj.width;
@@ -6633,7 +7567,9 @@ function getObjectTransformInfo(obj) {
         const n2 = wall && getNodeById(wall.endNodeId);
 
         if (n1 && n2) {
-            angleRad = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+            const wallAngleRad = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+            const offsetRad = ((obj.wallAngleOffset || 0) * Math.PI) / 180;
+            angleRad = wallAngleRad + offsetRad;
             orientationRotation = 0; // Angle already matches the wall
         }
     }
@@ -6732,13 +7668,7 @@ function drawObjects() {
         ctx.fillStyle = obj.fillColor;
 
         if (obj.type === 'door') {
-            ctx.fillRect(localX, localY, drawWidth, drawHeight);
-            ctx.strokeRect(localX, localY, drawWidth, drawHeight);
-            ctx.beginPath();
-            ctx.arc(localX + drawWidth, localY + drawHeight / 2, drawWidth, Math.PI, Math.PI * 1.5);
-            ctx.moveTo(localX + drawWidth, localY + drawHeight / 2);
-            ctx.lineTo(localX + drawWidth, localY + drawHeight / 2 - drawWidth);
-            ctx.stroke();
+            drawDoorGraphic(obj, localX, localY, drawWidth, drawHeight);
         } else if (obj.type === 'window') {
             ctx.fillRect(localX, localY, width, height);
             ctx.strokeRect(localX, localY, width, height);
@@ -6815,6 +7745,18 @@ function drawObjects() {
                         ctx.strokeRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
                     }
                 });
+            } else if (obj.type === 'window') {
+                const { handleSize, center, start, end } = getWindowHandles(obj);
+                const half = handleSize / 2;
+
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = '#3b83bd';
+                ctx.lineWidth = 1.5;
+
+                [start, center, end].forEach(pt => {
+                    ctx.fillRect(pt.x - half, pt.y - half, handleSize, handleSize);
+                    ctx.strokeRect(pt.x - half, pt.y - half, handleSize, handleSize);
+                });
             } else {
                 const handleSize = 8;
                 const handles = getObjectHandlePoints(corners);
@@ -6826,10 +7768,72 @@ function drawObjects() {
                     ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
                     ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
                 });
+
+                if (isTrackDoor(obj)) {
+                    const { handleSize: shutterHandleSize, start, end } = getTrackDoorHandles(obj);
+                    const shutterHalf = shutterHandleSize / 2;
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.strokeStyle = '#d35400';
+                    ctx.lineWidth = 1.5;
+
+                    [start, end].forEach(pt => {
+                        ctx.fillRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
+                        ctx.strokeRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
+                    });
+                }
             }
             ctx.restore();
         }
     }
+
+    drawDistancePreviews();
+}
+
+function drawDistancePreviewOverlay(preview, color = '#d35400') {
+    if (!preview) return;
+
+    const { start, end, text, isHorizontal } = preview;
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2;
+    const offset = 18;
+    const labelX = isHorizontal ? midX : midX + offset;
+    const labelY = isHorizontal ? midY - offset : midY;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = `${measurementFontSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const padding = 6;
+    const textWidth = ctx.measureText(text).width;
+    const textHeight = measurementFontSize * 1.2;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.rect(labelX - textWidth / 2 - padding, labelY - textHeight / 2, textWidth + padding * 2, textHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    ctx.fillText(text, labelX, labelY);
+    ctx.restore();
+}
+
+function drawDistancePreviews() {
+    drawDistancePreviewOverlay(trackDoorDistancePreview, '#d35400');
+    drawDistancePreviewOverlay(windowDistancePreview, '#3b83bd');
 }
 
 function drawFloors() {
@@ -6885,10 +7889,14 @@ function drawFloorVertices(points, isSelected) {
 
 function getWindowHandles(obj) {
     const handleSize = 10;
-    const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
-    const isHorizontal = obj.orientation === 'horizontal' || obj.width >= obj.height;
-    const start = isHorizontal ? { x: obj.x, y: center.y } : { x: center.x, y: obj.y };
-    const end = isHorizontal ? { x: obj.x + obj.width, y: center.y } : { x: center.x, y: obj.y + obj.height };
+    const { cx, cy, angle, drawWidth } = getObjectTransformInfo(obj);
+    const direction = { x: Math.cos(angle), y: Math.sin(angle) };
+    const halfLength = drawWidth / 2;
+
+    const center = { x: cx, y: cy };
+    const start = { x: cx - direction.x * halfLength, y: cy - direction.y * halfLength };
+    const end = { x: cx + direction.x * halfLength, y: cy + direction.y * halfLength };
+    const isHorizontal = Math.abs(direction.x) >= Math.abs(direction.y);
 
     return { handleSize, center, start, end, isHorizontal };
 }
@@ -6907,6 +7915,61 @@ function getWindowHandleHit(x, y) {
         if (inRect(end.x, end.y)) return { index, type: 'end', isHorizontal };
     }
     return null;
+}
+
+function isTrackDoor(obj) {
+    return obj && obj.type === 'door' && (obj.doorType === 'rollingShutter' || obj.doorType === 'slidingDoor');
+}
+
+function getTrackDoorHandles(obj) {
+    const handleSize = 12;
+    const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
+    const isHorizontal = obj.orientation === 'horizontal' || obj.width >= obj.height;
+    const start = isHorizontal ? { x: obj.x, y: center.y } : { x: center.x, y: obj.y };
+    const end = isHorizontal
+        ? { x: obj.x + obj.width, y: center.y }
+        : { x: center.x, y: obj.y + obj.height };
+
+    return { handleSize, center, start, end, isHorizontal };
+}
+
+function getTrackDoorHandleHit(x, y) {
+    for (const index of selectedObjectIndices) {
+        const obj = objects[index];
+        if (!isTrackDoor(obj)) continue;
+
+        const { handleSize, start, end, isHorizontal } = getTrackDoorHandles(obj);
+        const half = handleSize / 2;
+        const inRect = (hx, hy) => x >= hx - half && x <= hx + half && y >= hy - half && y <= hy + half;
+
+        if (inRect(start.x, start.y)) return { index, type: 'start', isHorizontal };
+        if (inRect(end.x, end.y)) return { index, type: 'end', isHorizontal };
+    }
+    return null;
+}
+
+function buildDistancePreview(obj, handles, label, formatFn = formatMeasurementText) {
+    const lengthPx = Math.hypot(handles.end.x - handles.start.x, handles.end.y - handles.start.y);
+    const totalInches = (lengthPx / scale) * 12;
+    return {
+        start: handles.start,
+        end: handles.end,
+        isHorizontal: handles.isHorizontal,
+        label,
+        text: formatFn(totalInches),
+        index: objects.indexOf(obj)
+    };
+}
+
+function buildTrackDoorDistancePreview(obj) {
+    const handles = getTrackDoorHandles(obj);
+    const label = obj.doorType === 'slidingDoor' ? 'Sliding door' : 'Rolling shutter';
+    return buildDistancePreview(obj, handles, label);
+}
+
+function buildWindowDistancePreview(obj) {
+    const handles = getWindowHandles(obj);
+    return buildDistancePreview(obj, handles, 'Window width');
 }
 
 function getStaircaseHandles(obj, cachedCorners = null) {
@@ -7305,10 +8368,6 @@ function moveSelectedDirectLines(dx, dy, { skipUndo = false } = {}) {
 }
 
 function redrawCanvas() {
-    if (is3DView) {
-        refresh3DView();
-        return;
-    }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -7330,1100 +8389,6 @@ function redrawCanvas() {
 
     drawRulers();
     updatePropertiesPanel();
-}
-
-// ============================================================
-// 3D VIEW (THREE.JS)
-// ============================================================
-function setThreeStatus(message = '', isError = false) {
-    if (!threeStatus) return;
-    threeStatus.textContent = message;
-    threeStatus.classList.toggle('hidden', !message);
-    threeStatus.classList.toggle('error', !!isError);
-}
-
-function loadScriptOnce(src) {
-    const existing = document.querySelector(`script[src="${src}"]`);
-    if (existing) {
-        if (existing.dataset.loaded === 'true' || existing.readyState === 'complete') {
-            return Promise.resolve();
-        }
-        return new Promise((resolve, reject) => {
-            existing.addEventListener('load', () => resolve(), { once: true });
-            existing.addEventListener('error', reject, { once: true });
-        });
-    }
-
-    return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = false;
-        script.dataset.loaded = 'false';
-        script.onload = () => {
-            script.dataset.loaded = 'true';
-            resolve();
-        };
-        script.onerror = (err) => reject(err);
-        document.head.appendChild(script);
-    });
-}
-
-function ensureThreeLibraries() {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        useFallback3DRenderer = true;
-        if (!threeLibsPromise) {
-            threeLibsPromise = Promise.resolve(false);
-        }
-        setThreeStatus('Offline mode: using built-in 3D preview.');
-        return threeLibsPromise;
-    }
-
-    if (typeof THREE !== 'undefined' && THREE.Scene && THREE.PerspectiveCamera) {
-        if (!threeLibsPromise) {
-            threeLibsPromise = Promise.resolve(true);
-        }
-        setThreeStatus('');
-        return threeLibsPromise;
-    }
-
-    if (!threeLibsPromise) {
-        setThreeStatus('Loading 3D engine…');
-
-        const loader = Promise.all([
-            loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js'),
-            loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/controls/OrbitControls.js')
-        ]).then(() => {
-            if (typeof THREE === 'undefined') {
-                throw new Error('Three.js failed to initialize');
-            }
-            setThreeStatus('');
-            return true;
-        });
-
-        const timeout = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Timed out loading Three.js')), 3500);
-        });
-
-        threeLibsPromise = Promise.race([loader, timeout]).catch(err => {
-            console.warn('Falling back to offline 3D renderer', err);
-            setThreeStatus('Using offline 3D preview (Three.js unreachable).');
-            useFallback3DRenderer = true;
-            return false;
-        });
-    }
-
-    return threeLibsPromise;
-}
-
-function getThreeViewportSize() {
-    const width = Math.max(threeContainer?.clientWidth || 0, canvas?.width || 1200, 1);
-    const height = Math.max(threeContainer?.clientHeight || 0, canvas?.height || 900, 1);
-    return { width, height };
-}
-
-function ensureThreeView() {
-    if (threeScene || !threeContainer || typeof THREE === 'undefined') return;
-    const { width, height } = getThreeViewportSize();
-
-    threeScene = new THREE.Scene();
-    threeScene.background = new THREE.Color('#f5f5f5');
-
-    threeCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
-    threeCamera.position.set(0, 50, 90);
-
-    threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
-    threeRenderer.setSize(width, height);
-    threeRenderer.setClearColor(threeScene.background, 1);
-    if ('outputEncoding' in threeRenderer) {
-        threeRenderer.outputEncoding = THREE.sRGBEncoding;
-    } else if ('outputColorSpace' in threeRenderer) {
-        threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
-    }
-    threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-    threeRenderer.toneMappingExposure = 1.1;
-    threeRenderer.shadowMap.enabled = true;
-    threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    threeRenderer.physicallyCorrectLights = true;
-    threeContainer.appendChild(threeRenderer.domElement);
-
-    if (typeof THREE.OrbitControls === 'function') {
-        threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
-        threeControls.enableDamping = true;
-        threeControls.enablePan = true;
-        threeControls.enableZoom = true;
-        threeControls.enableRotate = true;
-        threeControls.screenSpacePanning = true;
-        threeControls.zoomSpeed = 0.6;
-        threeControls.rotateSpeed = 0.65;
-        threeControls.panSpeed = 0.8;
-        threeControls.minDistance = 2;
-        threeControls.maxDistance = Infinity;
-        threeControls.minPolarAngle = 0.05;
-        threeControls.maxPolarAngle = Math.PI - 0.02;
-        threeControls.autoRotate = false;
-        threeControls.autoRotateSpeed = 0.4;
-    }
-
-    // Brighter lighting to keep floor meshes and orbit controls clearly visible
-    threeScene.add(new THREE.AmbientLight(0xffffff, 1.9));
-
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0b1220, 1.6);
-    hemiLight.position.set(0, scale * 6, 0);
-    threeScene.add(hemiLight);
-
-    const dirLight = new THREE.DirectionalLight(0xffffff, 2.4);
-    dirLight.position.set(scale * 25, scale * 40, scale * 25);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.set(2048, 2048);
-    dirLight.shadow.camera.near = 10;
-    dirLight.shadow.camera.far = scale * 120;
-    threeScene.add(dirLight);
-
-    const pointLight = new THREE.PointLight(0xffffff, 1.5, scale * 160);
-    pointLight.position.set(-scale * 15, scale * 20, -scale * 15);
-    pointLight.castShadow = true;
-    threeScene.add(pointLight);
-
-    const spotLight = new THREE.SpotLight(0xffffff, 1.35, scale * 220, Math.PI / 4, 0.18, 1);
-    spotLight.position.set(0, scale * 30, 0);
-    spotLight.target.position.set(0, 0, 0);
-    spotLight.castShadow = true;
-    spotLight.shadow.mapSize.set(1024, 1024);
-    spotLight.shadow.bias = -0.00012;
-    threeScene.add(spotLight);
-    threeScene.add(spotLight.target);
-
-    threeContentGroup = new THREE.Group();
-    threeScene.add(threeContentGroup);
-
-    window.addEventListener('resize', handleThreeResize);
-
-    const renderLoop = () => {
-        requestAnimationFrame(renderLoop);
-        if (!threeRenderer || !threeScene || !threeCamera) return;
-        if (threeControls) threeControls.update();
-        threeRenderer.render(threeScene, threeCamera);
-    };
-    renderLoop();
-}
-
-function getPlanBounds() {
-    let minX = Infinity;
-    let minZ = Infinity;
-    let maxX = -Infinity;
-    let maxZ = -Infinity;
-
-    const considerPoint = (px, pz) => {
-        minX = Math.min(minX, px);
-        minZ = Math.min(minZ, pz);
-        maxX = Math.max(maxX, px);
-        maxZ = Math.max(maxZ, pz);
-    };
-
-    if (Array.isArray(nodes)) {
-        nodes.forEach(n => considerPoint(toWorldUnits(n.x), toWorldUnits(n.y)));
-    }
-
-    if (Array.isArray(floors)) {
-        floors.forEach(floor => {
-            const points = getFloorPoints(floor);
-            points.forEach(p => considerPoint(toWorldUnits(p.x), toWorldUnits(p.y)));
-        });
-    }
-
-    if (!isFinite(minX) || !isFinite(minZ)) {
-        const defaultSize = 10;
-        minX = -defaultSize;
-        maxX = defaultSize;
-        minZ = -defaultSize;
-        maxZ = defaultSize;
-    }
-
-    return {
-        minX,
-        maxX,
-        minZ,
-        maxZ,
-        width: maxX - minX,
-        depth: maxZ - minZ
-    };
-}
-
-function buildOrbitBoundingBox() {
-    const bounds = getPlanBounds();
-    const gridPadding = toWorldUnits(gridSize || 20) * 2;
-    const padding = Math.max(bounds.width, bounds.depth, gridPadding * 3) * 0.15 + gridPadding;
-
-    const min = new THREE.Vector3(bounds.minX - padding, 0, bounds.minZ - padding);
-    const max = new THREE.Vector3(
-        bounds.maxX + padding,
-        Math.max(THREE_WALL_HEIGHT_FEET * 1.4, padding * 0.35),
-        bounds.maxZ + padding
-    );
-
-    return new THREE.Box3(min, max);
-}
-
-function ensureFallback3DView() {
-    if (!threeContainer) return;
-
-    if (!fallback3DCanvas) {
-        fallback3DCanvas = document.createElement('canvas');
-        fallback3DCanvas.id = 'fallback3dCanvas';
-        fallback3DCanvas.className = 'fallback-3d-canvas';
-        fallback3DCtx = fallback3DCanvas.getContext('2d');
-        threeContainer.innerHTML = '';
-        threeContainer.appendChild(fallback3DCanvas);
-
-        fallback3DCanvas.addEventListener('pointerdown', handleFallbackPointerDown);
-        fallback3DCanvas.addEventListener('pointermove', handleFallbackPointerMove);
-        fallback3DCanvas.addEventListener('pointerup', handleFallbackPointerUp);
-        fallback3DCanvas.addEventListener('pointerleave', handleFallbackPointerUp);
-        fallback3DCanvas.addEventListener('wheel', handleFallbackWheel, { passive: false });
-        fallback3DCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
-        window.addEventListener('resize', resizeFallbackCanvas);
-    }
-
-    resizeFallbackCanvas();
-    updateFallbackCameraTarget();
-    startFallbackAnimation();
-}
-
-function resizeFallbackCanvas() {
-    if (!fallback3DCanvas || !threeContainer) return;
-    const { clientWidth, clientHeight } = threeContainer;
-    fallback3DCanvas.width = Math.max(clientWidth, 1);
-    fallback3DCanvas.height = Math.max(clientHeight, 1);
-}
-
-function getFallbackCameraPosition() {
-    const { distance, theta, phi, target } = fallback3DCamera;
-    return {
-        x: target.x + distance * Math.cos(phi) * Math.cos(theta),
-        y: target.y + distance * Math.sin(phi),
-        z: target.z + distance * Math.cos(phi) * Math.sin(theta)
-    };
-}
-
-function projectFallbackPoint(point) {
-    if (!fallback3DCtx || !fallback3DCanvas) return null;
-    const cameraPos = getFallbackCameraPosition();
-    const up = { x: 0, y: 1, z: 0 };
-    const target = fallback3DCamera.target;
-
-    const forwardVec = normalizeVector({
-        x: target.x - cameraPos.x,
-        y: target.y - cameraPos.y,
-        z: target.z - cameraPos.z
-    });
-    const rightVec = normalizeVector(crossVector(forwardVec, up));
-    const trueUp = crossVector(rightVec, forwardVec);
-
-    const rel = {
-        x: point.x - cameraPos.x,
-        y: point.y - cameraPos.y,
-        z: point.z - cameraPos.z
-    };
-
-    const viewX = dotVector(rel, rightVec);
-    const viewY = dotVector(rel, trueUp);
-    const viewZ = dotVector(rel, forwardVec);
-
-    const fov = Math.PI / 3;
-    const focal = fallback3DCanvas.height / (2 * Math.tan(fov / 2));
-    const safeZ = Math.max(viewZ, 0.1);
-
-    return {
-        x: fallback3DCanvas.width / 2 + (viewX * focal) / safeZ,
-        y: fallback3DCanvas.height / 2 - (viewY * focal) / safeZ,
-        depth: viewZ
-    };
-}
-
-function normalizeVector(v) {
-    const len = Math.hypot(v.x, v.y, v.z) || 1;
-    return { x: v.x / len, y: v.y / len, z: v.z / len };
-}
-
-function dotVector(a, b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-function crossVector(a, b) {
-    return {
-        x: a.y * b.z - a.z * b.y,
-        y: a.z * b.x - a.x * b.z,
-        z: a.x * b.y - a.y * b.x
-    };
-}
-
-function drawFallbackPolygon(points, { fillStyle = null, strokeStyle = null, lineWidth = 1 } = {}) {
-    if (!fallback3DCtx || points.length === 0) return;
-    fallback3DCtx.beginPath();
-    fallback3DCtx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-        fallback3DCtx.lineTo(points[i].x, points[i].y);
-    }
-    fallback3DCtx.closePath();
-    if (fillStyle) {
-        fallback3DCtx.fillStyle = fillStyle;
-        fallback3DCtx.fill();
-    }
-    if (strokeStyle) {
-        fallback3DCtx.strokeStyle = strokeStyle;
-        fallback3DCtx.lineWidth = lineWidth;
-        fallback3DCtx.stroke();
-    }
-}
-
-function drawFallbackGrid() {
-    if (!fallback3DCtx) return;
-    const spacing = toWorldUnits(gridSize || 20);
-    const bounds = getPlanBounds();
-    const extent = Math.max(bounds.width, bounds.depth, spacing * 10);
-    const half = extent * 1.2;
-    const lines = [];
-
-    for (let i = -half; i <= half; i += spacing) {
-        lines.push([
-            { x: i, y: 0, z: -half },
-            { x: i, y: 0, z: half }
-        ]);
-        lines.push([
-            { x: -half, y: 0, z: i },
-            { x: half, y: 0, z: i }
-        ]);
-    }
-
-    fallback3DCtx.lineWidth = 1;
-    lines.forEach(([start, end]) => {
-        const p1 = projectFallbackPoint(start);
-        const p2 = projectFallbackPoint(end);
-        if (!p1 || !p2) return;
-        const alpha = 0.3 + Math.max(0, Math.min(0.4, (p1.depth + p2.depth) * 0.0006));
-        fallback3DCtx.strokeStyle = `rgba(148, 163, 184, ${alpha.toFixed(3)})`;
-        fallback3DCtx.beginPath();
-        fallback3DCtx.moveTo(p1.x, p1.y);
-        fallback3DCtx.lineTo(p2.x, p2.y);
-        fallback3DCtx.stroke();
-    });
-}
-
-function drawFallbackFloors() {
-    if (!Array.isArray(floors)) return;
-    floors.forEach(floor => {
-        const points = getFloorPoints(floor);
-        if (points.length < 3) return;
-        const projected = points.map(p => projectFallbackPoint({ x: toWorldUnits(p.x), y: 0.02, z: toWorldUnits(p.y) }));
-        if (projected.some(p => !p)) return;
-        const fill = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
-        drawFallbackPolygon(projected, { fillStyle: fill, strokeStyle: '#1f2937', lineWidth: 1 });
-    });
-}
-
-function drawFallbackWalls() {
-    if (!Array.isArray(walls)) return;
-    const height = THREE_WALL_HEIGHT_FEET;
-    walls.forEach(wall => {
-        const n1 = getNodeById(wall.startNodeId);
-        const n2 = getNodeById(wall.endNodeId);
-        if (!n1 || !n2) return;
-
-        const p1 = { x: toWorldUnits(n1.x), z: toWorldUnits(n1.y) };
-        const p2 = { x: toWorldUnits(n2.x), z: toWorldUnits(n2.y) };
-        const thickness = toWorldUnits(wall.thicknessPx || scale * 0.5);
-        const dir = normalizeVector({ x: p2.x - p1.x, y: 0, z: p2.z - p1.z });
-        const normal = { x: -dir.z * (thickness / 2), y: 0, z: dir.x * (thickness / 2) };
-
-        const corners = [
-            { x: p1.x + normal.x, y: 0, z: p1.z + normal.z },
-            { x: p2.x + normal.x, y: 0, z: p2.z + normal.z },
-            { x: p2.x - normal.x, y: 0, z: p2.z - normal.z },
-            { x: p1.x - normal.x, y: 0, z: p1.z - normal.z }
-        ];
-
-        const topCorners = corners.map(c => ({ ...c, y: height }));
-        const faces = [
-            [corners[0], corners[1], corners[2], corners[3]],
-            [topCorners[0], topCorners[1], topCorners[2], topCorners[3]],
-            [corners[0], corners[1], topCorners[1], topCorners[0]],
-            [corners[1], corners[2], topCorners[2], topCorners[1]],
-            [corners[2], corners[3], topCorners[3], topCorners[2]],
-            [corners[3], corners[0], topCorners[0], topCorners[3]]
-        ];
-
-        const color = wall.lineColor || DEFAULT_WALL_COLOR;
-        const faceShades = [0.08, 0.14, -0.05, 0.06, -0.08, 0.02];
-
-        const projectedFaces = faces.map((face, index) => {
-            const projected = face.map(pt => projectFallbackPoint(pt));
-            if (projected.some(p => !p)) return null;
-
-            const avgDepth = projected.reduce((sum, p) => sum + (p.depth || 0), 0) / projected.length;
-            return {
-                projected,
-                shade: faceShades[index] ?? 0,
-                depth: avgDepth
-            };
-        }).filter(Boolean);
-
-        projectedFaces
-            .sort((a, b) => (b.depth || 0) - (a.depth || 0))
-            .forEach(({ projected, shade }) => {
-                drawFallbackPolygon(projected, {
-                    fillStyle: shadeColor(color, 0.22 + shade),
-                    strokeStyle: '#0c1220',
-                    lineWidth: 1.2
-                });
-            });
-    });
-}
-
-function shadeColor(hex, amount = 0.1) {
-    const col = hex.replace('#', '');
-    const num = parseInt(col, 16);
-    const clamp = (v) => Math.max(0, Math.min(255, v));
-    const r = clamp((num >> 16) + 255 * amount);
-    const g = clamp(((num >> 8) & 0xff) + 255 * amount);
-    const b = clamp((num & 0xff) + 255 * amount);
-    return `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
-}
-
-function drawFallbackSky() {
-    if (!fallback3DCtx || !fallback3DCanvas) return;
-    const gradient = fallback3DCtx.createLinearGradient(0, 0, 0, fallback3DCanvas.height);
-    gradient.addColorStop(0, '#f8fafc');
-    gradient.addColorStop(1, '#e2e8f0');
-    fallback3DCtx.fillStyle = gradient;
-    fallback3DCtx.fillRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
-}
-
-function renderFallback3DScene() {
-    if (!fallback3DCtx || !fallback3DCanvas) return;
-    fallback3DCtx.clearRect(0, 0, fallback3DCanvas.width, fallback3DCanvas.height);
-    drawFallbackSky();
-
-    drawFallbackGrid();
-    drawFallbackFloors();
-    drawFallbackWalls();
-}
-
-function updateFallbackCameraTarget() {
-    let center;
-    let largest;
-
-    if (typeof THREE !== 'undefined' && typeof THREE.Box3 === 'function') {
-        const orbitBox = buildOrbitBoundingBox();
-        const sphere = orbitBox.getBoundingSphere(new THREE.Sphere());
-        center = sphere.center || new THREE.Vector3(0, THREE_WALL_HEIGHT_FEET * 0.4, 0);
-        largest = Math.max(sphere.radius * 2 || 0, 10);
-    } else {
-        const bounds = getPlanBounds();
-        center = {
-            x: (bounds.minX + bounds.maxX) / 2,
-            y: THREE_WALL_HEIGHT_FEET * 0.4,
-            z: (bounds.minZ + bounds.maxZ) / 2
-        };
-        largest = Math.max(bounds.width, bounds.depth, 10);
-    }
-
-    fallback3DCamera.target = {
-        x: center.x,
-        y: center.y,
-        z: center.z
-    };
-    fallback3DCamera.distance = Math.max(largest * 1.3, 18);
-}
-
-function startFallbackAnimation() {
-    if (fallback3DAnimationId) cancelAnimationFrame(fallback3DAnimationId);
-
-    const animate = () => {
-        renderFallback3DScene();
-        fallback3DAnimationId = requestAnimationFrame(animate);
-    };
-
-    animate();
-}
-
-function stopFallbackAnimation() {
-    if (fallback3DAnimationId) cancelAnimationFrame(fallback3DAnimationId);
-    fallback3DAnimationId = null;
-}
-
-function handleFallbackPointerDown(e) {
-    if (!fallback3DCamera) return;
-    fallback3DCamera.isDragging = true;
-    fallback3DCamera.lastPointer = { x: e.clientX, y: e.clientY };
-    fallback3DCamera.dragMode = (e.button === 2 || e.button === 1 || e.shiftKey) ? 'pan' : 'orbit';
-    fallback3DCamera.autoRotate = false;
-    fallback3DCanvas?.setPointerCapture(e.pointerId);
-}
-
-function handleFallbackPointerMove(e) {
-    if (!fallback3DCamera.isDragging || !fallback3DCamera.lastPointer) return;
-    const dx = e.clientX - fallback3DCamera.lastPointer.x;
-    const dy = e.clientY - fallback3DCamera.lastPointer.y;
-    if (fallback3DCamera.dragMode === 'pan') {
-        const panScale = Math.max(0.0015, fallback3DCamera.distance * 0.002);
-        const theta = fallback3DCamera.theta;
-        const cosTheta = Math.cos(theta);
-        const sinTheta = Math.sin(theta);
-
-        fallback3DCamera.target.x -= (dx * panScale * cosTheta) + (dy * panScale * sinTheta * 0.6);
-        fallback3DCamera.target.z += (dx * panScale * sinTheta) - (dy * panScale * cosTheta * 0.6);
-        fallback3DCamera.target.y += dy * panScale * 0.4;
-    } else {
-        fallback3DCamera.theta -= dx * 0.005;
-        fallback3DCamera.phi = Math.min(Math.PI - 0.1, Math.max(0.12, fallback3DCamera.phi - dy * 0.005));
-    }
-    fallback3DCamera.lastPointer = { x: e.clientX, y: e.clientY };
-    renderFallback3DScene();
-}
-
-function handleFallbackPointerUp(e) {
-    if (!fallback3DCamera.isDragging) return;
-    fallback3DCamera.isDragging = false;
-    fallback3DCamera.dragMode = 'orbit';
-    fallback3DCamera.lastPointer = null;
-    fallback3DCanvas?.releasePointerCapture(e.pointerId);
-}
-
-function handleFallbackWheel(e) {
-    e.preventDefault();
-    const factor = Math.exp(e.deltaY * 0.001);
-    fallback3DCamera.distance = Math.max(5, Math.min(320, fallback3DCamera.distance * factor));
-    renderFallback3DScene();
-}
-
-function handleThreeResize() {
-    if (!is3DView || !threeRenderer || !threeCamera || !threeContainer) return;
-    const { width, height } = getThreeViewportSize();
-    threeCamera.aspect = width / height;
-    threeCamera.updateProjectionMatrix();
-    threeRenderer.setSize(width, height);
-}
-
-function disposeThreeObject(obj) {
-    if (obj.geometry) obj.geometry.dispose();
-    if (obj.material) {
-        if (Array.isArray(obj.material)) {
-            obj.material.forEach(m => m.dispose && m.dispose());
-        } else if (obj.material.dispose) {
-            obj.material.dispose();
-        }
-    }
-}
-
-function clearThreeContent() {
-    if (!threeContentGroup) return;
-    while (threeContentGroup.children.length) {
-        const child = threeContentGroup.children.pop();
-        disposeThreeObject(child);
-    }
-    wallMeshes = [];
-    orbitCenterHelper = null;
-}
-
-function toWorldUnits(pxValue) {
-    return pxValue / Math.max(scale || 1, 0.0001);
-}
-
-function generateConcreteTexture(size = 256, accent = '#e2e8f0') {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = size;
-    const textureCtx = canvas.getContext('2d');
-
-    textureCtx.fillStyle = accent;
-    textureCtx.fillRect(0, 0, size, size);
-
-    const noiseDensity = 4200;
-    for (let i = 0; i < noiseDensity; i++) {
-        const x = Math.random() * size;
-        const y = Math.random() * size;
-        const alpha = Math.random() * 0.18 + 0.06;
-        const shade = Math.floor(210 + Math.random() * 25);
-        textureCtx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, ${alpha})`;
-        textureCtx.fillRect(x, y, 1.2, 1.2);
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(3, 3);
-    texture.anisotropy = Math.min(8, texture.anisotropy || 4);
-    return texture;
-}
-
-function createConcreteMaterial(color = DEFAULT_3D_WALL_COLOR) {
-    const diffuseTexture = generateConcreteTexture(256, color);
-    const bumpTexture = generateConcreteTexture(256, '#cbd5e1');
-
-    return new THREE.MeshPhysicalMaterial({
-        color,
-        map: diffuseTexture,
-        bumpMap: bumpTexture,
-        bumpScale: 0.08,
-        roughness: 0.9,
-        metalness: 0.06,
-        clearcoat: 0.08,
-        clearcoatRoughness: 0.9,
-        flatShading: false,
-        transparent: false,
-        depthWrite: true,
-        depthTest: true
-    });
-}
-
-function createGroundElements() {
-    const bounds = getPlanBounds();
-    const centerX = (bounds.minX + bounds.maxX) / 2;
-    const centerZ = (bounds.minZ + bounds.maxZ) / 2;
-
-    const gridSpacing = Math.max(toWorldUnits(gridSize || 20), 1);
-    const largestPlanSize = Math.max(bounds.width, bounds.depth, 1);
-    const size = Math.max(largestPlanSize + gridSpacing * 4, 40);
-
-    const planeGeometry = new THREE.PlaneGeometry(size, size, 1, 1);
-    planeGeometry.rotateX(-Math.PI / 2);
-    const planeMaterial = new THREE.MeshStandardMaterial({
-        color: '#f8fafc',
-        roughness: 0.95,
-        metalness: 0.02,
-        side: THREE.DoubleSide,
-        transparent: false,
-        opacity: 1
-    });
-    const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-    plane.position.set(centerX, -0.05, centerZ);
-    plane.userData.isGround = true;
-    plane.receiveShadow = true;
-
-    const divisions = Math.max(10, Math.round(size / gridSpacing));
-    const grid = new THREE.GridHelper(size, divisions, 0x94a3b8, 0xcbd5e1);
-    grid.material.depthWrite = false;
-    grid.position.set(centerX, 0.02, centerZ);
-    grid.userData.isGround = true;
-
-    return { plane, grid };
-}
-
-function createPlanOverlay() {
-    if ((!walls || walls.length === 0) && (!floors || floors.length === 0)) return null;
-
-    const group = new THREE.Group();
-    group.position.y = THREE_PLAN_OUTLINE_HEIGHT;
-
-    walls.forEach(wall => {
-        const n1 = getNodeById(wall.startNodeId);
-        const n2 = getNodeById(wall.endNodeId);
-        if (!n1 || !n2) return;
-
-        const geometry = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(toWorldUnits(n1.x), 0, toWorldUnits(n1.y)),
-            new THREE.Vector3(toWorldUnits(n2.x), 0, toWorldUnits(n2.y))
-        ]);
-
-        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: '#94a3b8' }));
-        group.add(line);
-    });
-
-    floors.forEach(floor => {
-        const points = getFloorPoints(floor);
-        if (!points || points.length < 3) return;
-        const loopPoints = points.map(p => new THREE.Vector3(toWorldUnits(p.x), 0, toWorldUnits(p.y)));
-        const geometry = new THREE.BufferGeometry().setFromPoints(loopPoints);
-        const line = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial({ color: '#eab308' }));
-        group.add(line);
-    });
-
-    return group;
-}
-
-function createWallMesh(wall, wallHeight) {
-    const n1 = getNodeById(wall.startNodeId);
-    const n2 = getNodeById(wall.endNodeId);
-    if (!n1 || !n2) return null;
-
-    const dx = n2.x - n1.x;
-    const dy = n2.y - n1.y;
-    const length = toWorldUnits(Math.hypot(dx, dy)) || 1;
-    const thickness = toWorldUnits(wall.thicknessPx || (0.5 * scale));
-
-    const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
-    const wallColor = (wall.lineColor && wall.lineColor !== DEFAULT_WALL_COLOR)
-        ? wall.lineColor
-        : DEFAULT_3D_WALL_COLOR;
-    const material = createConcreteMaterial(wallColor);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
-    const midX = toWorldUnits((n1.x + n2.x) / 2);
-    const midY = toWorldUnits((n1.y + n2.y) / 2);
-    mesh.position.set(midX, wallHeight / 2, midY);
-    mesh.rotation.y = -Math.atan2(dy, dx);
-    return mesh;
-}
-
-function createFloorMesh(floor) {
-    const points = getFloorPoints(floor);
-    if (points.length < 3) return null;
-
-    const shape = new THREE.Shape();
-    shape.moveTo(toWorldUnits(points[0].x), toWorldUnits(points[0].y));
-    for (let i = 1; i < points.length; i++) {
-        shape.lineTo(toWorldUnits(points[i].x), toWorldUnits(points[i].y));
-    }
-    shape.closePath();
-
-    const geometry = new THREE.ExtrudeGeometry(shape, { depth: THREE_FLOOR_THICKNESS_FEET, bevelEnabled: false });
-    geometry.rotateX(-Math.PI / 2);
-
-    const color = (floor.texture && floor.texture.color) || fillColorInput.value || '#d9d9d9';
-    const material = new THREE.MeshStandardMaterial({
-        color,
-        metalness: 0.05,
-        roughness: 0.8,
-        side: THREE.DoubleSide,
-        transparent: false,
-        opacity: 1
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.y = 0;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
-}
-
-function createDoorOrWindowMesh(obj, wallHeight) {
-    const drawWidth = toWorldUnits(obj.width);
-    const drawDepth = toWorldUnits(obj.height);
-    const length = Math.max(drawWidth, 0.1);
-    const depth = Math.max(drawDepth, 0.1);
-    const isWindow = obj.type === 'window';
-    const height = isWindow ? wallHeight * 0.5 : wallHeight * 0.9;
-    const centerY = isWindow ? wallHeight * 0.6 : height / 2;
-
-    const geometry = new THREE.BoxGeometry(length, height, depth);
-    const material = new THREE.MeshStandardMaterial({
-        color: isWindow ? '#b7d8ff' : '#c19a6b',
-        transparent: false,
-        opacity: 1,
-        metalness: 0.1,
-        roughness: 0.5,
-        side: THREE.DoubleSide
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
-    const centerX = toWorldUnits(obj.x + obj.width / 2);
-    const centerZ = toWorldUnits(obj.y + obj.height / 2);
-    mesh.position.set(centerX, centerY, centerZ);
-
-    if (obj.attachedWallId) {
-        const wall = walls.find(w => w.id === obj.attachedWallId);
-        const n1 = wall && getNodeById(wall.startNodeId);
-        const n2 = wall && getNodeById(wall.endNodeId);
-        if (n1 && n2) {
-            mesh.rotation.y = -Math.atan2(n2.y - n1.y, n2.x - n1.x);
-        }
-    } else {
-        mesh.rotation.y = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
-    }
-    return mesh;
-}
-
-function createHouseShowcaseModel() {
-    if (typeof THREE === 'undefined') return null;
-
-    const group = new THREE.Group();
-    group.userData.isShowcase = true;
-
-    const baseWidth = 32;
-    const baseDepth = 26;
-    const wallHeight = 12;
-
-    const wallMaterial = createConcreteMaterial('#d1d5db');
-    const shell = new THREE.Mesh(new THREE.BoxGeometry(baseWidth, wallHeight, baseDepth), wallMaterial);
-    shell.castShadow = true;
-    shell.receiveShadow = true;
-    shell.position.y = wallHeight / 2;
-    group.add(shell);
-
-    const roofMaterial = new THREE.MeshPhysicalMaterial({
-        color: '#9ca3af',
-        metalness: 0.1,
-        roughness: 0.35,
-        clearcoat: 0.2,
-        clearcoatRoughness: 0.8,
-        side: THREE.FrontSide,
-        transparent: false,
-        opacity: 1
-    });
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(baseWidth + 0.8, 1.2, baseDepth + 0.8), roofMaterial);
-    roof.position.y = wallHeight + 0.6;
-    roof.castShadow = true;
-    roof.receiveShadow = true;
-    group.add(roof);
-
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(baseWidth + 2, 1, baseDepth + 2), createConcreteMaterial('#cbd5e1'));
-    plinth.position.y = 0.5;
-    plinth.castShadow = true;
-    plinth.receiveShadow = true;
-    group.add(plinth);
-
-    const door = new THREE.Mesh(
-        new THREE.BoxGeometry(3, 7, 0.6),
-        new THREE.MeshPhysicalMaterial({
-            color: '#8b5a2b',
-            roughness: 0.7,
-            metalness: 0.05,
-            side: THREE.FrontSide,
-            transparent: false,
-            opacity: 1
-        })
-    );
-    door.position.set(0, 3.5, (baseDepth / 2) - 0.3);
-    door.castShadow = true;
-    door.receiveShadow = true;
-    group.add(door);
-
-    const windowMaterial = new THREE.MeshPhysicalMaterial({
-        color: '#dbeafe',
-        transparent: false,
-        opacity: 1,
-        roughness: 0.1,
-        metalness: 0.25,
-        side: THREE.FrontSide
-    });
-    const windowGeometry = new THREE.BoxGeometry(4, 3, 0.4);
-    const leftWindow = new THREE.Mesh(windowGeometry, windowMaterial);
-    leftWindow.position.set(-(baseWidth / 3), 7, (baseDepth / 2) - 0.5);
-    leftWindow.castShadow = true;
-    leftWindow.receiveShadow = true;
-    group.add(leftWindow);
-
-    const rightWindow = leftWindow.clone();
-    rightWindow.position.x = baseWidth / 3;
-    group.add(rightWindow);
-
-    group.position.set(0, 0, 0);
-    return group;
-}
-
-function rebuild3DScene() {
-    if (useFallback3DRenderer) {
-        ensureFallback3DView();
-        renderFallback3DScene();
-        return;
-    }
-
-    ensureThreeView();
-    if (!threeContentGroup) return;
-
-    clearThreeContent();
-
-    const ground = createGroundElements();
-    if (ground) {
-        threeContentGroup.add(ground.plane);
-        threeContentGroup.add(ground.grid);
-    }
-
-    const planOverlay = createPlanOverlay();
-    if (planOverlay) threeContentGroup.add(planOverlay);
-
-    const wallHeight = THREE_WALL_HEIGHT_FEET;
-
-    floors.forEach(floor => {
-        const mesh = createFloorMesh(floor);
-        if (mesh) threeContentGroup.add(mesh);
-    });
-
-    walls.forEach(wall => {
-        const mesh = createWallMesh(wall, wallHeight);
-        if (mesh) {
-            wallMeshes.push({ id: wall.id, mesh });
-            threeContentGroup.add(mesh);
-        }
-    });
-
-    objects.forEach(obj => {
-        if (!['door', 'window'].includes(obj.type)) return;
-        const mesh = createDoorOrWindowMesh(obj, wallHeight);
-        if (mesh) threeContentGroup.add(mesh);
-    });
-
-    updateOrbitHelper();
-    fitThreeCamera();
-}
-
-function getCameraTargetBoundingBox() {
-    const orbitBox = buildOrbitBoundingBox();
-    const box = orbitBox.clone();
-    let hasSelection = false;
-
-    const isWallIdSelected = (wallId) => {
-        if (!selectedWalls || selectedWalls.size === 0) return false;
-        for (const wall of selectedWalls) {
-            if ((wall && wall.id) === wallId || wall === wallId) return true;
-        }
-        return false;
-    };
-
-    if (selectedWalls && selectedWalls.size) {
-        wallMeshes.forEach(({ id, mesh }) => {
-            if (isWallIdSelected(id)) {
-                hasSelection = true;
-                box.expandByObject(mesh);
-            }
-        });
-    }
-
-    if (!hasSelection) {
-        wallMeshes.forEach(({ mesh }) => box.expandByObject(mesh));
-    }
-
-    if (box.isEmpty() && threeContentGroup) {
-        threeContentGroup.children.forEach(child => {
-            if (!child.userData?.isGround) {
-                box.expandByObject(child);
-            }
-        });
-    }
-
-    return box.isEmpty() ? orbitBox : box;
-}
-
-function fitThreeCamera() {
-    if (!threeContentGroup || !threeCamera) return;
-    const box = getCameraTargetBoundingBox();
-    if (!box || box.isEmpty()) return;
-
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z) || scale * 10;
-
-    const distance = Math.max(maxDim * 1.4, scale * 6);
-    const direction = new THREE.Vector3(1, 0.8, 1).normalize();
-    const position = center.clone().add(direction.multiplyScalar(distance));
-
-    threeCamera.position.copy(position);
-    threeCamera.near = 0.1;
-    threeCamera.far = Math.max(50000, distance * 8);
-    threeCamera.updateProjectionMatrix();
-
-    if (threeControls) {
-        threeControls.target.copy(center);
-        threeControls.update();
-    } else {
-        threeCamera.lookAt(center);
-    }
-}
-
-function getOrbitCenter() {
-    const orbitBox = buildOrbitBoundingBox();
-    return orbitBox.getCenter(new THREE.Vector3());
-}
-
-function updateOrbitHelper() {
-    if (!threeContentGroup || typeof THREE === 'undefined') return;
-
-    if (orbitCenterHelper && orbitCenterHelper.parent) {
-        orbitCenterHelper.parent.remove(orbitCenterHelper);
-        disposeThreeObject(orbitCenterHelper);
-    }
-
-    const center = getOrbitCenter();
-    const helperSize = Math.max(toWorldUnits(gridSize || 20) * 0.45, 0.35);
-    const geometry = new THREE.SphereGeometry(helperSize, 18, 12);
-    const material = new THREE.MeshStandardMaterial({
-        color: '#f97316',
-        emissive: '#fb923c',
-        emissiveIntensity: 0.8,
-        metalness: 0.1,
-        roughness: 0.3
-    });
-
-    orbitCenterHelper = new THREE.Mesh(geometry, material);
-    orbitCenterHelper.position.copy(center);
-    orbitCenterHelper.userData.isHelper = true;
-    threeContentGroup.add(orbitCenterHelper);
-}
-
-function switchTo3DView() {
-    is3DView = true;
-    if (canvasContainer) {
-        last2DScrollLeft = canvasContainer.scrollLeft;
-        last2DScrollTop = canvasContainer.scrollTop;
-    }
-    if (canvas) canvas.classList.add('hidden');
-    if (threeContainer) threeContainer.classList.remove('hidden');
-    setThreeStatus('');
-    update3DButtonLabel('Show 2D');
-    rebuild3DScene();
-    if (!useFallback3DRenderer) {
-        handleThreeResize();
-    }
-}
-
-function switchTo2DView() {
-    is3DView = false;
-    if (canvas) canvas.classList.remove('hidden');
-    if (threeContainer) threeContainer.classList.add('hidden');
-    if (canvasContainer) {
-        canvasContainer.scrollLeft = last2DScrollLeft;
-        canvasContainer.scrollTop = last2DScrollTop;
-    }
-    stopFallbackAnimation();
-    setThreeStatus('');
-    update3DButtonLabel('Show 3D');
-    redrawCanvas();
-}
-
-function toggleViewMode() {
-    if (is3DView) {
-        switchTo2DView();
-    } else {
-        viewHousePlanIn3D();
-    }
-}
-
-async function viewHousePlanIn3D() {
-    try {
-        const libsReady = await ensureThreeLibraries();
-        if (libsReady === false && !useFallback3DRenderer) {
-            return;
-        }
-    } catch (err) {
-        console.error('3D view unavailable', err);
-        return;
-    }
-
-    if (useFallback3DRenderer) {
-        ensureFallback3DView();
-    } else {
-        ensureThreeView();
-    }
-    switchTo3DView();
-}
-
-function refresh3DView() {
-    if (!is3DView) return;
-    rebuild3DScene();
-}
-
-function update3DButtonLabel(text) {
-    if (!toggle3DViewButton) return;
-    toggle3DViewButton.setAttribute('aria-label', text);
-    const label = toggle3DViewButton.querySelector('.tool-label');
-    const icon = toggle3DViewButton.querySelector('.tool-icon');
-    if (label) label.textContent = text;
-    if (icon) icon.textContent = text === 'Show 3D' ? '3D' : '2D';
-    if (!label && !icon) {
-        toggle3DViewButton.textContent = text;
-    }
 }
 
 // ============================================================
@@ -9143,4 +9108,3 @@ function updateGrid() {
 }
 
 window.onload = init;
-

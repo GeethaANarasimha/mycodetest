@@ -4,11 +4,22 @@
 const DOOR_TYPE_WIDTHS_FT = {
     normal: 3,
     main: 3.5,
-    bathroom: 2.5
+    bathroom: 2.5,
+    rollingShutter: 7,
+    slidingDoor: 7
 };
 
-function getDoorLengthPx(doorType, defaultScale = 20) {
-    const lengthFt = DOOR_TYPE_WIDTHS_FT[doorType] || DOOR_TYPE_WIDTHS_FT.normal;
+function getDoorLengthPx(doorOrType, defaultScale = 20) {
+    const storedLength = typeof doorOrType === 'object' && doorOrType !== null
+        ? doorOrType.lengthPx || Math.max(doorOrType.width || 0, doorOrType.height || 0)
+        : null;
+
+    if (storedLength && storedLength > 0) {
+        return storedLength;
+    }
+
+    const type = typeof doorOrType === 'string' ? doorOrType : doorOrType?.doorType;
+    const lengthFt = DOOR_TYPE_WIDTHS_FT[type] || DOOR_TYPE_WIDTHS_FT.normal;
     return lengthFt * defaultScale;
 }
 
@@ -76,10 +87,11 @@ function sizeDoorToWall(door, snapTarget, defaultScale = 20) {
     if (!door || !snapTarget) return;
 
     const thickness = getWallThicknessForDoor(snapTarget.wall, defaultScale);
-    const lengthPx = getDoorLengthPx(door.doorType, defaultScale);
+    const lengthPx = getDoorLengthPx(door, defaultScale);
 
     door.orientation = snapTarget.orientation;
     door.attachedWallId = snapTarget.wall.id;
+    door.lengthPx = lengthPx;
 
     if (door.orientation === 'horizontal') {
         door.width = lengthPx;
@@ -103,6 +115,7 @@ function snapDoorToNearestWall(door, walls, defaultScale = 20) {
 function initializeDoorObject(door, walls, defaultScale = 20) {
     if (!door) return;
     door.doorType = door.doorType || 'normal';
+    door.lengthPx = getDoorLengthPx(door, defaultScale);
     snapDoorToNearestWall(door, walls, defaultScale);
 }
 

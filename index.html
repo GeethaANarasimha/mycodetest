@@ -32,6 +32,8 @@
         <option value="normal">Normal Door (3ft)</option>
         <option value="main">Main Door (3.5ft)</option>
         <option value="bathroom">Bathroom Door (2.5ft)</option>
+        <option value="rollingShutter">Rolling Shutter (7ft)</option>
+        <option value="slidingDoor">Sliding Door (7ft)</option>
     </select>
 
     <button class="tool-btn" data-tool="window" aria-label="Window">
@@ -108,6 +110,10 @@
             <span class="tool-label">Upload Project</span>
         </button>
         <input id="projectFileInput" class="hidden" type="file" accept=".ipynb" aria-label="Upload .ipynb project file">
+        <button id="openXmlConverter" class="tool-btn secondary-btn" type="button" aria-label="Convert XML to project">
+            <span class="tool-icon text-icon">⬆️</span>
+            <span class="tool-label">XML Converter</span>
+        </button>
         <button id="downloadPdf" class="tool-btn secondary-btn" type="button" aria-label="Download plan as PDF">
             <span class="tool-icon text-icon">⬇</span>
             <span class="tool-label">Download PDF</span>
@@ -115,11 +121,6 @@
     </div>
 
     <div class="toolbar-spacer"></div>
-    <button id="toggle3DView" class="tool-btn secondary-btn" type="button" aria-label="Toggle 3D View">
-        <span class="tool-icon text-icon">3D</span>
-        <span class="tool-label">Toggle 3D View</span>
-    </button>
-
 </div>
 
 <div class="properties">
@@ -203,8 +204,6 @@
         <canvas id="horizontalRuler" class="ruler ruler-horizontal" aria-hidden="true"></canvas>
         <canvas id="verticalRuler" class="ruler ruler-vertical" aria-hidden="true"></canvas>
         <canvas id="drawingCanvas" width="1800" height="1200"></canvas>
-        <div id="threeContainer" class="three-container hidden"></div>
-        <div id="threeStatus" class="three-status hidden" role="status" aria-live="polite"></div>
     </div>
 </div>
 
@@ -307,6 +306,24 @@
         <div class="modal-actions">
             <button id="confirmLayerDelete" class="tool-btn danger" type="button">Delete</button>
             <button id="cancelLayerDelete" class="tool-btn secondary-btn" type="button">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="xmlConverterModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Convert XML to Project</h3>
+        <p class="modal-subtitle">Upload an XML layout to extract wall measurements and download a project (.ipynb) file.</p>
+
+        <div class="modal-body">
+            <button id="xmlUploadButton" class="tool-btn" type="button">Choose XML File</button>
+            <input id="xmlFileInput" class="hidden" type="file" accept=".xml" aria-label="Upload XML file for conversion">
+            <p id="xmlConvertStatus" class="modal-subtitle small">No file selected.</p>
+        </div>
+
+        <div class="modal-actions">
+            <button id="downloadConvertedProject" class="tool-btn" type="button" disabled>Download .ipynb</button>
+            <button id="closeXmlConverter" class="tool-btn secondary-btn" type="button">Close</button>
         </div>
     </div>
 </div>
