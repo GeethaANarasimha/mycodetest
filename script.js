@@ -7254,6 +7254,9 @@ function drawRollingShutterGraphic(localX, localY, drawWidth, drawHeight) {
     const railWidth = Math.min(drawWidth * 0.1, 8);
     const slatCount = Math.max(5, Math.floor(drawHeight / 12));
     const slatSpacing = drawHeight / slatCount;
+    const zigzagAmplitude = Math.min(drawHeight * 0.08, 8);
+    const zigzagSpacing = Math.max(10, (drawWidth - railWidth * 2) / 8);
+    const zigzagStartY = localY + headerHeight + Math.max(zigzagAmplitude * 2, slatSpacing * 1.5);
 
     ctx.save();
 
@@ -7283,6 +7286,26 @@ function drawRollingShutterGraphic(localX, localY, drawWidth, drawHeight) {
         ctx.moveTo(localX + railWidth, y);
         ctx.lineTo(localX + drawWidth - railWidth, y);
     }
+    ctx.stroke();
+
+    // Zigzag design across the curtain body
+    ctx.beginPath();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    let zigX = localX + railWidth;
+    let zigY = zigzagStartY;
+    let goingUp = true;
+
+    ctx.moveTo(zigX, zigY);
+
+    while (zigX < localX + drawWidth - railWidth) {
+        zigX += zigzagSpacing;
+        zigY = zigzagStartY + (goingUp ? -zigzagAmplitude : zigzagAmplitude);
+        ctx.lineTo(Math.min(zigX, localX + drawWidth - railWidth), zigY);
+        goingUp = !goingUp;
+    }
+
     ctx.stroke();
 
     ctx.restore();
