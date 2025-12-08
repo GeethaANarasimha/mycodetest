@@ -82,13 +82,17 @@ function sizeWindowToWall(windowObj, snapTarget, defaultScale = 20) {
     const lengthPx = getWindowLengthPx(windowObj, defaultScale);
     const depthPx = Math.max(thickness * WINDOW_DEPTH_RATIO, defaultScale * 0.4);
 
+    const isHorizontal = snapTarget.orientation === 'horizontal';
+    const width = isHorizontal ? lengthPx : depthPx;
+    const height = isHorizontal ? depthPx : lengthPx;
+
     windowObj.orientation = snapTarget.orientation;
     windowObj.attachedWallAngle = snapTarget.angle;
     windowObj.attachedWallId = snapTarget.wall.id;
     windowObj.lengthPx = lengthPx;
 
-    windowObj.width = lengthPx;
-    windowObj.height = depthPx;
+    windowObj.width = width;
+    windowObj.height = height;
     windowObj.x = snapTarget.projection.x - windowObj.width / 2;
     windowObj.y = snapTarget.projection.y - windowObj.height / 2;
 }

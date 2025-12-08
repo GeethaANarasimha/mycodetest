@@ -7848,7 +7848,9 @@ function drawFloorVertices(points, isSelected) {
 function getWindowHandles(obj) {
     const handleSize = 10;
     const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
-    const isHorizontal = obj.orientation === 'horizontal' || obj.width >= obj.height;
+    const isHorizontal = obj.orientation
+        ? obj.orientation === 'horizontal'
+        : obj.width >= obj.height;
     const start = isHorizontal ? { x: obj.x, y: center.y } : { x: center.x, y: obj.y };
     const end = isHorizontal ? { x: obj.x + obj.width, y: center.y } : { x: center.x, y: obj.y + obj.height };
 
