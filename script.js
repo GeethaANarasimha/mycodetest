@@ -7859,10 +7859,14 @@ function drawFloorVertices(points, isSelected) {
 
 function getWindowHandles(obj) {
     const handleSize = 10;
-    const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
-    const isHorizontal = obj.orientation === 'horizontal' || obj.width >= obj.height;
-    const start = isHorizontal ? { x: obj.x, y: center.y } : { x: center.x, y: obj.y };
-    const end = isHorizontal ? { x: obj.x + obj.width, y: center.y } : { x: center.x, y: obj.y + obj.height };
+    const { cx, cy, angle, drawWidth } = getObjectTransformInfo(obj);
+    const direction = { x: Math.cos(angle), y: Math.sin(angle) };
+    const halfLength = drawWidth / 2;
+
+    const center = { x: cx, y: cy };
+    const start = { x: cx - direction.x * halfLength, y: cy - direction.y * halfLength };
+    const end = { x: cx + direction.x * halfLength, y: cy + direction.y * halfLength };
+    const isHorizontal = Math.abs(direction.x) >= Math.abs(direction.y);
 
     return { handleSize, center, start, end, isHorizontal };
 }
@@ -7915,7 +7919,7 @@ function getTrackDoorHandleHit(x, y) {
 }
 
 function buildDistancePreview(obj, handles, label, formatFn = formatMeasurementText) {
-    const lengthPx = handles.isHorizontal ? obj.width : obj.height;
+    const lengthPx = Math.hypot(handles.end.x - handles.start.x, handles.end.y - handles.start.y);
     const totalInches = (lengthPx / scale) * 12;
     return {
         start: handles.start,
