@@ -5037,11 +5037,42 @@ function getObjectAt(x, y, includeSelectionPadding = false) {
     for (let i = objects.length - 1; i >= 0; i--) {
         const obj = objects[i];
         const padding = includeSelectionPadding && selectedObjectIndices.has(i) ? 8 : 0;
-        if (
-            x >= obj.x - padding && x <= obj.x + obj.width + padding &&
-            y >= obj.y - padding && y <= obj.y + obj.height + padding
-        ) {
-            return i;
+
+        const corners = getObjectTransformedCorners(obj);
+        if (corners && corners.length === 4) {
+            const bounds = corners.reduce((acc, pt) => ({
+                minX: Math.min(acc.minX, pt.x),
+                maxX: Math.max(acc.maxX, pt.x),
+                minY: Math.min(acc.minY, pt.y),
+                maxY: Math.max(acc.maxY, pt.y)
+            }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+
+            if (
+                x < bounds.minX - padding || x > bounds.maxX + padding ||
+                y < bounds.minY - padding || y > bounds.maxY + padding
+            ) {
+                continue;
+            }
+
+            if (pointInPolygon({ x, y }, corners)) {
+                return i;
+            }
+
+            if (padding > 0) {
+                for (let j = 0; j < corners.length; j++) {
+                    const a = corners[j];
+                    const b = corners[(j + 1) % corners.length];
+                    const dist = distanceToSegment(x, y, a.x, a.y, b.x, b.y);
+                    if (dist <= padding) return i;
+                }
+            }
+        } else {
+            if (
+                x >= obj.x - padding && x <= obj.x + obj.width + padding &&
+                y >= obj.y - padding && y <= obj.y + obj.height + padding
+            ) {
+                return i;
+            }
         }
     }
     return -1;
