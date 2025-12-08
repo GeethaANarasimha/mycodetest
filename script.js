@@ -3828,6 +3828,14 @@ function parseDoorsFromXml(doorElements, nodeLookup, wallsFromXml) {
         const isWindow = nameAttr.includes('window');
         const isDoor = nameAttr.includes('door') || !isWindow;
 
+        const doorType = isDoor
+            ? (nameAttr.includes('rolling shutter')
+                ? 'rollingShutter'
+                : nameAttr.includes('sliding door')
+                    ? 'slidingDoor'
+                    : 'normal')
+            : undefined;
+
         const xAttr = doorElement.getAttribute('x');
         const yAttr = doorElement.getAttribute('y');
         const angleAttr = doorElement.getAttribute('angle') || '0';
@@ -3845,7 +3853,7 @@ function parseDoorsFromXml(doorElements, nodeLookup, wallsFromXml) {
         const angleDeg = normalizeAngleDegrees((angleRad * 180) / Math.PI);
         const orientationHint = resolveOrientationFromAngle(angleRad);
 
-        const defaultAlong = isWindow ? fallbackWindowLength() : getDoorLengthPx('normal', scale);
+        const defaultAlong = isWindow ? fallbackWindowLength() : getDoorLengthPx(doorType || 'normal', scale);
         const lengthPx = convertXmlDistanceToPixels(widthAttr) ?? defaultAlong;
         const thicknessFromXml = convertXmlDistanceToPixels(depthAttr);
 
@@ -3886,7 +3894,7 @@ function parseDoorsFromXml(doorElements, nodeLookup, wallsFromXml) {
         const opening = {
             id: `converted-${isWindow ? 'window' : 'door'}-${index + 1}`,
             type: isWindow ? 'window' : 'door',
-            doorType: isDoor ? 'normal' : undefined,
+            doorType: isDoor ? doorType : undefined,
             x: centerProjection.x - width / 2,
             y: centerProjection.y - height / 2,
             width,
