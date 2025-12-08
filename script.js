@@ -2574,8 +2574,10 @@ function applyMeasurementOffset(totalInches) {
 }
 
 function formatMeasurementText(totalInches) {
-    const { feet, inches } = inchesToFeetAndInches(Math.max(0, Math.round(totalInches)));
-    return `${feet}'${inches}\"`;
+    const adjustedInches = applyMeasurementOffset(totalInches);
+    const roundedInches = Math.max(0, Math.round(adjustedInches));
+    const { feet, inches } = inchesToFeetAndInches(roundedInches);
+    return `${feet} ft ${inches} in`;
 }
 
 function formatInchesOnly(totalInches) {
@@ -7901,7 +7903,7 @@ function getTrackDoorHandleHit(x, y) {
 
 function buildDistancePreview(obj, handles, label, formatFn = formatMeasurementText) {
     const lengthPx = handles.isHorizontal ? obj.width : obj.height;
-    const totalInches = Math.round((lengthPx / scale) * 12);
+    const totalInches = (lengthPx / scale) * 12;
     return {
         start: handles.start,
         end: handles.end,
