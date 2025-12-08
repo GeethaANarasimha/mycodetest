@@ -2393,11 +2393,13 @@ function findWallAtPoint(x, y, tolerance = 8) {
     for (const wall of walls) {
         const n1 = getNodeById(wall.startNodeId);
         const n2 = getNodeById(wall.endNodeId);
-        
+
         if (!n1 || !n2) continue;
-        
+
+        const wallThickness = wall.thicknessPx ?? scale * 0.5;
+        const hitTolerance = Math.max(tolerance, wallThickness / 2 + 6);
         const distance = distanceToSegment(x, y, n1.x, n1.y, n2.x, n2.y);
-        if (distance <= tolerance) {
+        if (distance <= hitTolerance) {
             return wall;
         }
     }
@@ -5673,11 +5675,19 @@ function handleMouseDown(e) {
                 const obj = objects[windowHandle.index];
                 if (obj) {
                     pushUndoState();
+                    const handles = getWindowHandles(obj);
+                    const dir = {
+                        x: handles.end.x - handles.start.x,
+                        y: handles.end.y - handles.start.y
+                    };
                     windowHandleDrag = {
                         index: windowHandle.index,
                         handle: windowHandle.type,
                         isHorizontal: windowHandle.isHorizontal,
                         startMouse: { x, y },
+                        direction: dir,
+                        initialStart: handles.start,
+                        initialEnd: handles.end,
                         initial: {
                             x: obj.x,
                             y: obj.y,
@@ -6204,43 +6214,32 @@ function handleMouseMove(e) {
     if (windowHandleDrag) {
         const obj = objects[windowHandleDrag.index];
         if (obj) {
-            const { isHorizontal, handle, initial } = windowHandleDrag;
-            const snappedPrimary = isHorizontal ? snapToInchAlongDirection(x) : snapToInchAlongDirection(y);
+            const { handle, direction, initialStart, initialEnd, initial } = windowHandleDrag;
+            const dirLength = Math.hypot(direction.x, direction.y) || 1;
+            const dirUnit = { x: direction.x / dirLength, y: direction.y / dirLength };
+            const anchor = handle === 'start' ? initialEnd : initialStart;
+            const sign = handle === 'start' ? -1 : 1;
+            const inchPx = scale / 12;
             const minLength = scale * 1.5;
 
-            if (isHorizontal) {
-                if (handle === 'start') {
-                    let newStart = snappedPrimary;
-                    let newWidth = initial.width + (initial.x - newStart);
-                    if (newWidth < minLength) {
-                        newStart = initial.x + initial.width - minLength;
-                        newWidth = minLength;
-                    }
-                    obj.x = newStart;
-                    obj.width = newWidth;
-                    obj.lengthPx = newWidth;
-                } else if (handle === 'end') {
-                    let newWidth = Math.max(minLength, snappedPrimary - initial.x);
-                    obj.width = newWidth;
-                    obj.lengthPx = newWidth;
-                }
-            } else {
-                if (handle === 'start') {
-                    let newStartY = snappedPrimary;
-                    let newHeight = initial.height + (initial.y - newStartY);
-                    if (newHeight < minLength) {
-                        newStartY = initial.y + initial.height - minLength;
-                        newHeight = minLength;
-                    }
-                    obj.y = newStartY;
-                    obj.height = newHeight;
-                    obj.lengthPx = newHeight;
-                } else if (handle === 'end') {
-                    let newHeight = Math.max(minLength, snappedPrimary - initial.y);
-                    obj.height = newHeight;
-                    obj.lengthPx = newHeight;
-                }
-            }
+            const vecToMouse = { x: x - anchor.x, y: y - anchor.y };
+            const projection = (vecToMouse.x * dirUnit.x + vecToMouse.y * dirUnit.y) * sign;
+            const snappedLength = Math.max(minLength, Math.round(projection / inchPx) * inchPx);
+
+            const startPoint = handle === 'start'
+                ? { x: anchor.x - dirUnit.x * snappedLength, y: anchor.y - dirUnit.y * snappedLength }
+                : { ...initialStart };
+            const endPoint = handle === 'start'
+                ? { ...initialEnd }
+                : { x: anchor.x + dirUnit.x * snappedLength, y: anchor.y + dirUnit.y * snappedLength };
+
+            const center = { x: (startPoint.x + endPoint.x) / 2, y: (startPoint.y + endPoint.y) / 2 };
+
+            obj.width = snappedLength;
+            obj.lengthPx = snappedLength;
+            obj.height = initial.height;
+            obj.x = center.x - obj.width / 2;
+            obj.y = center.y - obj.height / 2;
 
             if (obj.type === 'window' && typeof window.snapWindowToNearestWall === 'function') {
                 window.snapWindowToNearestWall(obj, walls, scale);
