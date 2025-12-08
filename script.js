@@ -2577,7 +2577,7 @@ function formatMeasurementText(totalInches) {
     const adjustedInches = applyMeasurementOffset(totalInches);
     const roundedInches = Math.max(0, Math.round(adjustedInches));
     const { feet, inches } = inchesToFeetAndInches(roundedInches);
-    return `${feet} ft ${inches} in`;
+    return `${feet}'${inches}\"`;
 }
 
 function formatInchesOnly(totalInches) {
