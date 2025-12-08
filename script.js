@@ -3817,7 +3817,18 @@ function parseDoorsFromXml(doorElements, nodeLookup, wallsFromXml) {
         return diff > 180 ? 360 - diff : diff;
     };
 
+    const fallbackWindowLength = () => {
+        if (typeof window.getWindowLengthPx === 'function') {
+            return window.getWindowLengthPx(null, scale);
+        }
+        return 5 * scale;
+    };
+
     return doorElements.map((doorElement, index) => {
+        const nameAttr = (doorElement.getAttribute('name') || '').toLowerCase();
+        const isWindow = nameAttr.includes('window');
+        const isDoor = nameAttr.includes('door') || !isWindow;
+
         const xAttr = doorElement.getAttribute('x');
         const yAttr = doorElement.getAttribute('y');
         const angleAttr = doorElement.getAttribute('angle') || '0';
@@ -3835,12 +3846,13 @@ function parseDoorsFromXml(doorElements, nodeLookup, wallsFromXml) {
         const angleDeg = normalizeAngleDegrees((angleRad * 180) / Math.PI);
         const orientationHint = resolveOrientationFromAngle(angleRad);
 
-        const lengthPx = convertXmlDistanceToPixels(widthAttr) ?? getDoorLengthPx('normal', scale);
+        const defaultAlong = isWindow ? fallbackWindowLength() : getDoorLengthPx('normal', scale);
+        const lengthPx = convertXmlDistanceToPixels(widthAttr) ?? defaultAlong;
         const thicknessFromXml = convertXmlDistanceToPixels(depthAttr);
 
         const nearestWall = findNearestWall(centerX, centerY, 5);
         const nearestWallThickness = nearestWall?.wall?.thicknessPx ?? getWallThicknessForDoor(nearestWall?.wall, scale);
-        const alongWall = lengthPx ?? getDoorLengthPx('normal', scale);
+        const alongWall = lengthPx ?? defaultAlong;
         const acrossWall = thicknessFromXml ?? nearestWallThickness ?? convertXmlDistanceToPixels(15.24) ?? (0.5 * scale);
 
         const orientation = nearestWall
@@ -3872,29 +3884,30 @@ function parseDoorsFromXml(doorElements, nodeLookup, wallsFromXml) {
 
         const centerProjection = nearestWall?.projection || { x: centerX, y: centerY };
 
-        const door = {
-            id: `converted-door-${index + 1}`,
-            type: 'door',
-            doorType: 'normal',
+        const opening = {
+            id: `converted-${isWindow ? 'window' : 'door'}-${index + 1}`,
+            type: isWindow ? 'window' : 'door',
+            doorType: isDoor ? 'normal' : undefined,
             x: centerProjection.x - width / 2,
             y: centerProjection.y - height / 2,
             width,
             height,
             lineWidth: parseInt(lineWidthInput?.value, 10) || 2,
-            lineColor: DEFAULT_DOOR_LINE,
-            fillColor: DEFAULT_DOOR_FILL,
+            lineColor: isWindow ? DEFAULT_WINDOW_LINE : DEFAULT_DOOR_LINE,
+            fillColor: isWindow ? DEFAULT_WINDOW_FILL : DEFAULT_DOOR_FILL,
             rotation: rotationDeg,
             wallAngleOffset,
             flipH: false,
             flipV: false,
-            orientation
+            orientation,
+            sourceDoorOrWindowId: doorElement.getAttribute('id') || null
         };
 
         if (nearestWall) {
-            door.attachedWallId = nearestWall.wall.id;
+            opening.attachedWallId = nearestWall.wall.id;
         }
 
-        return door;
+        return opening;
     });
 }
 
