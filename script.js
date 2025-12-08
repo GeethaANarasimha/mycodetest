@@ -1993,12 +1993,9 @@ function drawPastePreview() {
         ctx.lineWidth = oldObj.lineWidth || 2;
         ctx.strokeStyle = oldObj.lineColor || '#000000';
         ctx.fillStyle = oldObj.fillColor || '#cccccc';
-        
+
         if (oldObj.type === 'door') {
-            ctx.strokeRect(x, y, w, h);
-            ctx.beginPath();
-            ctx.arc(x + w, y + h / 2, w, Math.PI, Math.PI * 1.5);
-            ctx.stroke();
+            drawDoorGraphic(oldObj, x, y, w, h);
         } else if (oldObj.type === 'window') {
             ctx.strokeRect(x, y, w, h);
             ctx.beginPath();
@@ -7252,6 +7249,60 @@ function drawStaircaseGraphic(obj, originX, originY, drawWidth, drawHeight) {
     ctx.restore();
 }
 
+function drawRollingShutterGraphic(localX, localY, drawWidth, drawHeight) {
+    const headerHeight = Math.min(drawHeight * 0.2, 12);
+    const railWidth = Math.min(drawWidth * 0.1, 8);
+    const slatCount = Math.max(5, Math.floor(drawHeight / 12));
+    const slatSpacing = drawHeight / slatCount;
+
+    ctx.save();
+
+    // Main curtain body
+    ctx.beginPath();
+    ctx.rect(localX + railWidth, localY + headerHeight, drawWidth - railWidth * 2, drawHeight - headerHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Header box
+    ctx.beginPath();
+    ctx.rect(localX, localY, drawWidth, headerHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Side rails
+    ctx.beginPath();
+    ctx.rect(localX, localY, railWidth, drawHeight);
+    ctx.rect(localX + drawWidth - railWidth, localY, railWidth, drawHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Slat lines
+    ctx.beginPath();
+    for (let i = 1; i < slatCount; i++) {
+        const y = localY + headerHeight + i * slatSpacing;
+        ctx.moveTo(localX + railWidth, y);
+        ctx.lineTo(localX + drawWidth - railWidth, y);
+    }
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawDoorGraphic(obj, localX, localY, drawWidth, drawHeight) {
+    if (obj.doorType === 'rollingShutter') {
+        drawRollingShutterGraphic(localX, localY, drawWidth, drawHeight);
+        return;
+    }
+
+    ctx.fillRect(localX, localY, drawWidth, drawHeight);
+    ctx.strokeRect(localX, localY, drawWidth, drawHeight);
+    ctx.beginPath();
+    ctx.arc(localX + drawWidth, localY + drawHeight / 2, drawWidth, Math.PI, Math.PI * 1.5);
+    ctx.moveTo(localX + drawWidth, localY + drawHeight / 2);
+    ctx.lineTo(localX + drawWidth, localY + drawHeight / 2 - drawWidth);
+    ctx.stroke();
+}
+
 function getObjectTransformInfo(obj) {
     const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
     const drawWidth = isVerticalDoor ? obj.height : obj.width;
@@ -7366,13 +7417,7 @@ function drawObjects() {
         ctx.fillStyle = obj.fillColor;
 
         if (obj.type === 'door') {
-            ctx.fillRect(localX, localY, drawWidth, drawHeight);
-            ctx.strokeRect(localX, localY, drawWidth, drawHeight);
-            ctx.beginPath();
-            ctx.arc(localX + drawWidth, localY + drawHeight / 2, drawWidth, Math.PI, Math.PI * 1.5);
-            ctx.moveTo(localX + drawWidth, localY + drawHeight / 2);
-            ctx.lineTo(localX + drawWidth, localY + drawHeight / 2 - drawWidth);
-            ctx.stroke();
+            drawDoorGraphic(obj, localX, localY, drawWidth, drawHeight);
         } else if (obj.type === 'window') {
             ctx.fillRect(localX, localY, width, height);
             ctx.strokeRect(localX, localY, width, height);

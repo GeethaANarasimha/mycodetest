@@ -4,7 +4,8 @@
 const DOOR_TYPE_WIDTHS_FT = {
     normal: 3,
     main: 3.5,
-    bathroom: 2.5
+    bathroom: 2.5,
+    rollingShutter: 10
 };
 
 function getDoorLengthPx(doorType, defaultScale = 20) {
