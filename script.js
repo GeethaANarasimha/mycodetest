@@ -8387,8 +8387,9 @@ function redrawCanvas() {
     drawGrid();
     drawFloors();
     drawWalls();
-    drawDirectLines();
     drawObjects();
+    // Draw direct lines above objects (e.g., stair landings) so their paths stay visible
+    drawDirectLines();
     drawDimensions();
     drawBackgroundMeasurementLine();
     drawSelectionBoxOverlay();
