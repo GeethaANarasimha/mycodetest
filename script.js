@@ -5673,6 +5673,7 @@ function handleMouseDown(e) {
                 const obj = objects[windowHandle.index];
                 if (obj) {
                     pushUndoState();
+                    const handles = getWindowHandles(obj);
                     windowHandleDrag = {
                         index: windowHandle.index,
                         handle: windowHandle.type,
@@ -5683,7 +5684,14 @@ function handleMouseDown(e) {
                             y: obj.y,
                             width: obj.width,
                             height: obj.height,
-                            lengthPx: obj.lengthPx || Math.max(obj.width, obj.height)
+                            lengthPx: obj.lengthPx || Math.max(obj.width, obj.height),
+                            start: handles.start,
+                            end: handles.end,
+                            axis: handles.axis,
+                            length: handles.length,
+                            thickness: handles.thickness,
+                            center: handles.center,
+                            orientation: obj.orientation || (obj.width >= obj.height ? 'horizontal' : 'vertical')
                         }
                     };
                     windowDistancePreview = buildWindowDistancePreview(obj);
@@ -6204,43 +6212,58 @@ function handleMouseMove(e) {
     if (windowHandleDrag) {
         const obj = objects[windowHandleDrag.index];
         if (obj) {
-            const { isHorizontal, handle, initial } = windowHandleDrag;
-            const snappedPrimary = isHorizontal ? snapToInchAlongDirection(x) : snapToInchAlongDirection(y);
+            const { handle, initial } = windowHandleDrag;
             const minLength = scale * 1.5;
+            const currentHandles = getWindowHandles(obj);
+            const axis = currentHandles.axis || initial.axis || { x: 1, y: 0 };
 
-            if (isHorizontal) {
-                if (handle === 'start') {
-                    let newStart = snappedPrimary;
-                    let newWidth = initial.width + (initial.x - newStart);
-                    if (newWidth < minLength) {
-                        newStart = initial.x + initial.width - minLength;
-                        newWidth = minLength;
-                    }
-                    obj.x = newStart;
-                    obj.width = newWidth;
-                    obj.lengthPx = newWidth;
-                } else if (handle === 'end') {
-                    let newWidth = Math.max(minLength, snappedPrimary - initial.x);
-                    obj.width = newWidth;
-                    obj.lengthPx = newWidth;
+            const projectOntoAxis = (point, anchor) => {
+                const ax = point.x - anchor.x;
+                const ay = point.y - anchor.y;
+                const t = ax * axis.x + ay * axis.y;
+                return { x: anchor.x + axis.x * t, y: anchor.y + axis.y * t };
+            };
+
+            const startPoint = currentHandles.start || initial.start || initial.center;
+            const endPoint = currentHandles.end || initial.end || initial.center;
+
+            let newStart = startPoint;
+            let newEnd = endPoint;
+
+            if (handle === 'start') {
+                const projected = projectOntoAxis({ x, y }, endPoint);
+                newStart = projected;
+                let newLength = Math.hypot(newEnd.x - newStart.x, newEnd.y - newStart.y);
+                if (newLength < minLength) {
+                    newStart = { x: newEnd.x - axis.x * minLength, y: newEnd.y - axis.y * minLength };
+                    newLength = minLength;
                 }
-            } else {
-                if (handle === 'start') {
-                    let newStartY = snappedPrimary;
-                    let newHeight = initial.height + (initial.y - newStartY);
-                    if (newHeight < minLength) {
-                        newStartY = initial.y + initial.height - minLength;
-                        newHeight = minLength;
-                    }
-                    obj.y = newStartY;
-                    obj.height = newHeight;
-                    obj.lengthPx = newHeight;
-                } else if (handle === 'end') {
-                    let newHeight = Math.max(minLength, snappedPrimary - initial.y);
-                    obj.height = newHeight;
-                    obj.lengthPx = newHeight;
+            } else if (handle === 'end') {
+                const projected = projectOntoAxis({ x, y }, startPoint);
+                newEnd = projected;
+                let newLength = Math.hypot(newEnd.x - newStart.x, newEnd.y - newStart.y);
+                if (newLength < minLength) {
+                    newEnd = { x: newStart.x + axis.x * minLength, y: newStart.y + axis.y * minLength };
+                    newLength = minLength;
                 }
             }
+
+            const updatedLength = Math.hypot(newEnd.x - newStart.x, newEnd.y - newStart.y);
+            const center = { x: (newStart.x + newEnd.x) / 2, y: (newStart.y + newEnd.y) / 2 };
+            const orientation = obj.orientation || initial.orientation || (obj.width >= obj.height ? 'horizontal' : 'vertical');
+            const thickness = currentHandles.thickness || initial.thickness || (orientation === 'vertical' ? obj.width : obj.height);
+
+            if (orientation === 'horizontal') {
+                obj.width = updatedLength;
+                obj.height = thickness;
+            } else {
+                obj.width = thickness;
+                obj.height = updatedLength;
+            }
+
+            obj.lengthPx = updatedLength;
+            obj.x = center.x - obj.width / 2;
+            obj.y = center.y - obj.height / 2;
 
             if (obj.type === 'window' && typeof window.snapWindowToNearestWall === 'function') {
                 window.snapWindowToNearestWall(obj, walls, scale);
@@ -7847,14 +7870,16 @@ function drawFloorVertices(points, isSelected) {
 
 function getWindowHandles(obj) {
     const handleSize = 10;
-    const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
-    const isHorizontal = obj.orientation
-        ? obj.orientation === 'horizontal'
-        : obj.width >= obj.height;
-    const start = isHorizontal ? { x: obj.x, y: center.y } : { x: center.x, y: obj.y };
-    const end = isHorizontal ? { x: obj.x + obj.width, y: center.y } : { x: center.x, y: obj.y + obj.height };
+    const { cx, cy, angle } = getObjectTransformInfo(obj);
+    const isHorizontal = Math.abs(Math.cos(angle)) >= Math.abs(Math.sin(angle));
+    const length = obj.orientation === 'vertical' ? obj.height : obj.width;
+    const thickness = obj.orientation === 'vertical' ? obj.width : obj.height;
 
-    return { handleSize, center, start, end, isHorizontal };
+    const axis = { x: Math.cos(angle), y: Math.sin(angle) };
+    const start = { x: cx - axis.x * (length / 2), y: cy - axis.y * (length / 2) };
+    const end = { x: cx + axis.x * (length / 2), y: cy + axis.y * (length / 2) };
+
+    return { handleSize, center: { x: cx, y: cy }, start, end, isHorizontal, axis, length, thickness };
 }
 
 function getWindowHandleHit(x, y) {
