@@ -11,7 +11,7 @@ const DOOR_TYPE_WIDTHS_FT = {
 
 function getDoorLengthPx(doorOrType, defaultScale = 20) {
     const storedLength = typeof doorOrType === 'object' && doorOrType !== null
-        ? doorOrType.lengthPx || Math.max(doorOrType.width || 0, doorOrType.height || 0)
+        ? doorOrType.lengthPx
         : null;
 
     if (storedLength && storedLength > 0) {
