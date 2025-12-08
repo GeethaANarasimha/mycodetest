@@ -6205,12 +6205,12 @@ function handleMouseMove(e) {
         const obj = objects[windowHandleDrag.index];
         if (obj) {
             const { isHorizontal, handle, initial } = windowHandleDrag;
-            ({ x, y } = snapToGridPoint(x, y));
+            const snappedPrimary = isHorizontal ? snapToInchAlongDirection(x) : snapToInchAlongDirection(y);
             const minLength = scale * 1.5;
 
             if (isHorizontal) {
                 if (handle === 'start') {
-                    let newStart = x;
+                    let newStart = snappedPrimary;
                     let newWidth = initial.width + (initial.x - newStart);
                     if (newWidth < minLength) {
                         newStart = initial.x + initial.width - minLength;
@@ -6220,13 +6220,13 @@ function handleMouseMove(e) {
                     obj.width = newWidth;
                     obj.lengthPx = newWidth;
                 } else if (handle === 'end') {
-                    let newWidth = Math.max(minLength, x - initial.x);
+                    let newWidth = Math.max(minLength, snappedPrimary - initial.x);
                     obj.width = newWidth;
                     obj.lengthPx = newWidth;
                 }
             } else {
                 if (handle === 'start') {
-                    let newStartY = y;
+                    let newStartY = snappedPrimary;
                     let newHeight = initial.height + (initial.y - newStartY);
                     if (newHeight < minLength) {
                         newStartY = initial.y + initial.height - minLength;
@@ -6236,7 +6236,7 @@ function handleMouseMove(e) {
                     obj.height = newHeight;
                     obj.lengthPx = newHeight;
                 } else if (handle === 'end') {
-                    let newHeight = Math.max(minLength, y - initial.y);
+                    let newHeight = Math.max(minLength, snappedPrimary - initial.y);
                     obj.height = newHeight;
                     obj.lengthPx = newHeight;
                 }
