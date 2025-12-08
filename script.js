@@ -276,8 +276,8 @@ let draggingObjectIndex = null;
 let objectDragOffset = null;
 let objectDragUndoApplied = false;
 let windowHandleDrag = null;
-let rollingShutterHandleDrag = null;
-let rollingShutterDistancePreview = null;
+let trackDoorHandleDrag = null;
+let trackDoorDistancePreview = null;
 let staircaseHandleDrag = null;
 let staircaseEditTargetIndex = null;
 let groupDragOffsets = null;
@@ -5619,15 +5619,15 @@ function handleMouseDown(e) {
             return;
         }
 
-        const rollingShutterHandle = getRollingShutterHandleHit(x, y);
-        if (rollingShutterHandle) {
-            const obj = objects[rollingShutterHandle.index];
+        const trackDoorHandle = getTrackDoorHandleHit(x, y);
+        if (trackDoorHandle) {
+            const obj = objects[trackDoorHandle.index];
             if (obj) {
                 pushUndoState();
-                rollingShutterHandleDrag = {
-                    index: rollingShutterHandle.index,
-                    handle: rollingShutterHandle.type,
-                    isHorizontal: rollingShutterHandle.isHorizontal,
+                trackDoorHandleDrag = {
+                    index: trackDoorHandle.index,
+                    handle: trackDoorHandle.type,
+                    isHorizontal: trackDoorHandle.isHorizontal,
                     startMouse: { x, y },
                     initial: {
                         x: obj.x,
@@ -5636,9 +5636,9 @@ function handleMouseDown(e) {
                         height: obj.height
                     }
                 };
-                rollingShutterDistancePreview = buildRollingShutterDistancePreview(obj);
+                trackDoorDistancePreview = buildTrackDoorDistancePreview(obj);
                 selectAllMode = false;
-                selectedObjectIndices = new Set([rollingShutterHandle.index]);
+                selectedObjectIndices = new Set([trackDoorHandle.index]);
                 expandSelectionWithGroups();
                 redrawCanvas();
             }
@@ -6136,10 +6136,10 @@ function handleMouseMove(e) {
         return;
     }
 
-    if (rollingShutterHandleDrag) {
-        const obj = objects[rollingShutterHandleDrag.index];
+    if (trackDoorHandleDrag) {
+        const obj = objects[trackDoorHandleDrag.index];
         if (obj) {
-            const { isHorizontal, handle, initial } = rollingShutterHandleDrag;
+            const { isHorizontal, handle, initial } = trackDoorHandleDrag;
             ({ x, y } = snapToGridPoint(x, y));
             const minLength = scale * 2;
 
@@ -6173,8 +6173,8 @@ function handleMouseMove(e) {
                 }
             }
 
-            rollingShutterDistancePreview = buildRollingShutterDistancePreview(obj);
-            coordinatesDisplay.textContent = `Rolling shutter: ${rollingShutterDistancePreview.text}`;
+            trackDoorDistancePreview = buildTrackDoorDistancePreview(obj);
+            coordinatesDisplay.textContent = `${trackDoorDistancePreview.label}: ${trackDoorDistancePreview.text}`;
             redrawCanvas();
         }
         return;
@@ -6496,9 +6496,9 @@ function handleMouseUp() {
         return;
     }
 
-    if (rollingShutterHandleDrag) {
-        rollingShutterHandleDrag = null;
-        rollingShutterDistancePreview = null;
+    if (trackDoorHandleDrag) {
+        trackDoorHandleDrag = null;
+        trackDoorDistancePreview = null;
         redrawCanvas();
         return;
     }
@@ -7414,9 +7414,81 @@ function drawRollingShutterGraphic(localX, localY, drawWidth, drawHeight) {
     ctx.restore();
 }
 
+function drawSlidingDoorGraphic(localX, localY, drawWidth, drawHeight) {
+    const headerHeight = Math.min(drawHeight * 0.18, 12);
+    const railWidth = Math.min(drawWidth * 0.08, 8);
+    const bodyWidth = drawWidth - railWidth * 2;
+    const bodyHeight = drawHeight - headerHeight;
+    const panelWidth = bodyWidth / 2;
+
+    ctx.save();
+
+    // Outer rails and header
+    ctx.beginPath();
+    ctx.rect(localX, localY, drawWidth, headerHeight);
+    ctx.rect(localX, localY, railWidth, drawHeight);
+    ctx.rect(localX + drawWidth - railWidth, localY, railWidth, drawHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Door body fill
+    ctx.beginPath();
+    ctx.rect(localX + railWidth, localY + headerHeight, bodyWidth, bodyHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    // Two-tone sliding panels
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(localX + railWidth + 2, localY + headerHeight + 2, panelWidth - 4, bodyHeight - 4);
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(localX + railWidth + panelWidth + 2, localY + headerHeight + 2, panelWidth - 4, bodyHeight - 4);
+    ctx.restore();
+
+    // Cross-connect lines on each panel
+    const segments = Math.max(3, Math.floor(bodyHeight / 18));
+    const segmentHeight = bodyHeight / segments;
+    ctx.beginPath();
+    for (let i = 0; i < segments; i++) {
+        const yTop = localY + headerHeight + i * segmentHeight;
+        const yBottom = yTop + segmentHeight;
+
+        // Left panel X
+        ctx.moveTo(localX + railWidth, yTop);
+        ctx.lineTo(localX + railWidth + panelWidth, yBottom);
+        ctx.moveTo(localX + railWidth, yBottom);
+        ctx.lineTo(localX + railWidth + panelWidth, yTop);
+
+        // Right panel X
+        ctx.moveTo(localX + railWidth + panelWidth, yTop);
+        ctx.lineTo(localX + railWidth + bodyWidth, yBottom);
+        ctx.moveTo(localX + railWidth + panelWidth, yBottom);
+        ctx.lineTo(localX + railWidth + bodyWidth, yTop);
+
+        // Center connector between panels
+        ctx.moveTo(localX + railWidth + panelWidth, yTop);
+        ctx.lineTo(localX + railWidth + panelWidth, yBottom);
+    }
+    ctx.stroke();
+
+    // Bottom track accent
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(1, ctx.lineWidth * 0.9);
+    ctx.moveTo(localX + railWidth, localY + drawHeight - 2);
+    ctx.lineTo(localX + drawWidth - railWidth, localY + drawHeight - 2);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
 function drawDoorGraphic(obj, localX, localY, drawWidth, drawHeight) {
     if (obj.doorType === 'rollingShutter') {
         drawRollingShutterGraphic(localX, localY, drawWidth, drawHeight);
+        return;
+    }
+
+    if (obj.doorType === 'slidingDoor') {
+        drawSlidingDoorGraphic(localX, localY, drawWidth, drawHeight);
         return;
     }
 
@@ -7632,8 +7704,8 @@ function drawObjects() {
                     ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
                 });
 
-                if (obj.type === 'door' && obj.doorType === 'rollingShutter') {
-                    const { handleSize: shutterHandleSize, start, end } = getRollingShutterHandles(obj);
+                if (isTrackDoor(obj)) {
+                    const { handleSize: shutterHandleSize, start, end } = getTrackDoorHandles(obj);
                     const shutterHalf = shutterHandleSize / 2;
 
                     ctx.fillStyle = '#ffffff';
@@ -7650,13 +7722,13 @@ function drawObjects() {
         }
     }
 
-    drawRollingShutterDistancePreviewOverlay();
+    drawTrackDoorDistancePreviewOverlay();
 }
 
-function drawRollingShutterDistancePreviewOverlay() {
-    if (!rollingShutterDistancePreview) return;
+function drawTrackDoorDistancePreviewOverlay() {
+    if (!trackDoorDistancePreview) return;
 
-    const { start, end, text, isHorizontal } = rollingShutterDistancePreview;
+    const { start, end, text, isHorizontal } = trackDoorDistancePreview;
     const midX = (start.x + end.x) / 2;
     const midY = (start.y + end.y) / 2;
     const offset = 18;
@@ -7771,7 +7843,11 @@ function getWindowHandleHit(x, y) {
     return null;
 }
 
-function getRollingShutterHandles(obj) {
+function isTrackDoor(obj) {
+    return obj && obj.type === 'door' && (obj.doorType === 'rollingShutter' || obj.doorType === 'slidingDoor');
+}
+
+function getTrackDoorHandles(obj) {
     const handleSize = 12;
     const center = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
     const isHorizontal = obj.orientation === 'horizontal' || obj.width >= obj.height;
@@ -7783,12 +7859,12 @@ function getRollingShutterHandles(obj) {
     return { handleSize, center, start, end, isHorizontal };
 }
 
-function getRollingShutterHandleHit(x, y) {
+function getTrackDoorHandleHit(x, y) {
     for (const index of selectedObjectIndices) {
         const obj = objects[index];
-        if (!obj || obj.type !== 'door' || obj.doorType !== 'rollingShutter') continue;
+        if (!isTrackDoor(obj)) continue;
 
-        const { handleSize, start, end, isHorizontal } = getRollingShutterHandles(obj);
+        const { handleSize, start, end, isHorizontal } = getTrackDoorHandles(obj);
         const half = handleSize / 2;
         const inRect = (hx, hy) => x >= hx - half && x <= hx + half && y >= hy - half && y <= hy + half;
 
@@ -7798,14 +7874,15 @@ function getRollingShutterHandleHit(x, y) {
     return null;
 }
 
-function buildRollingShutterDistancePreview(obj) {
-    const { start, end, isHorizontal } = getRollingShutterHandles(obj);
+function buildTrackDoorDistancePreview(obj) {
+    const { start, end, isHorizontal } = getTrackDoorHandles(obj);
     const lengthPx = isHorizontal ? obj.width : obj.height;
     const totalInches = Math.round((lengthPx / scale) * 12);
     return {
         start,
         end,
         isHorizontal,
+        label: obj.doorType === 'slidingDoor' ? 'Sliding door' : 'Rolling shutter',
         text: formatMeasurementText(totalInches),
         index: objects.indexOf(obj)
     };
