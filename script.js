@@ -6148,7 +6148,7 @@ function handleMouseMove(e) {
         const obj = objects[trackDoorHandleDrag.index];
         if (obj) {
             const { isHorizontal, handle, initial } = trackDoorHandleDrag;
-            ({ x, y } = snapToGridPoint(x, y));
+            ({ x, y } = snapPointToInch(x, y));
             const minLength = scale * 2;
 
             if (isHorizontal) {
