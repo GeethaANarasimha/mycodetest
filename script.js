@@ -278,6 +278,7 @@ let objectDragUndoApplied = false;
 let windowHandleDrag = null;
 let trackDoorHandleDrag = null;
 let trackDoorDistancePreview = null;
+let windowDistancePreview = null;
 let staircaseHandleDrag = null;
 let staircaseEditTargetIndex = null;
 let groupDragOffsets = null;
@@ -5629,11 +5630,11 @@ function handleMouseDown(e) {
 
         const trackDoorHandle = getTrackDoorHandleHit(x, y);
         if (trackDoorHandle) {
-            const obj = objects[trackDoorHandle.index];
-            if (obj) {
-                pushUndoState();
-                trackDoorHandleDrag = {
-                    index: trackDoorHandle.index,
+                const obj = objects[trackDoorHandle.index];
+                if (obj) {
+                    pushUndoState();
+                    trackDoorHandleDrag = {
+                        index: trackDoorHandle.index,
                     handle: trackDoorHandle.type,
                     isHorizontal: trackDoorHandle.isHorizontal,
                     startMouse: { x, y },
@@ -5645,9 +5646,11 @@ function handleMouseDown(e) {
                     }
                 };
                 trackDoorDistancePreview = buildTrackDoorDistancePreview(obj);
+                windowDistancePreview = null;
                 selectAllMode = false;
                 selectedObjectIndices = new Set([trackDoorHandle.index]);
                 expandSelectionWithGroups();
+                coordinatesDisplay.textContent = `${trackDoorDistancePreview.label}: ${trackDoorDistancePreview.text}`;
                 redrawCanvas();
             }
             return;
@@ -5676,6 +5679,8 @@ function handleMouseDown(e) {
                             lengthPx: obj.lengthPx || Math.max(obj.width, obj.height)
                         }
                     };
+                    windowDistancePreview = buildWindowDistancePreview(obj);
+                    coordinatesDisplay.textContent = `${windowDistancePreview.label}: ${windowDistancePreview.text}`;
                 }
             }
             redrawCanvas();
@@ -6233,7 +6238,8 @@ function handleMouseMove(e) {
                 window.snapWindowToNearestWall(obj, walls, scale);
             }
 
-            coordinatesDisplay.textContent = `X: ${obj.x.toFixed(1)}, Y: ${obj.y.toFixed(1)}`;
+            windowDistancePreview = buildWindowDistancePreview(obj);
+            coordinatesDisplay.textContent = `${windowDistancePreview.label}: ${windowDistancePreview.text}`;
             redrawCanvas();
         }
         return;
@@ -6513,6 +6519,7 @@ function handleMouseUp() {
 
     if (windowHandleDrag) {
         windowHandleDrag = null;
+        windowDistancePreview = null;
         redrawCanvas();
         return;
     }
@@ -7730,13 +7737,13 @@ function drawObjects() {
         }
     }
 
-    drawTrackDoorDistancePreviewOverlay();
+    drawDistancePreviews();
 }
 
-function drawTrackDoorDistancePreviewOverlay() {
-    if (!trackDoorDistancePreview) return;
+function drawDistancePreviewOverlay(preview, color = '#d35400') {
+    if (!preview) return;
 
-    const { start, end, text, isHorizontal } = trackDoorDistancePreview;
+    const { start, end, text, isHorizontal } = preview;
     const midX = (start.x + end.x) / 2;
     const midY = (start.y + end.y) / 2;
     const offset = 18;
@@ -7744,7 +7751,7 @@ function drawTrackDoorDistancePreviewOverlay() {
     const labelY = isHorizontal ? midY - offset : midY;
 
     ctx.save();
-    ctx.strokeStyle = '#d35400';
+    ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 4]);
     ctx.beginPath();
@@ -7762,16 +7769,21 @@ function drawTrackDoorDistancePreviewOverlay() {
     const textHeight = measurementFontSize * 1.2;
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.strokeStyle = '#d35400';
+    ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.rect(labelX - textWidth / 2 - padding, labelY - textHeight / 2, textWidth + padding * 2, textHeight);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#d35400';
+    ctx.fillStyle = color;
     ctx.fillText(text, labelX, labelY);
     ctx.restore();
+}
+
+function drawDistancePreviews() {
+    drawDistancePreviewOverlay(trackDoorDistancePreview, '#d35400');
+    drawDistancePreviewOverlay(windowDistancePreview, '#3b83bd');
 }
 
 function drawFloors() {
@@ -7882,18 +7894,28 @@ function getTrackDoorHandleHit(x, y) {
     return null;
 }
 
-function buildTrackDoorDistancePreview(obj) {
-    const { start, end, isHorizontal } = getTrackDoorHandles(obj);
-    const lengthPx = isHorizontal ? obj.width : obj.height;
+function buildDistancePreview(obj, handles, label) {
+    const lengthPx = handles.isHorizontal ? obj.width : obj.height;
     const totalInches = Math.round((lengthPx / scale) * 12);
     return {
-        start,
-        end,
-        isHorizontal,
-        label: obj.doorType === 'slidingDoor' ? 'Sliding door' : 'Rolling shutter',
+        start: handles.start,
+        end: handles.end,
+        isHorizontal: handles.isHorizontal,
+        label,
         text: formatMeasurementText(totalInches),
         index: objects.indexOf(obj)
     };
+}
+
+function buildTrackDoorDistancePreview(obj) {
+    const handles = getTrackDoorHandles(obj);
+    const label = obj.doorType === 'slidingDoor' ? 'Sliding door' : 'Rolling shutter';
+    return buildDistancePreview(obj, handles, label);
+}
+
+function buildWindowDistancePreview(obj) {
+    const handles = getWindowHandles(obj);
+    return buildDistancePreview(obj, handles, 'Window width');
 }
 
 function getStaircaseHandles(obj, cachedCorners = null) {
