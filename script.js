@@ -7715,6 +7715,18 @@ function drawObjects() {
                         ctx.strokeRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
                     }
                 });
+            } else if (obj.type === 'window') {
+                const { handleSize, center, start, end } = getWindowHandles(obj);
+                const half = handleSize / 2;
+
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = '#3b83bd';
+                ctx.lineWidth = 1.5;
+
+                [start, center, end].forEach(pt => {
+                    ctx.fillRect(pt.x - half, pt.y - half, handleSize, handleSize);
+                    ctx.strokeRect(pt.x - half, pt.y - half, handleSize, handleSize);
+                });
             } else {
                 const handleSize = 8;
                 const handles = getObjectHandlePoints(corners);
