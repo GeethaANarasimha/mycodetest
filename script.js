@@ -226,6 +226,49 @@ let backgroundOriginNormalized = null;
 let previewZoom = 1;
 let measurementDragMoved = false;
 let previewPanState = null;
+let backgroundStatesByLayer = {};
+
+function createDefaultBackgroundState() {
+    return {
+        backgroundImageData: null,
+        backgroundImageDraft: null,
+        measurementLineNormalized: null,
+        measurementDistanceFeet: null,
+        isBackgroundImageVisible: true,
+        backgroundOriginNormalized: null,
+        previewZoom: 1
+    };
+}
+
+function getLayerBackgroundState(layerId = currentLayerId()) {
+    const safeLayerId = layerId || 'default-layer';
+    if (!backgroundStatesByLayer[safeLayerId]) {
+        backgroundStatesByLayer[safeLayerId] = createDefaultBackgroundState();
+    }
+    return backgroundStatesByLayer[safeLayerId];
+}
+
+function syncBackgroundGlobalsFromLayer(layerId = currentLayerId()) {
+    const state = getLayerBackgroundState(layerId);
+    backgroundImageData = state.backgroundImageData || null;
+    backgroundImageDraft = state.backgroundImageDraft || null;
+    measurementLineNormalized = state.measurementLineNormalized || null;
+    measurementDistanceFeet = state.measurementDistanceFeet ?? null;
+    isBackgroundImageVisible = state.isBackgroundImageVisible ?? true;
+    backgroundOriginNormalized = state.backgroundOriginNormalized || null;
+    previewZoom = state.previewZoom ?? 1;
+}
+
+function persistBackgroundGlobalsToLayer(layerId = currentLayerId()) {
+    const state = getLayerBackgroundState(layerId);
+    state.backgroundImageData = backgroundImageData || null;
+    state.backgroundImageDraft = backgroundImageDraft || null;
+    state.measurementLineNormalized = measurementLineNormalized || null;
+    state.measurementDistanceFeet = measurementDistanceFeet ?? null;
+    state.isBackgroundImageVisible = isBackgroundImageVisible ?? true;
+    state.backgroundOriginNormalized = backgroundOriginNormalized || null;
+    state.previewZoom = previewZoom ?? 1;
+}
 
 const BASE_CANVAS_WIDTH = canvas.width;
 const BASE_CANVAS_HEIGHT = canvas.height;
@@ -486,20 +529,27 @@ function importLayerDrawings(layerData) {
 function handleLayerChange(nextLayerId, previousLayerId) {
     if (!nextLayerId) return;
     if (!isProjectLoading && previousLayerId) {
+        persistBackgroundGlobalsToLayer(previousLayerId);
         captureLayerSnapshot(previousLayerId);
     }
+    syncBackgroundGlobalsFromLayer(nextLayerId);
     loadLayerSnapshot(nextLayerId);
+    syncBackgroundControls();
+    updateBackgroundMeasurementUI();
+    redrawCanvas();
 }
 
 function handleLayerStructureChange(change) {
     if (!change) return;
     if (change.type === 'add' && change.layer?.id) {
         ensureLayerSnapshot(change.layer.id);
+        getLayerBackgroundState(change.layer.id);
         return;
     }
 
     if (change.type === 'delete' && change.layerId) {
         delete layerSnapshots[change.layerId];
+        delete backgroundStatesByLayer[change.layerId];
         if (change.nextActiveLayerId) {
             loadLayerSnapshot(change.nextActiveLayerId);
         }
@@ -510,6 +560,8 @@ function handleLayerStructureChange(change) {
 function setupLayering() {
     const activeLayerId = currentLayerId();
     ensureLayerSnapshot(activeLayerId);
+    getLayerBackgroundState(activeLayerId);
+    persistBackgroundGlobalsToLayer(activeLayerId);
     captureLayerSnapshot(activeLayerId);
 
     if (typeof onLayerChange === 'function') {
@@ -879,6 +931,7 @@ function resetBackgroundModal() {
     backgroundOriginNormalized = null;
     previewZoom = 1;
     measurementDragMoved = false;
+    persistBackgroundGlobalsToLayer();
     updateBackgroundMeasurementUI();
     updateStartPointStatus();
 }
@@ -1209,6 +1262,7 @@ function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
 
     updateBackgroundMeasurementUI();
     redrawPreviewMeasurementOverlay();
+    persistBackgroundGlobalsToLayer();
 }
 
 function updateStartPointStatus() {
@@ -1237,6 +1291,7 @@ function setPreviewZoom(nextZoom) {
         previewZoom = clamped;
         syncPreviewCanvasSize();
         redrawPreviewMeasurementOverlay();
+        persistBackgroundGlobalsToLayer();
     }
 }
 
@@ -1249,6 +1304,7 @@ function setBackgroundStartPoint(x, y) {
         y: toNormalized(y, dims.height)
     };
     updateBackgroundMeasurementUI();
+    persistBackgroundGlobalsToLayer();
 }
 
 function syncBackgroundControls() {
@@ -1288,6 +1344,7 @@ function handleBackgroundFileChange(e) {
             isBackgroundImageVisible = false;
             syncBackgroundControls();
             updateBackgroundMeasurementUI();
+            persistBackgroundGlobalsToLayer();
             redrawCanvas();
         };
         img.src = reader.result;
@@ -1338,6 +1395,7 @@ function startBackgroundMeasurement() {
     updateBackgroundMeasurementUI();
     updateToolInfo();
     redrawPreviewMeasurementOverlay();
+    persistBackgroundGlobalsToLayer();
 }
 
 function moveToBackgroundStartPointStep() {
@@ -1352,6 +1410,7 @@ function moveToBackgroundStartPointStep() {
     backgroundOriginNormalized = null;
     setBackgroundMeasurementStep('startPoint');
     updateBackgroundMeasurementUI();
+    persistBackgroundGlobalsToLayer();
     redrawPreviewMeasurementOverlay();
 }
 
@@ -1366,6 +1425,7 @@ function cancelBackgroundMeasurement() {
     if (backgroundCalibrationBar) backgroundCalibrationBar.classList.add('hidden');
     updateBackgroundMeasurementUI();
     updateToolInfo();
+    persistBackgroundGlobalsToLayer();
     redrawPreviewMeasurementOverlay();
 }
 
@@ -1420,6 +1480,7 @@ function applyBackgroundMeasurement(closeModal = false) {
     updateBackgroundMeasurementUI();
     syncBackgroundControls();
     updateToolInfo();
+    persistBackgroundGlobalsToLayer();
     redrawPreviewMeasurementOverlay();
     redrawCanvas();
     fitViewToBackground(backgroundImageData);
@@ -1506,6 +1567,7 @@ function updateMeasurementDragOnPreview(x, y) {
     measurementDragLast = { x, y };
     redrawPreviewMeasurementOverlay();
     if (finishBackgroundMeasurementButton) finishBackgroundMeasurementButton.disabled = !measurementLineNormalized || !hasValidMeasurementDistance();
+    persistBackgroundGlobalsToLayer();
 }
 
 function finalizeMeasurementDragOnPreview() {
@@ -1526,6 +1588,7 @@ function toggleBackgroundImageVisibility() {
     if (!backgroundImageData) return;
     isBackgroundImageVisible = !isBackgroundImageVisible;
     syncBackgroundControls();
+    persistBackgroundGlobalsToLayer();
     redrawCanvas();
 }
 
@@ -1543,6 +1606,7 @@ function deleteBackgroundImage() {
     closeBackgroundImageModal();
     syncBackgroundControls();
     updateBackgroundMeasurementUI();
+    persistBackgroundGlobalsToLayer();
     redrawCanvas();
 }
 
@@ -3276,14 +3340,41 @@ function stripFloorPattern(floor) {
     return clone;
 }
 
+function serializeBackgroundLayerState(state) {
+    const background = state?.backgroundImageData ? {
+        src: state.backgroundImageData.image?.src || '',
+        x: state.backgroundImageData.x,
+        y: state.backgroundImageData.y,
+        width: state.backgroundImageData.width,
+        height: state.backgroundImageData.height,
+        origin: state.backgroundImageData.origin || null
+    } : null;
+
+    return {
+        background,
+        measurementDistanceFeet: state?.measurementDistanceFeet ?? null,
+        isBackgroundImageVisible: state?.isBackgroundImageVisible ?? true,
+        backgroundOriginNormalized: state?.backgroundOriginNormalized || null,
+        measurementLineNormalized: state?.measurementLineNormalized || null,
+        previewZoom: state?.previewZoom ?? 1
+    };
+}
+
 function buildProjectState() {
-    const background = backgroundImageData ? {
-        src: backgroundImageData.image?.src || '',
-        x: backgroundImageData.x,
-        y: backgroundImageData.y,
-        width: backgroundImageData.width,
-        height: backgroundImageData.height,
-        origin: backgroundImageData.origin || null
+    persistBackgroundGlobalsToLayer();
+    const backgroundsByLayer = {};
+    Object.entries(backgroundStatesByLayer || {}).forEach(([layerId, state]) => {
+        backgroundsByLayer[layerId] = serializeBackgroundLayerState(state);
+    });
+
+    const activeLayerBackgroundState = getLayerBackgroundState();
+    const background = activeLayerBackgroundState.backgroundImageData ? {
+        src: activeLayerBackgroundState.backgroundImageData.image?.src || '',
+        x: activeLayerBackgroundState.backgroundImageData.x,
+        y: activeLayerBackgroundState.backgroundImageData.y,
+        width: activeLayerBackgroundState.backgroundImageData.width,
+        height: activeLayerBackgroundState.backgroundImageData.height,
+        origin: activeLayerBackgroundState.backgroundImageData.origin || null
     } : null;
 
     return {
@@ -3302,6 +3393,7 @@ function buildProjectState() {
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
         layerState: typeof getLayerState === 'function' ? getLayerState() : null,
+        backgroundsByLayer,
         settings: {
             scale,
             gridSize,
@@ -3319,33 +3411,83 @@ function buildProjectState() {
         view: { scale: viewScale, offsetX: viewOffsetX, offsetY: viewOffsetY },
         ids: { nextNodeId, nextWallId, nextFloorId, nextStairGroupId },
         background,
-        measurementDistanceFeet,
-        backgroundImageVisible: isBackgroundImageVisible
+        measurementDistanceFeet: activeLayerBackgroundState.measurementDistanceFeet,
+        backgroundImageVisible: activeLayerBackgroundState.isBackgroundImageVisible
     };
 }
 
 function hydrateBackgroundFromState(background) {
-    if (!background || !background.src) {
-        backgroundImageData = null;
-        syncBackgroundControls();
-        redrawCanvas();
-        return;
+    hydrateBackgroundStatesFromProject({
+        backgroundsByLayer: {
+            [currentLayerId()]: serializeBackgroundLayerState({
+                backgroundImageData: background ? {
+                    image: { src: background.src },
+                    x: background.x,
+                    y: background.y,
+                    width: background.width,
+                    height: background.height,
+                    origin: background.origin || null
+                } : null,
+                measurementDistanceFeet,
+                isBackgroundImageVisible
+            })
+        }
+    });
+}
+
+function hydrateBackgroundLayerState(layerId, payload = {}) {
+    const state = getLayerBackgroundState(layerId);
+    state.measurementDistanceFeet = payload.measurementDistanceFeet ?? null;
+    state.isBackgroundImageVisible = payload.isBackgroundImageVisible ?? true;
+    state.backgroundOriginNormalized = payload.backgroundOriginNormalized || null;
+    state.measurementLineNormalized = payload.measurementLineNormalized || null;
+    state.previewZoom = payload.previewZoom ?? 1;
+    state.backgroundImageDraft = null;
+    state.backgroundImageData = null;
+
+    if (payload.background?.src) {
+        const img = new Image();
+        img.onload = () => {
+            state.backgroundImageData = {
+                image: img,
+                x: payload.background.x,
+                y: payload.background.y,
+                width: payload.background.width,
+                height: payload.background.height,
+                origin: payload.background.origin || null
+            };
+            if (layerId === currentLayerId()) {
+                syncBackgroundGlobalsFromLayer(layerId);
+                syncBackgroundControls();
+                redrawCanvas();
+            }
+        };
+        img.src = payload.background.src;
+    }
+}
+
+function hydrateBackgroundStatesFromProject(state = {}) {
+    backgroundStatesByLayer = {};
+    const serialized = state.backgroundsByLayer;
+    const hasSerializedBackgrounds = serialized && typeof serialized === 'object';
+
+    if (hasSerializedBackgrounds) {
+        Object.entries(serialized).forEach(([layerId, payload]) => hydrateBackgroundLayerState(layerId, payload));
     }
 
-    const img = new Image();
-    img.onload = () => {
-        backgroundImageData = {
-            image: img,
-            x: background.x,
-            y: background.y,
-            width: background.width,
-            height: background.height,
-            origin: background.origin || null
-        };
-        syncBackgroundControls();
-        redrawCanvas();
-    };
-    img.src = background.src;
+    if (!hasSerializedBackgrounds && state.background) {
+        hydrateBackgroundLayerState(currentLayerId(), {
+            background: state.background,
+            measurementDistanceFeet: state.measurementDistanceFeet,
+            isBackgroundImageVisible: state.backgroundImageVisible
+        });
+    }
+
+    syncBackgroundGlobalsFromLayer();
+    persistBackgroundGlobalsToLayer();
+    syncBackgroundControls();
+    updateBackgroundMeasurementUI();
+    redrawCanvas();
 }
 
 function applyProjectState(state) {
@@ -3394,13 +3536,10 @@ function applyProjectState(state) {
      textFontSize = settings.textFontSize ?? textFontSize;
      textIsBold = settings.textIsBold ?? textIsBold;
      textIsItalic = settings.textIsItalic ?? textIsItalic;
-     measurementDistanceFeet = state.measurementDistanceFeet ?? measurementDistanceFeet;
-     isBackgroundImageVisible = state.backgroundImageVisible ?? isBackgroundImageVisible;
-
-     viewScale = state.view?.scale ?? viewScale;
-     viewOffsetX = state.view?.offsetX ?? viewOffsetX;
-     viewOffsetY = state.view?.offsetY ?? viewOffsetY;
-     ensureDefaultViewIfMissing(state);
+    viewScale = state.view?.scale ?? viewScale;
+    viewOffsetX = state.view?.offsetX ?? viewOffsetX;
+    viewOffsetY = state.view?.offsetY ?? viewOffsetY;
+    ensureDefaultViewIfMissing(state);
 
      if (!hasLayerDrawings) {
          nextNodeId = state.ids?.nextNodeId ?? (nodes.length ? Math.max(...nodes.map(n => n.id || 0)) + 1 : 1);
@@ -3435,8 +3574,8 @@ function applyProjectState(state) {
      selectAllMode = false;
      resetFloorLasso();
 
-     hydrateBackgroundFromState(state.background);
-     floors.forEach(ensureFloorPattern);
+    hydrateBackgroundStatesFromProject(state);
+    floors.forEach(ensureFloorPattern);
 
      updateGrid();
      syncCanvasScrollArea();
