@@ -7565,27 +7565,6 @@ function areWallsPerpendicularAtNode(wallA, wallB, nodeId) {
     return Math.abs(dot) <= 0.2; // Roughly within ~78-102 degrees
 }
 
-function getWallCornerOffsets(wall, nodeId) {
-    const geometry = getWallCornerGeometry(wall);
-    if (!geometry) return null;
-
-    const node = getNodeById(nodeId);
-    const otherNodeId = wall.startNodeId === nodeId ? wall.endNodeId : wall.startNodeId;
-    const otherNode = getNodeById(otherNodeId);
-    if (!node || !otherNode) return null;
-
-    const tangentSign = wall.startNodeId === nodeId ? -1 : 1;
-    const outwardTangent = {
-        x: geometry.tangentOffset.x * tangentSign,
-        y: geometry.tangentOffset.y * tangentSign
-    };
-
-    return {
-        normal: geometry.halfOffset,
-        tangent: outwardTangent
-    };
-}
-
 function drawPerpendicularConnectionCorners(wall) {
     const nodesToCheck = [
         { nodeId: wall.startNodeId },
@@ -7601,10 +7580,6 @@ function drawPerpendicularConnectionCorners(wall) {
         connectedWalls.forEach(connected => {
             if (!areWallsPerpendicularAtNode(wall, connected, nodeId)) return;
 
-            const selectedOffset = getWallCornerOffsets(wall, nodeId);
-            const connectedOffset = getWallCornerOffsets(connected, nodeId);
-            if (!selectedOffset || !connectedOffset) return;
-
             const cornerSet = [];
             const addCorner = (x, y) => {
                 const key = `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`;
@@ -7613,17 +7588,17 @@ function drawPerpendicularConnectionCorners(wall) {
                 }
             };
 
-            [1, -1].forEach(selSign => {
-                [1, -1].forEach(connSign => {
-                    const x = node.x
-                        + selectedOffset.tangent.x + selectedOffset.normal.x * selSign
-                        + connectedOffset.tangent.x + connectedOffset.normal.x * connSign;
-                    const y = node.y
-                        + selectedOffset.tangent.y + selectedOffset.normal.y * selSign
-                        + connectedOffset.tangent.y + connectedOffset.normal.y * connSign;
-                    addCorner(x, y);
-                });
-            });
+            const pushWallCornersAtNode = (targetWall) => {
+                const geometry = getWallCornerGeometry(targetWall);
+                if (!geometry) return;
+
+                const isStart = targetWall.startNodeId === nodeId;
+                const nodeCorners = isStart ? geometry.startCorners : geometry.endCorners;
+                nodeCorners.forEach(corner => addCorner(corner.x, corner.y));
+            };
+
+            pushWallCornersAtNode(wall);
+            pushWallCornersAtNode(connected);
 
             ctx.save();
             cornerSet.forEach(({ point }) => drawCornerPoint(point, {
