@@ -157,8 +157,8 @@ function updateDimensionsAttachedToWalls() {
         const dir = { x: dx / len, y: dy / len };
         const normal = { x: -dir.y, y: dir.x };
 
-        const startRatio = clampValue(dim.wallStartRatio, 0, 1);
-        const endRatio = clampValue(dim.wallEndRatio, 0, 1);
+        const startRatio = Number.isFinite(dim.wallStartRatio) ? dim.wallStartRatio : 0;
+        const endRatio = Number.isFinite(dim.wallEndRatio) ? dim.wallEndRatio : 0;
         const offset = computeWallOffset(dim, wall);
 
         dim.startX = n1.x + dir.x * len * startRatio + normal.x * offset;
