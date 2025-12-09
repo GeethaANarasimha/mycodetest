@@ -984,23 +984,12 @@ function handlePreviewWheel(event) {
 
     event.preventDefault();
 
-    const previousZoom = previewZoom;
-    const zoomDelta = event.deltaY < 0 ? PREVIEW_ZOOM_STEP : 1 / PREVIEW_ZOOM_STEP;
-    setPreviewZoom(previewZoom * zoomDelta);
-
-    if (previewZoom === previousZoom) {
-        backgroundPreviewFrame.scrollLeft += event.deltaX;
-        backgroundPreviewFrame.scrollTop += event.deltaY;
-        return;
-    }
-
-    const frameRect = backgroundPreviewFrame.getBoundingClientRect();
-    const focusX = event.clientX - frameRect.left + backgroundPreviewFrame.scrollLeft;
-    const focusY = event.clientY - frameRect.top + backgroundPreviewFrame.scrollTop;
-    const zoomRatio = previewZoom / previousZoom;
-
-    backgroundPreviewFrame.scrollLeft = focusX * zoomRatio - (event.clientX - frameRect.left);
-    backgroundPreviewFrame.scrollTop = focusY * zoomRatio - (event.clientY - frameRect.top);
+    // Do not change zoom on wheel to avoid scaling the modal; only pan the
+    // scrollbars so the full image stays within the preview surface.
+    const horizontalDelta = event.deltaX || (event.shiftKey ? event.deltaY : 0);
+    const verticalDelta = event.shiftKey ? 0 : event.deltaY;
+    backgroundPreviewFrame.scrollLeft += horizontalDelta;
+    backgroundPreviewFrame.scrollTop += verticalDelta;
 }
 
 function startPreviewPan(event) {
@@ -1046,61 +1035,64 @@ function redrawPreviewMeasurementOverlay() {
     const dims = getPreviewDimensions();
     backgroundPreviewCtx.clearRect(0, 0, backgroundPreviewCanvas.width, backgroundPreviewCanvas.height);
 
-    const showOverlay = isBackgroundMeasurementActive && measurementLineNormalized && dims;
+    const showOverlay = isBackgroundMeasurementActive && dims;
     backgroundPreviewCanvas.classList.toggle('active', !!showOverlay);
     if (!showOverlay) return;
 
-    const label = `${getMeasurementLabel()}`;
-    const start = {
-        x: measurementLineNormalized.start.x * dims.width,
-        y: measurementLineNormalized.start.y * dims.height
-    };
-    const end = {
-        x: measurementLineNormalized.end.x * dims.width,
-        y: measurementLineNormalized.end.y * dims.height
-    };
+    if (backgroundMeasurementStep === 'measure' && measurementLineNormalized) {
+        const label = `${getMeasurementLabel()}`;
+        const start = {
+            x: measurementLineNormalized.start.x * dims.width,
+            y: measurementLineNormalized.start.y * dims.height
+        };
+        const end = {
+            x: measurementLineNormalized.end.x * dims.width,
+            y: measurementLineNormalized.end.y * dims.height
+        };
 
-    backgroundPreviewCtx.save();
-    backgroundPreviewCtx.lineWidth = 2;
-    backgroundPreviewCtx.strokeStyle = '#0ea5e9';
-    backgroundPreviewCtx.fillStyle = '#0ea5e9';
+        backgroundPreviewCtx.save();
+        backgroundPreviewCtx.lineWidth = 2;
+        backgroundPreviewCtx.strokeStyle = '#0ea5e9';
+        backgroundPreviewCtx.fillStyle = '#0ea5e9';
 
-    backgroundPreviewCtx.beginPath();
-    backgroundPreviewCtx.moveTo(start.x, start.y);
-    backgroundPreviewCtx.lineTo(end.x, end.y);
-    backgroundPreviewCtx.stroke();
-
-    const handleHalf = 8;
-    [start, end].forEach(point => {
         backgroundPreviewCtx.beginPath();
-        backgroundPreviewCtx.moveTo(point.x - handleHalf, point.y);
-        backgroundPreviewCtx.lineTo(point.x + handleHalf, point.y);
-        backgroundPreviewCtx.moveTo(point.x, point.y - handleHalf);
-        backgroundPreviewCtx.lineTo(point.x, point.y + handleHalf);
+        backgroundPreviewCtx.moveTo(start.x, start.y);
+        backgroundPreviewCtx.lineTo(end.x, end.y);
         backgroundPreviewCtx.stroke();
-    });
 
-    const midX = (start.x + end.x) / 2;
-    const midY = (start.y + end.y) / 2;
-    backgroundPreviewCtx.fillStyle = 'rgba(14, 165, 233, 0.85)';
-    backgroundPreviewCtx.strokeStyle = '#fff';
-    backgroundPreviewCtx.lineWidth = 1;
-    backgroundPreviewCtx.font = '12px Arial';
-    const textWidth = backgroundPreviewCtx.measureText(label).width;
-    const padding = 6;
-    const boxX = midX - textWidth / 2 - padding;
-    const boxY = midY - 16;
-    const boxWidth = textWidth + padding * 2;
-    const boxHeight = 20;
+        const handleHalf = 8;
+        [start, end].forEach(point => {
+            backgroundPreviewCtx.beginPath();
+            backgroundPreviewCtx.moveTo(point.x - handleHalf, point.y);
+            backgroundPreviewCtx.lineTo(point.x + handleHalf, point.y);
+            backgroundPreviewCtx.moveTo(point.x, point.y - handleHalf);
+            backgroundPreviewCtx.lineTo(point.x, point.y + handleHalf);
+            backgroundPreviewCtx.stroke();
+        });
 
-    backgroundPreviewCtx.beginPath();
-    backgroundPreviewCtx.rect(boxX, boxY, boxWidth, boxHeight);
-    backgroundPreviewCtx.fill();
-    backgroundPreviewCtx.stroke();
+        const midX = (start.x + end.x) / 2;
+        const midY = (start.y + end.y) / 2;
+        backgroundPreviewCtx.fillStyle = 'rgba(14, 165, 233, 0.85)';
+        backgroundPreviewCtx.strokeStyle = '#fff';
+        backgroundPreviewCtx.lineWidth = 1;
+        backgroundPreviewCtx.font = '12px Arial';
+        const textWidth = backgroundPreviewCtx.measureText(label).width;
+        const padding = 6;
+        const boxX = midX - textWidth / 2 - padding;
+        const boxY = midY - 16;
+        const boxWidth = textWidth + padding * 2;
+        const boxHeight = 20;
 
-    backgroundPreviewCtx.fillStyle = '#fff';
-    backgroundPreviewCtx.textBaseline = 'middle';
-    backgroundPreviewCtx.fillText(label, midX - textWidth / 2, boxY + boxHeight / 2);
+        backgroundPreviewCtx.beginPath();
+        backgroundPreviewCtx.rect(boxX, boxY, boxWidth, boxHeight);
+        backgroundPreviewCtx.fill();
+        backgroundPreviewCtx.stroke();
+
+        backgroundPreviewCtx.fillStyle = '#fff';
+        backgroundPreviewCtx.textBaseline = 'middle';
+        backgroundPreviewCtx.fillText(label, midX - textWidth / 2, boxY + boxHeight / 2);
+        backgroundPreviewCtx.restore();
+    }
 
     if (backgroundOriginNormalized) {
         const origin = {
@@ -1125,7 +1117,6 @@ function redrawPreviewMeasurementOverlay() {
         backgroundPreviewCtx.fillText('0,0', origin.x + marker + 4, origin.y - marker - 2);
         backgroundPreviewCtx.restore();
     }
-    backgroundPreviewCtx.restore();
 }
 
 function updateBackgroundMeasurementUI() {
