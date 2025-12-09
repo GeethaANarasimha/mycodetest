@@ -29,6 +29,7 @@ const DEFAULT_WALL_FACE_OFFSET = 6; // distance from wall face for manual dimens
 const MANUAL_DIMENSION_EXTENSION = 12; // half-length of the end caps on manual dimensions
 const MANUAL_DIMENSION_PREVIEW_EXTENSION = 14; // preview end-cap half-length for better visibility
 const ENDPOINT_HIGHLIGHT_RADIUS = 7;
+const ENDPOINT_HIGHLIGHT_COLOR = '#e74c3c';
 
 function computeWallAnchorData(wall, startX, startY, endX, endY) {
     if (!wall) return null;
@@ -181,6 +182,87 @@ window.findNearestWall = function(x, y, maxDistance = 20) {
     
     return nearestWall;
 };
+
+function findNearestWallEndpoint(x, y, maxDistance = WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData = null) {
+    const wallsToCheck = preferredWallData?.wall ? [preferredWallData.wall] : walls;
+    let bestMatch = null;
+
+    for (const wall of wallsToCheck) {
+        const n1 = getNodeById(wall.startNodeId);
+        const n2 = getNodeById(wall.endNodeId);
+        if (!n1 || !n2) continue;
+
+        const distanceToStart = Math.hypot(x - n1.x, y - n1.y);
+        const distanceToEnd = Math.hypot(x - n2.x, y - n2.y);
+
+        if (distanceToStart <= maxDistance && (!bestMatch || distanceToStart < bestMatch.distance)) {
+            bestMatch = { wall, node: n1, distance: distanceToStart };
+        }
+
+        if (distanceToEnd <= maxDistance && (!bestMatch || distanceToEnd < bestMatch.distance)) {
+            bestMatch = { wall, node: n2, distance: distanceToEnd };
+        }
+    }
+
+    return bestMatch;
+}
+
+function buildWallDataFromWall(wall) {
+    const n1 = getNodeById(wall.startNodeId);
+    const n2 = getNodeById(wall.endNodeId);
+    if (!n1 || !n2) return null;
+    return { wall, n1, n2 };
+}
+
+function findEndpointSnapTarget(x, y, preferredWallData = null) {
+    const preferredSnap = findNearestWallEndpoint(x, y, WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData);
+    const fallbackSnap = preferredSnap || findNearestWallEndpoint(x, y, WALL_ENDPOINT_SNAP_DISTANCE, null);
+    const snapTarget = fallbackSnap;
+
+    if (!snapTarget) return null;
+
+    const wallData = buildWallDataFromWall(snapTarget.wall);
+    if (!wallData) return null;
+
+    return {
+        x: snapTarget.node.x,
+        y: snapTarget.node.y,
+        node: snapTarget.node,
+        wallData: { ...wallData, hoverX: x, hoverY: y }
+    };
+}
+
+function drawWallEndpointTargets(wallData, activeEndpoint = null) {
+    if (!wallData?.n1 || !wallData?.n2) return;
+
+    withViewTransform(() => {
+        ctx.save();
+        const endpoints = [
+            { node: wallData.n1, isActive: activeEndpoint?.node?.id === wallData.n1.id },
+            { node: wallData.n2, isActive: activeEndpoint?.node?.id === wallData.n2.id }
+        ];
+
+        endpoints.forEach(endpoint => {
+            ctx.beginPath();
+            ctx.arc(endpoint.node.x, endpoint.node.y, ENDPOINT_HIGHLIGHT_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = endpoint.isActive
+                ? 'rgba(231, 76, 60, 0.45)'
+                : 'rgba(231, 76, 60, 0.25)';
+            ctx.fill();
+            ctx.lineWidth = endpoint.isActive ? 2.25 : 1.75;
+            ctx.strokeStyle = ENDPOINT_HIGHLIGHT_COLOR;
+            ctx.stroke();
+
+            // Inner magnet marker to reinforce selectable endpoints
+            ctx.beginPath();
+            ctx.arc(endpoint.node.x, endpoint.node.y, ENDPOINT_HIGHLIGHT_RADIUS / 2.25, 0, Math.PI * 2);
+            ctx.fillStyle = ENDPOINT_HIGHLIGHT_COLOR;
+            ctx.fill();
+        });
+
+        ctx.restore();
+    });
+}
 
 function findNearestWallEndpoint(x, y, maxDistance = WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData = null) {
     const wallsToCheck = preferredWallData?.wall ? [preferredWallData.wall] : walls;
