@@ -7721,7 +7721,6 @@ function drawWallCornerMarkers(wall) {
         lineWidth: 2,
         fill: '#ffffff'
     }));
-    drawCornerPoint(geometry.center, { radius: 4, stroke: '#d35400', fill: '#ffffff' });
     ctx.restore();
 
     drawPerpendicularConnectionCorners(wall);
