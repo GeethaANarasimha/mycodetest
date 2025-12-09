@@ -209,6 +209,20 @@ input[type="number"] {
     font-weight: normal;
 }
 
+.status-pill {
+    background: #dbeafe;
+    color: #1d4ed8;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.status-pill.active {
+    background: #fef3c7;
+    color: #92400e;
+}
+
 .property-hint {
     font-size: 12px;
     color: #444;
