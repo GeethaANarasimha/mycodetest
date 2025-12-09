@@ -59,7 +59,7 @@ function getEndpointCornerPosition(wallData, node, referenceX, referenceY) {
     return { x: node.x + offset.x, y: node.y + offset.y, offset };
 }
 
-function computeWallAnchorData(wall, startX, startY, endX, endY) {
+function computeWallAnchorData(wall, startX, startY, endX, endY, anchorNodes = null) {
     if (!wall) return null;
 
     const n1 = getNodeById(wall.startNodeId);
@@ -84,21 +84,19 @@ function computeWallAnchorData(wall, startX, startY, endX, endY) {
     const endOffset = endVec.x * normal.x + endVec.y * normal.y;
     const offset = (startOffset + endOffset) / 2;
 
-    // If the anchor is effectively on the start/end node (e.g., a wall corner snap),
-    // clamp the ratio so extending the wall keeps the measurement pinned to that node.
-    const thickness = getWallThicknessPx(wall);
-    const clampDistance = Math.max(thickness * 0.75, 6);
+    // If either anchor was snapped to a wall node, pin the ratio directly to that node
+    // so the dimension stays on the corner instead of sliding toward the wall center.
+    if (anchorNodes) {
+        if (anchorNodes.startNodeId) {
+            if (anchorNodes.startNodeId === wall.startNodeId) startRatio = 0;
+            else if (anchorNodes.startNodeId === wall.endNodeId) startRatio = 1;
+        }
 
-    const startDistanceToN1 = Math.hypot(startX - n1.x, startY - n1.y);
-    const startDistanceToN2 = Math.hypot(startX - n2.x, startY - n2.y);
-    const endDistanceToN1 = Math.hypot(endX - n1.x, endY - n1.y);
-    const endDistanceToN2 = Math.hypot(endX - n2.x, endY - n2.y);
-
-    if (startDistanceToN1 <= clampDistance) startRatio = 0;
-    else if (startDistanceToN2 <= clampDistance) startRatio = 1;
-
-    if (endDistanceToN1 <= clampDistance) endRatio = 0;
-    else if (endDistanceToN2 <= clampDistance) endRatio = 1;
+        if (anchorNodes.endNodeId) {
+            if (anchorNodes.endNodeId === wall.startNodeId) endRatio = 0;
+            else if (anchorNodes.endNodeId === wall.endNodeId) endRatio = 1;
+        }
+    }
 
     return {
         startRatio,
@@ -137,7 +135,16 @@ function computeWallOffset(dim, wall) {
     return Number.isFinite(dim?.wallOffset) ? dim.wallOffset : 0;
 }
 
-function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWallData = null, anchorPositions = null) {
+function attachDimensionToWall(
+    dimension,
+    startX,
+    startY,
+    endX,
+    endY,
+    explicitWallData = null,
+    anchorPositions = null,
+    anchorNodes = null
+) {
     let wallData = explicitWallData;
 
     // If no wall provided, try to find a common wall near both points
@@ -157,12 +164,13 @@ function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWa
         anchorPositions?.startX ?? startX,
         anchorPositions?.startY ?? startY,
         anchorPositions?.endX ?? endX,
-        anchorPositions?.endY ?? endY
+        anchorPositions?.endY ?? endY,
+        anchorNodes
     );
     if (!anchorData) return false;
 
     const lineData = anchorPositions
-        ? computeWallAnchorData(wallData.wall, startX, startY, endX, endY) || anchorData
+        ? computeWallAnchorData(wallData.wall, startX, startY, endX, endY, anchorNodes) || anchorData
         : anchorData;
 
     dimension.wallId = wallData.wall.id;
@@ -204,6 +212,11 @@ function updateDimensionsAttachedToWalls() {
         dim.startY = n1.y + dir.y * len * startRatio + normal.y * offset;
         dim.endX = n1.x + dir.x * len * endRatio + normal.x * offset;
         dim.endY = n1.y + dir.y * len * endRatio + normal.y * offset;
+
+        dim.anchorStartX = n1.x + dir.x * len * startRatio + normal.x * startOffset;
+        dim.anchorStartY = n1.y + dir.y * len * startRatio + normal.y * startOffset;
+        dim.anchorEndX = n1.x + dir.x * len * endRatio + normal.x * endOffset;
+        dim.anchorEndY = n1.y + dir.y * len * endRatio + normal.y * endOffset;
 
         dim.anchorStartX = n1.x + dir.x * len * startRatio + normal.x * startOffset;
         dim.anchorStartY = n1.y + dir.y * len * startRatio + normal.y * startOffset;
@@ -495,6 +508,7 @@ function startManualDimension(x, y) {
         y = endpointSnap.y;
         window.dimensionActiveWall = endpointSnap.wallData;
         window.dimensionActiveCornerOffset = endpointSnap.cornerOffset || null;
+        anchorStart.nodeId = endpointSnap.node?.id;
     } else {
         ({ x, y } = snapPointToInch(x, y));
         window.dimensionActiveWall = null;
@@ -559,6 +573,10 @@ function endManualDimension(x, y) {
 
     window.dimensionAnchorEnd = { x, y };
 
+    if (endpointSnap?.node?.id) {
+        window.dimensionAnchorEnd.nodeId = endpointSnap.node.id;
+    }
+
     if (window.dimensionActiveWall?.n1 && window.dimensionActiveWall?.n2) {
         const projected = projectPointToWallSegment(
             x,
@@ -607,7 +625,11 @@ function endManualDimension(x, y) {
         explicitWallData: window.dimensionActiveWall,
         offsetFromWallFace: DEFAULT_WALL_FACE_OFFSET,
         anchorStart,
-        anchorEnd
+        anchorEnd,
+        anchorNodes: {
+            startNodeId: anchorStart.nodeId,
+            endNodeId: anchorEnd.nodeId
+        }
     });
     
     // Reset for next dimension
@@ -741,7 +763,8 @@ window.createManualDimension = function(startX, startY, endX, endY, options = {}
         endX,
         endY,
         options.explicitWallData || window.dimensionActiveWall,
-        anchorPositions
+        anchorPositions,
+        options.anchorNodes
     );
 
     window.updateDimensionMeasurement(dimension);
