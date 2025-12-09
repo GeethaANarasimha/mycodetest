@@ -145,13 +145,49 @@ function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWa
     );
     if (!anchorData) return false;
 
+    const n1 = wallData.n1 || getNodeById(wallData.wall.startNodeId);
+    const n2 = wallData.n2 || getNodeById(wallData.wall.endNodeId);
+
+    let startRatio = anchorData.startRatio;
+    let endRatio = anchorData.endRatio;
+
+    if (n1 && n2 && anchorPositions) {
+        const dx = n2.x - n1.x;
+        const dy = n2.y - n1.y;
+        const len = Math.hypot(dx, dy);
+
+        if (len > 0) {
+            const dir = { x: dx / len, y: dy / len };
+            const endpointTolerance = Math.max(2, scale / 6); // ~2 inches at default scale
+
+            const startProjection =
+                (anchorPositions.startX - n1.x) * dir.x +
+                (anchorPositions.startY - n1.y) * dir.y;
+            const endProjection =
+                (anchorPositions.endX - n1.x) * dir.x +
+                (anchorPositions.endY - n1.y) * dir.y;
+
+            if (Math.abs(startProjection) <= endpointTolerance) {
+                startRatio = 0;
+            } else if (Math.abs(startProjection - len) <= endpointTolerance) {
+                startRatio = 1;
+            }
+
+            if (Math.abs(endProjection - len) <= endpointTolerance) {
+                endRatio = 1;
+            } else if (Math.abs(endProjection) <= endpointTolerance) {
+                endRatio = 0;
+            }
+        }
+    }
+
     const lineData = anchorPositions
         ? computeWallAnchorData(wallData.wall, startX, startY, endX, endY) || anchorData
         : anchorData;
 
     dimension.wallId = wallData.wall.id;
-    dimension.wallStartRatio = anchorData.startRatio;
-    dimension.wallEndRatio = anchorData.endRatio;
+    dimension.wallStartRatio = startRatio;
+    dimension.wallEndRatio = endRatio;
     dimension.wallOffset = lineData.offset;
     dimension.wallStartOffset = anchorData.startOffset;
     dimension.wallEndOffset = anchorData.endOffset;
