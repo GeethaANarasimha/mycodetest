@@ -7436,6 +7436,7 @@ function drawGrid() {
 
 function drawWalls() {
     const selectedToHighlight = [];
+    const showCornerMarkers = currentTool === 'dimension';
 
     // First draw all walls so selection handles aren't hidden behind joints
     for (const w of walls) {
@@ -7459,7 +7460,9 @@ function drawWalls() {
             selectedToHighlight.push({ n1, n2, wall: w });
         }
 
-        drawWallCornerMarkers(w);
+        if (showCornerMarkers) {
+            drawWallCornerMarkers(w);
+        }
     }
 
     // Draw selection highlight for selected walls after all walls are rendered
