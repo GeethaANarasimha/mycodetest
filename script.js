@@ -7500,19 +7500,24 @@ function getWallCornerGeometry(wall) {
     if (length === 0) return null;
 
     const thickness = wall.thicknessPx ?? scale * 0.5;
-    const offsetX = (-dy / length) * (thickness / 2);
-    const offsetY = (dx / length) * (thickness / 2);
-
-    const halfOffset = { x: offsetX, y: offsetY };
+    const halfThickness = thickness / 2;
+    const normal = {
+        x: (-dy / length) * halfThickness,
+        y: (dx / length) * halfThickness
+    };
+    const tangent = {
+        x: (dx / length) * halfThickness,
+        y: (dy / length) * halfThickness
+    };
 
     const startCorners = [
-        { x: n1.x + offsetX, y: n1.y + offsetY },
-        { x: n1.x - offsetX, y: n1.y - offsetY }
+        { x: n1.x - tangent.x + normal.x, y: n1.y - tangent.y + normal.y },
+        { x: n1.x - tangent.x - normal.x, y: n1.y - tangent.y - normal.y }
     ];
 
     const endCorners = [
-        { x: n2.x + offsetX, y: n2.y + offsetY },
-        { x: n2.x - offsetX, y: n2.y - offsetY }
+        { x: n2.x + tangent.x + normal.x, y: n2.y + tangent.y + normal.y },
+        { x: n2.x + tangent.x - normal.x, y: n2.y + tangent.y - normal.y }
     ];
 
     return {
@@ -7520,7 +7525,8 @@ function getWallCornerGeometry(wall) {
         startCorners,
         endCorners,
         center: { x: (n1.x + n2.x) / 2, y: (n1.y + n2.y) / 2 },
-        halfOffset
+        halfOffset: normal,
+        tangentOffset: tangent
     };
 }
 
@@ -7559,11 +7565,35 @@ function areWallsPerpendicularAtNode(wallA, wallB, nodeId) {
     return Math.abs(dot) <= 0.2; // Roughly within ~78-102 degrees
 }
 
-function getWallCornerOffsets(wall) {
+function getWallCornerOffsets(wall, nodeId) {
     const geometry = getWallCornerGeometry(wall);
     if (!geometry) return null;
 
-    return geometry.halfOffset;
+    const node = getNodeById(nodeId);
+    const otherNodeId = wall.startNodeId === nodeId ? wall.endNodeId : wall.startNodeId;
+    const otherNode = getNodeById(otherNodeId);
+    if (!node || !otherNode) return null;
+
+    const dir = {
+        x: otherNode.x - node.x,
+        y: otherNode.y - node.y
+    };
+    const length = Math.hypot(dir.x, dir.y);
+    if (length === 0) return null;
+
+    const tangentLength = geometry.tangentOffset?.x !== undefined
+        ? Math.hypot(geometry.tangentOffset.x, geometry.tangentOffset.y)
+        : 0;
+
+    const outwardTangent = {
+        x: (dir.x / length) * tangentLength,
+        y: (dir.y / length) * tangentLength
+    };
+
+    return {
+        normal: geometry.halfOffset,
+        tangent: outwardTangent
+    };
 }
 
 function drawPerpendicularConnectionCorners(wall) {
@@ -7581,8 +7611,8 @@ function drawPerpendicularConnectionCorners(wall) {
         connectedWalls.forEach(connected => {
             if (!areWallsPerpendicularAtNode(wall, connected, nodeId)) return;
 
-            const selectedOffset = getWallCornerOffsets(wall);
-            const connectedOffset = getWallCornerOffsets(connected);
+            const selectedOffset = getWallCornerOffsets(wall, nodeId);
+            const connectedOffset = getWallCornerOffsets(connected, nodeId);
             if (!selectedOffset || !connectedOffset) return;
 
             const cornerSet = [];
@@ -7595,8 +7625,12 @@ function drawPerpendicularConnectionCorners(wall) {
 
             [1, -1].forEach(selSign => {
                 [1, -1].forEach(connSign => {
-                    const x = node.x + selectedOffset.x * selSign + connectedOffset.x * connSign;
-                    const y = node.y + selectedOffset.y * selSign + connectedOffset.y * connSign;
+                    const x = node.x
+                        + selectedOffset.tangent.x + selectedOffset.normal.x * selSign
+                        + connectedOffset.tangent.x + connectedOffset.normal.x * connSign;
+                    const y = node.y
+                        + selectedOffset.tangent.y + selectedOffset.normal.y * selSign
+                        + connectedOffset.tangent.y + connectedOffset.normal.y * connSign;
                     addCorner(x, y);
                 });
             });
