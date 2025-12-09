@@ -6151,6 +6151,21 @@ function handleMouseDown(e) {
             return;
         }
 
+        const cornerHandle = getWallCornerHandleHit(x, y);
+        if (cornerHandle) {
+            clearDimensionSelection();
+            clearDirectLineSelection();
+            selectedWalls.clear();
+            selectedObjectIndices.clear();
+            selectedFloorIds.clear();
+            selectAllMode = false;
+
+            startNodeDrag(cornerHandle.node, x, y);
+            selectedWalls.add(cornerHandle.wall);
+            redrawCanvas();
+            return;
+        }
+
         // Check for node handles of selected walls
         for (const wall of selectedWalls) {
             const n1 = getNodeById(wall.startNodeId);
@@ -7408,6 +7423,8 @@ function drawWalls() {
         if (selectedWalls.has(w)) {
             selectedToHighlight.push({ n1, n2, wall: w });
         }
+
+        drawWallCornerMarkers(w);
     }
 
     // Draw selection highlight for selected walls after all walls are rendered
@@ -7435,10 +7452,10 @@ function drawWallSelectionHighlight(n1, n2, wall) {
     const dx = n2.x - n1.x;
     const dy = n2.y - n1.y;
     const horizontal = Math.abs(dx) >= Math.abs(dy);
-    
+
     drawHandleNode(n1, horizontal);
     drawHandleNode(n2, horizontal);
-    
+
     ctx.restore();
 }
 
@@ -7485,6 +7502,191 @@ function drawHandleNode(node, horizontal) {
     }
     ctx.stroke();
     ctx.restore();
+}
+
+function getWallCornerGeometry(wall) {
+    const n1 = getNodeById(wall.startNodeId);
+    const n2 = getNodeById(wall.endNodeId);
+    if (!n1 || !n2) return null;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const length = Math.hypot(dx, dy);
+    if (length === 0) return null;
+
+    const thickness = wall.thicknessPx ?? scale * 0.5;
+    const halfThickness = thickness / 2;
+    const normal = {
+        x: (-dy / length) * halfThickness,
+        y: (dx / length) * halfThickness
+    };
+    const tangent = {
+        x: (dx / length) * halfThickness,
+        y: (dy / length) * halfThickness
+    };
+
+    const startCorners = [
+        { x: n1.x - tangent.x + normal.x, y: n1.y - tangent.y + normal.y },
+        { x: n1.x - tangent.x - normal.x, y: n1.y - tangent.y - normal.y }
+    ];
+
+    const endCorners = [
+        { x: n2.x + tangent.x + normal.x, y: n2.y + tangent.y + normal.y },
+        { x: n2.x + tangent.x - normal.x, y: n2.y + tangent.y - normal.y }
+    ];
+
+    return {
+        corners: [startCorners[0], endCorners[0], endCorners[1], startCorners[1]],
+        startCorners,
+        endCorners,
+        center: { x: (n1.x + n2.x) / 2, y: (n1.y + n2.y) / 2 },
+        halfOffset: normal,
+        tangentOffset: tangent
+    };
+}
+
+function drawCornerPoint(point, { radius = 4, stroke = '#e67e22', fill = '#ffffff', lineWidth = 2 } = {}) {
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = stroke;
+    ctx.fill();
+    ctx.stroke();
+}
+
+function getWallCornerHandleHit(x, y, hitRadius = NODE_HIT_RADIUS) {
+    let closest = null;
+    let bestDist = Infinity;
+
+    for (const wall of walls) {
+        const geometry = getWallCornerGeometry(wall);
+        if (!geometry) continue;
+
+        const startNode = getNodeById(wall.startNodeId);
+        const endNode = getNodeById(wall.endNodeId);
+        if (!startNode || !endNode) continue;
+
+        geometry.startCorners.forEach(corner => {
+            const d = Math.hypot(x - corner.x, y - corner.y);
+            if (d <= hitRadius && d < bestDist) {
+                bestDist = d;
+                closest = { wall, node: startNode };
+            }
+        });
+
+        geometry.endCorners.forEach(corner => {
+            const d = Math.hypot(x - corner.x, y - corner.y);
+            if (d <= hitRadius && d < bestDist) {
+                bestDist = d;
+                closest = { wall, node: endNode };
+            }
+        });
+    }
+
+    return closest;
+}
+
+function getWallDirectionFromNode(wall, nodeId) {
+    const start = getNodeById(wall.startNodeId);
+    const end = getNodeById(wall.endNodeId);
+    if (!start || !end) return null;
+
+    const from = wall.startNodeId === nodeId ? start : end;
+    const to = wall.startNodeId === nodeId ? end : start;
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const length = Math.hypot(dx, dy);
+    if (length === 0) return null;
+
+    return { x: dx / length, y: dy / length };
+}
+
+function areWallsPerpendicularAtNode(wallA, wallB, nodeId) {
+    const dirA = getWallDirectionFromNode(wallA, nodeId);
+    const dirB = getWallDirectionFromNode(wallB, nodeId);
+    if (!dirA || !dirB) return false;
+
+    const dot = dirA.x * dirB.x + dirA.y * dirB.y;
+    return Math.abs(dot) <= 0.2; // Roughly within ~78-102 degrees
+}
+
+function drawPerpendicularConnectionCorners(wall) {
+    const nodesToCheck = [
+        { nodeId: wall.startNodeId },
+        { nodeId: wall.endNodeId }
+    ];
+
+    nodesToCheck.forEach(({ nodeId }) => {
+        const node = getNodeById(nodeId);
+        if (!node) return;
+
+        const connectedWalls = walls.filter(w => w !== wall && (w.startNodeId === nodeId || w.endNodeId === nodeId));
+
+        connectedWalls.forEach(connected => {
+            if (!areWallsPerpendicularAtNode(wall, connected, nodeId)) return;
+
+            const cornerSet = [];
+            const addCorner = (x, y) => {
+                const key = `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`;
+                if (!cornerSet.some(c => c.key === key)) {
+                    cornerSet.push({ key, point: { x, y } });
+                }
+            };
+
+            const pushWallCornersAtNode = (targetWall) => {
+                const geometry = getWallCornerGeometry(targetWall);
+                if (!geometry) return;
+
+                const isStart = targetWall.startNodeId === nodeId;
+                const nodeCorners = isStart ? geometry.startCorners : geometry.endCorners;
+                nodeCorners.forEach(corner => addCorner(corner.x, corner.y));
+                return geometry.halfOffset;
+            };
+
+            const wallNormal = pushWallCornersAtNode(wall);
+            const connectedNormal = pushWallCornersAtNode(connected);
+
+            if (wallNormal && connectedNormal) {
+                const signs = [1, -1];
+                signs.forEach(sa => {
+                    signs.forEach(sb => {
+                        addCorner(
+                            node.x + wallNormal.x * sa + connectedNormal.x * sb,
+                            node.y + wallNormal.y * sa + connectedNormal.y * sb
+                        );
+                    });
+                });
+            }
+
+            ctx.save();
+            cornerSet.forEach(({ point }) => drawCornerPoint(point, {
+                stroke: '#e53935',
+                lineWidth: 2,
+                radius: 4,
+                fill: '#ffffff'
+            }));
+            ctx.restore();
+        });
+    });
+}
+
+function drawWallCornerMarkers(wall) {
+    const geometry = getWallCornerGeometry(wall);
+    if (!geometry) return;
+
+    ctx.save();
+    geometry.corners.forEach(corner => drawCornerPoint(corner, {
+        stroke: '#e53935',
+        radius: 4,
+        lineWidth: 2,
+        fill: '#ffffff'
+    }));
+    drawCornerPoint(geometry.center, { radius: 4, stroke: '#d35400', fill: '#ffffff' });
+    ctx.restore();
+
+    drawPerpendicularConnectionCorners(wall);
 }
 
 function drawAlignmentHint() {
