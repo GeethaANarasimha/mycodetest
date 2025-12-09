@@ -195,12 +195,14 @@ function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWa
         ? computeWallAnchorData(wallData.wall, startX, startY, endX, endY) || anchorData
         : anchorData;
 
+    const setAccuracy = (value) => Number.isFinite(value) ? Number(value.toFixed(6)) : value;
+
     dimension.wallId = wallData.wall.id;
-    dimension.wallStartRatio = startRatio;
-    dimension.wallEndRatio = endRatio;
-    dimension.wallOffset = lineData.offset;
-    dimension.wallStartOffset = anchorData.startOffset;
-    dimension.wallEndOffset = anchorData.endOffset;
+    dimension.wallStartRatio = setAccuracy(startRatio);
+    dimension.wallEndRatio = setAccuracy(endRatio);
+    dimension.wallOffset = setAccuracy(lineData.offset);
+    dimension.wallStartOffset = setAccuracy(anchorData.startOffset);
+    dimension.wallEndOffset = setAccuracy(anchorData.endOffset);
 
     return true;
 }
