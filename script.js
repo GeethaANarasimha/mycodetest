@@ -7786,14 +7786,9 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const totalInches = Math.round((len / scale) * 12);
     const text = formatMeasurementText(totalInches);
 
-    const midX = (x1 + x2) / 2;
-    const midY = (y1 + y2) / 2;
     const nx = -dy / len;
     const ny = dx / len;
-    const offset = thicknessPx / 2 + 14;
-    const tx = midX + nx * offset;
-    const ty = midY + ny * offset;
-
+    const baseOffset = thicknessPx / 2 + 14;
     const angle = Math.atan2(dy, dx);
     let renderAngle = angle;
     if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
@@ -7801,22 +7796,51 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     }
 
     withViewTransform(() => {
-        ctx.save();
-        ctx.translate(tx, ty);
-        ctx.rotate(renderAngle);
-        ctx.fillStyle = '#e74c3c';
-        ctx.font = `${measurementFontSize}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        [-1, 1].forEach(direction => {
+            const lineOffset = baseOffset * direction;
+            const textOffset = lineOffset + direction * (measurementFontSize + 6);
+            const start = { x: x1 + nx * lineOffset, y: y1 + ny * lineOffset };
+            const end = { x: x2 + nx * lineOffset, y: y2 + ny * lineOffset };
+            const midX = (start.x + end.x) / 2;
+            const midY = (start.y + end.y) / 2;
 
-        const textWidth = ctx.measureText(text).width;
-        const textHeight = measurementFontSize * 1.2;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+            ctx.save();
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 1;
 
-        ctx.fillStyle = '#e74c3c';
-        ctx.fillText(text, 0, 0);
-        ctx.restore();
+            // Dimension line
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+
+            // Tick marks at the ends
+            const tickLength = 8;
+            const tickOffsetX = nx * tickLength * 0.5;
+            const tickOffsetY = ny * tickLength * 0.5;
+            ctx.moveTo(start.x - tickOffsetX, start.y - tickOffsetY);
+            ctx.lineTo(start.x + tickOffsetX, start.y + tickOffsetY);
+            ctx.moveTo(end.x - tickOffsetX, end.y - tickOffsetY);
+            ctx.lineTo(end.x + tickOffsetX, end.y + tickOffsetY);
+
+            ctx.stroke();
+
+            // Measurement label
+            ctx.translate(midX + nx * textOffset, midY + ny * textOffset);
+            ctx.rotate(renderAngle);
+            ctx.fillStyle = '#e74c3c';
+            ctx.font = `${measurementFontSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const textWidth = ctx.measureText(text).width;
+            const textHeight = measurementFontSize * 1.2;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillText(text, 0, 0);
+            ctx.restore();
+        });
     });
 }
 
