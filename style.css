@@ -516,6 +516,15 @@ input[type="number"] {
     gap: 12px;
     margin-top: 12px;
     align-items: start;
+    min-width: 0;
+}
+
+.preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
 }
 
 .preview-box,
@@ -524,6 +533,7 @@ input[type="number"] {
     padding: 10px;
     border-radius: 6px;
     border: 1px solid #e0e0e0;
+    min-width: 0;
 }
 
 .preview-frame {
@@ -533,21 +543,31 @@ input[type="number"] {
     border: 1px dashed #c8c8c8;
     background: #fff;
     border-radius: 6px;
-    overflow: hidden;
+    overflow: auto;
     display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    min-width: 0;
+}
+
+.preview-surface {
+    position: relative;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
+    cursor: grab;
 }
 
 #backgroundPreview {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    display: none;
 }
 
 .preview-measure-canvas {
     position: absolute;
+    top: 0;
+    left: 0;
     display: none;
     z-index: 2;
     pointer-events: none;
@@ -564,6 +584,53 @@ input[type="number"] {
     font-size: 13px;
     text-align: center;
     padding: 12px;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+}
+
+.preview-zoom-controls {
+    display: flex;
+    gap: 6px;
+}
+
+.preview-zoom-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid #d1d5db;
+    background-color: #fff;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 18px 18px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.preview-zoom-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+}
+
+.preview-zoom-btn.zoom-in {
+    background-image: url('https://static.wixstatic.com/shapes/602ad4_a48dcfdc26d24ee5ae7a7b6ba5e0bb37.svg');
+}
+
+.preview-zoom-btn.zoom-out {
+    background-image: url('https://static.wixstatic.com/shapes/602ad4_8998c783b00a40fa925870fdafabf95c.svg');
+}
+
+.preview-frame.panning {
+    cursor: grabbing;
+}
+
+#backgroundStartPointStatus {
+    margin: 8px 0 0;
+    color: #374151;
 }
 
 .calibration-bar {

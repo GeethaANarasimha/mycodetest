@@ -454,12 +454,21 @@
 
         <div class="preview-row">
             <div class="preview-box">
-                <p class="modal-subtitle">Preview</p>
-                <div class="preview-frame">
-                    <img id="backgroundPreview" alt="Background preview" />
-                    <canvas id="backgroundPreviewCanvas" class="preview-measure-canvas"></canvas>
+                <div class="preview-header">
+                    <p class="modal-subtitle">Preview</p>
+                    <div class="preview-zoom-controls hidden" id="backgroundPreviewZoomControls">
+                        <button id="previewZoomIn" class="preview-zoom-btn zoom-in" type="button" aria-label="Zoom in"></button>
+                        <button id="previewZoomOut" class="preview-zoom-btn zoom-out" type="button" aria-label="Zoom out"></button>
+                    </div>
+                </div>
+                <div class="preview-frame" id="backgroundPreviewFrame">
+                    <div class="preview-surface hidden" id="backgroundPreviewSurface">
+                        <img id="backgroundPreview" alt="Background preview" />
+                        <canvas id="backgroundPreviewCanvas" class="preview-measure-canvas"></canvas>
+                    </div>
                     <div id="backgroundPreviewPlaceholder">Upload an image to preview it here.</div>
                 </div>
+                <p class="modal-subtitle small" id="backgroundStartPointStatus">Click Next to measure and set the (0, 0) start point.</p>
             </div>
             <div class="measurement-box">
                 <p class="modal-subtitle">Measurement</p>
@@ -471,6 +480,7 @@
 
         <div class="modal-actions">
             <button id="startBackgroundMeasurement" class="tool-btn" type="button" disabled>Next</button>
+            <button id="backgroundStartPointStep" class="tool-btn secondary-btn hidden" type="button">Next</button>
             <button id="finishBackgroundMeasurement" class="tool-btn secondary-btn" type="button" disabled>Finish</button>
             <button id="cancelBackgroundImage" class="tool-btn secondary-btn" type="button">Cancel</button>
         </div>
