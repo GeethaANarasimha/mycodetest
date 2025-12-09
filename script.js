@@ -234,7 +234,9 @@ function createDefaultBackgroundState() {
         measurementDistanceFeet: null,
         isBackgroundImageVisible: true,
         backgroundOriginNormalized: null,
-        previewZoom: 1
+        previewZoom: 1,
+        scale,
+        gridSize
     };
 }
 
@@ -255,6 +257,9 @@ function syncBackgroundGlobalsFromLayer(layerId = currentLayerId()) {
     isBackgroundImageVisible = state.isBackgroundImageVisible ?? true;
     backgroundOriginNormalized = state.backgroundOriginNormalized || null;
     previewZoom = state.previewZoom ?? 1;
+    scale = state.scale ?? scale;
+    gridSize = state.gridSize ?? gridSize;
+    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
 }
 
 function persistBackgroundGlobalsToLayer(layerId = currentLayerId()) {
@@ -266,6 +271,8 @@ function persistBackgroundGlobalsToLayer(layerId = currentLayerId()) {
     state.isBackgroundImageVisible = isBackgroundImageVisible ?? true;
     state.backgroundOriginNormalized = backgroundOriginNormalized || null;
     state.previewZoom = previewZoom ?? 1;
+    state.scale = scale;
+    state.gridSize = gridSize;
 }
 
 const BASE_CANVAS_WIDTH = canvas.width;
@@ -3354,7 +3361,9 @@ function serializeBackgroundLayerState(state) {
         isBackgroundImageVisible: state?.isBackgroundImageVisible ?? true,
         backgroundOriginNormalized: state?.backgroundOriginNormalized || null,
         measurementLineNormalized: state?.measurementLineNormalized || null,
-        previewZoom: state?.previewZoom ?? 1
+        previewZoom: state?.previewZoom ?? 1,
+        scale: state?.scale ?? scale,
+        gridSize: state?.gridSize ?? gridSize
     };
 }
 
@@ -3439,6 +3448,8 @@ function hydrateBackgroundLayerState(layerId, payload = {}) {
     state.backgroundOriginNormalized = payload.backgroundOriginNormalized || null;
     state.measurementLineNormalized = payload.measurementLineNormalized || null;
     state.previewZoom = payload.previewZoom ?? 1;
+    state.scale = payload.scale ?? state.scale ?? scale;
+    state.gridSize = payload.gridSize ?? state.gridSize ?? gridSize;
     state.backgroundImageDraft = null;
     state.backgroundImageData = null;
 
