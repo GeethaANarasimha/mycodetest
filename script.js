@@ -877,7 +877,7 @@ function drawRulers() {
     drawVerticalRuler();
 }
 
-function fitViewToBackground(data) {
+function fitViewToBackground(data, { preserveScale = false } = {}) {
     if (!data || !canvasContainer) return;
     const containerRect = canvasContainer.getBoundingClientRect();
     if (!containerRect.width || !containerRect.height) return;
@@ -890,10 +890,12 @@ function fitViewToBackground(data) {
 
     const scaleForWidth = availableWidth / data.width;
     const scaleForHeight = availableHeight / data.height;
-    const targetScale = Math.min(
-        MAX_VIEW_SCALE,
-        Math.max(MIN_VIEW_SCALE, Math.min(scaleForWidth, scaleForHeight, 1))
-    );
+    const targetScale = preserveScale
+        ? Math.min(MAX_VIEW_SCALE, Math.max(MIN_VIEW_SCALE, viewScale))
+        : Math.min(
+              MAX_VIEW_SCALE,
+              Math.max(MIN_VIEW_SCALE, Math.min(scaleForWidth, scaleForHeight, 1))
+          );
 
     const viewCenterX = availableWidth / 2 + margin;
     const viewCenterY = availableHeight / 2 + margin;
@@ -1488,7 +1490,7 @@ function applyBackgroundMeasurement(closeModal = false) {
     persistBackgroundGlobalsToLayer();
     redrawPreviewMeasurementOverlay();
     redrawCanvas();
-    fitViewToBackground(backgroundImageData);
+    fitViewToBackground(backgroundImageData, { preserveScale: true });
     if (closeModal) closeBackgroundImageModal();
     return true;
 }
