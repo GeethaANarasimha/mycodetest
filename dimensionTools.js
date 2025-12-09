@@ -185,12 +185,14 @@ function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWa
         ? computeWallAnchorData(wallData.wall, startX, startY, endX, endY) || anchorData
         : anchorData;
 
+    const setAccuracy = (value) => Number.isFinite(value) ? Number(value.toFixed(6)) : value;
+
     dimension.wallId = wallData.wall.id;
-    dimension.wallStartRatio = startRatio;
-    dimension.wallEndRatio = endRatio;
-    dimension.wallOffset = lineData.offset;
-    dimension.wallStartOffset = anchorData.startOffset;
-    dimension.wallEndOffset = anchorData.endOffset;
+    dimension.wallStartRatio = setAccuracy(startRatio);
+    dimension.wallEndRatio = setAccuracy(endRatio);
+    dimension.wallOffset = setAccuracy(lineData.offset);
+    dimension.wallStartOffset = setAccuracy(anchorData.startOffset);
+    dimension.wallEndOffset = setAccuracy(anchorData.endOffset);
 
     return true;
 }
@@ -516,9 +518,6 @@ function startManualDimension(x, y) {
         window.dimensionActiveCornerOffset = null;
     }
 
-    anchorStart.x = x;
-    anchorStart.y = y;
-
     // If the user begins a manual dimension on a wall endpoint, align to that wall
     const nearestWall = window.dimensionActiveWall;
     if (nearestWall?.n1 && nearestWall?.n2) {
@@ -542,6 +541,9 @@ function startManualDimension(x, y) {
         window.dimensionActiveWall = null;
         window.dimensionActiveOffsetSign = 1;
     }
+
+    anchorStart.x = x;
+    anchorStart.y = y;
 
     dimensionStartX = x;
     dimensionStartY = y;
@@ -572,8 +574,6 @@ function endManualDimension(x, y) {
         ({ x, y } = snapPointToInch(x, y));
     }
 
-    window.dimensionAnchorEnd = { x, y };
-
     if (window.dimensionActiveWall?.n1 && window.dimensionActiveWall?.n2) {
         const projected = projectPointToWallSegment(
             x,
@@ -591,6 +591,8 @@ function endManualDimension(x, y) {
             y = projected.y;
         }
     }
+
+    window.dimensionAnchorEnd = { x, y };
 
     const anchorStart = window.dimensionAnchorStart || { x: dimensionStartX, y: dimensionStartY };
     const anchorEnd = window.dimensionAnchorEnd || { x, y };
