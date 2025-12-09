@@ -47,16 +47,57 @@ function getWallNormal(wallData) {
     return { x: -dy / len, y: dx / len };
 }
 
+function hasCollinearNeighbor(wallData, nodeId) {
+    if (!wallData?.wall || !Array.isArray(walls)) return false;
+
+    const wall = wallData.wall;
+    const n1 = getNodeById(wall.startNodeId);
+    const n2 = getNodeById(wall.endNodeId);
+    if (!n1 || !n2) return false;
+
+    const orientation = getWallOrientation(n1, n2);
+    if (orientation === 'diagonal') return false;
+
+    return walls.some(other => {
+        if (other.id === wall.id) return false;
+        if (other.startNodeId !== nodeId && other.endNodeId !== nodeId) return false;
+
+        const o1 = getNodeById(other.startNodeId);
+        const o2 = getNodeById(other.endNodeId);
+        if (!o1 || !o2) return false;
+
+        return getWallOrientation(o1, o2) === orientation;
+    });
+}
+
 function getEndpointCornerPosition(wallData, node, referenceX, referenceY) {
     const normal = getWallNormal(wallData);
     if (!normal) return { x: node.x, y: node.y, offset: { x: 0, y: 0 } };
 
-    const halfThickness = getWallThicknessPx(wallData.wall) / 2;
+    const wall = wallData.wall;
+    const halfThickness = getWallThicknessPx(wall) / 2;
     const toReference = { x: referenceX - node.x, y: referenceY - node.y };
     const sign = (toReference.x * normal.x + toReference.y * normal.y) >= 0 ? 1 : -1;
 
-    const offset = { x: normal.x * halfThickness * sign, y: normal.y * halfThickness * sign };
-    return { x: node.x + offset.x, y: node.y + offset.y, offset };
+    // Extend to the wall's outside corner along the wall direction, but trim back
+    // when the wall is split into collinear sections to avoid overlapping
+    // dimensions.
+    const otherNodeId = wall.startNodeId === node.id ? wall.endNodeId : wall.startNodeId;
+    const otherNode = getNodeById(otherNodeId);
+    const dx = otherNode?.x - node.x || 0;
+    const dy = otherNode?.y - node.y || 0;
+    const length = Math.hypot(dx, dy) || 1;
+    const dir = { x: dx / length, y: dy / length };
+    const tangentOffset = { x: dir.x * halfThickness, y: dir.y * halfThickness };
+    const normalOffset = { x: normal.x * halfThickness * sign, y: normal.y * halfThickness * sign };
+
+    const hasCollinear = hasCollinearNeighbor(wallData, node.id);
+    const cornerOffset = {
+        x: normalOffset.x + (hasCollinear ? 0 : (wall.startNodeId === node.id ? -tangentOffset.x : tangentOffset.x)),
+        y: normalOffset.y + (hasCollinear ? 0 : (wall.startNodeId === node.id ? -tangentOffset.y : tangentOffset.y))
+    };
+
+    return { x: node.x + cornerOffset.x, y: node.y + cornerOffset.y, offset: cornerOffset };
 }
 
 function computeWallAnchorData(wall, startX, startY, endX, endY) {
