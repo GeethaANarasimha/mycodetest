@@ -20,7 +20,6 @@ const textFontIncreaseButton = document.getElementById('textFontIncrease');
 const textFontDecreaseButton = document.getElementById('textFontDecrease');
 const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
-const snapToGridCheckbox = document.getElementById('snapToGrid');
 const showDimensionsCheckbox = document.getElementById('showDimensions');
 const toggleGridButton = document.getElementById('toggleGrid');
 const coordinatesDisplay = document.querySelector('.coordinates');
@@ -165,7 +164,6 @@ let startX, startY;
 let currentX, currentY;
 
 let gridSize = parseInt(gridSizeInput.value, 10);
-let snapToGrid = snapToGridCheckbox.checked;
 let showGrid = true;
 let showDimensions = showDimensionsCheckbox.checked;
 let textFontSize = 18;
@@ -3397,7 +3395,6 @@ function buildProjectState() {
         settings: {
             scale,
             gridSize,
-            snapToGrid,
             showDimensions,
             showGrid,
             measurementFontSize,
@@ -3526,13 +3523,12 @@ function applyProjectState(state) {
      directLines = JSON.parse(JSON.stringify(state.directLines || []));
      resetDirectLineDrawing();
 
-     const settings = state.settings || {};
-     scale = settings.scale ?? scale;
-     gridSize = settings.gridSize ?? gridSize;
-     snapToGrid = settings.snapToGrid ?? snapToGrid;
-     showGrid = settings.showGrid ?? showGrid;
-     showDimensions = settings.showDimensions ?? showDimensions;
-     measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
+    const settings = state.settings || {};
+    scale = settings.scale ?? scale;
+    gridSize = settings.gridSize ?? gridSize;
+    showGrid = settings.showGrid ?? showGrid;
+    showDimensions = settings.showDimensions ?? showDimensions;
+    measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
      textFontSize = settings.textFontSize ?? textFontSize;
      textIsBold = settings.textIsBold ?? textIsBold;
      textIsItalic = settings.textIsItalic ?? textIsItalic;
@@ -3549,9 +3545,8 @@ function applyProjectState(state) {
          nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
      }
 
-     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
-     if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
-     if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
+    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+    if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
      if (lineWidthInput && Number.isFinite(settings.lineWidth)) lineWidthInput.value = settings.lineWidth;
      if (lineColorInput && settings.lineColor) lineColorInput.value = settings.lineColor;
      if (fillColorInput && settings.fillColor) fillColorInput.value = settings.fillColor;
@@ -4438,7 +4433,6 @@ function buildConvertedProject(parsed) {
         settings: {
             scale,
             gridSize,
-            snapToGrid,
             showDimensions,
             showGrid,
             measurementFontSize,
@@ -4899,7 +4893,6 @@ function init() {
     });
 
     gridSizeInput.addEventListener('input', updateGrid);
-    snapToGridCheckbox.addEventListener('change', updateGrid);
     showDimensionsCheckbox.addEventListener('change', () => {
         showDimensions = showDimensionsCheckbox.checked;
         redrawCanvas();
@@ -5024,11 +5017,7 @@ function handleCanvasContextMenu(e) {
 // SNAP HELPERS
 // ============================================================
 function snapToGridPoint(x, y) {
-    if (!snapToGrid) return { x, y };
-    return {
-        x: Math.round(x / gridSize) * gridSize,
-        y: Math.round(y / gridSize) * gridSize
-    };
+    return { x, y };
 }
 
 function snapPointToInch(x, y) {
@@ -9498,7 +9487,6 @@ function applyFloorTexture() {
 
 function updateGrid() {
     gridSize = parseInt(gridSizeInput.value, 10) || 20;
-    snapToGrid = snapToGridCheckbox.checked;
     redrawCanvas();
 }
 
