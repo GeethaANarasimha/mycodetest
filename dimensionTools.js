@@ -25,7 +25,8 @@ const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
 const WALL_HOVER_CONTACT_DISTANCE = 7; // allow hover within 2px of the wall face
-const WALL_ENDPOINT_SNAP_DISTANCE = 5; // distance threshold to magnet to wall endpoints
+const WALL_ENDPOINT_SNAP_DISTANCE = 8; // distance threshold to magnet to wall endpoints
+const WALL_ENDPOINT_STICKY_MULTIPLIER = 1.5; // allow a little more reach once we're already snapped
 const DEFAULT_WALL_FACE_OFFSET = 6; // distance from wall face for manual dimensions
 const MANUAL_DIMENSION_EXTENSION = 12; // half-length of the end caps on manual dimensions
 const MANUAL_DIMENSION_PREVIEW_EXTENSION = 14; // preview end-cap half-length for better visibility
@@ -265,7 +266,16 @@ function findPerpendicularCornerCandidates(wall) {
     return candidates;
 }
 
-function findNearestWallEndpoint(x, y, maxDistance = WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData = null) {
+function isSameEndpointCandidate(candidateWall, candidateNode, lastSnap) {
+    if (!candidateWall || !candidateNode || !lastSnap) return false;
+
+    const lastWallId = lastSnap.wallData?.wall?.id ?? lastSnap.wallData?.id;
+    const lastNodeId = lastSnap.node?.id;
+
+    return lastWallId === candidateWall.id && lastNodeId === candidateNode.id;
+}
+
+function findNearestWallEndpoint(x, y, maxDistance = WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData = null, lastSnap = null) {
     const wallsToCheck = preferredWallData?.wall ? [preferredWallData.wall] : walls;
     let bestMatch = null;
 
@@ -293,7 +303,11 @@ function findNearestWallEndpoint(x, y, maxDistance = WALL_ENDPOINT_SNAP_DISTANCE
             const dx = x - candidate.point.x;
             const dy = y - candidate.point.y;
             const distance = Math.hypot(dx, dy);
-            if (distance <= maxDistance && (!bestMatch || distance < bestMatch.distance)) {
+            const stickyDistance = isSameEndpointCandidate(wall, candidate.node, lastSnap)
+                ? maxDistance * WALL_ENDPOINT_STICKY_MULTIPLIER
+                : maxDistance;
+
+            if (distance <= stickyDistance && (!bestMatch || distance < bestMatch.distance)) {
                 bestMatch = {
                     wall,
                     node: candidate.node,
@@ -318,9 +332,9 @@ function buildWallDataFromWall(wall) {
     return { wall, n1, n2 };
 }
 
-function findEndpointSnapTarget(x, y, preferredWallData = null) {
-    const preferredSnap = findNearestWallEndpoint(x, y, WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData);
-    const fallbackSnap = preferredSnap || findNearestWallEndpoint(x, y, WALL_ENDPOINT_SNAP_DISTANCE, null);
+function findEndpointSnapTarget(x, y, preferredWallData = null, lastSnap = null) {
+    const preferredSnap = findNearestWallEndpoint(x, y, WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData, lastSnap);
+    const fallbackSnap = preferredSnap || findNearestWallEndpoint(x, y, WALL_ENDPOINT_SNAP_DISTANCE, null, lastSnap);
     const snapTarget = fallbackSnap;
 
     if (!snapTarget) return null;
@@ -425,7 +439,7 @@ window.handleDimensionMouseDown = function(e) {
  * Start manual dimension
  */
 function startManualDimension(x, y) {
-    const endpointSnap = findEndpointSnapTarget(x, y, window.hoveredWall);
+    const endpointSnap = findEndpointSnapTarget(x, y, window.hoveredWall, window.dimensionEndpointHover);
     const hasEndpointSnap = Boolean(endpointSnap);
     if (endpointSnap) {
         x = endpointSnap.x;
@@ -476,7 +490,7 @@ function startManualDimension(x, y) {
  * End manual dimension
  */
 function endManualDimension(x, y) {
-    const endpointSnap = findEndpointSnapTarget(x, y, window.dimensionActiveWall);
+    const endpointSnap = findEndpointSnapTarget(x, y, window.dimensionActiveWall, window.dimensionEndpointHover);
     let cornerOffset = window.dimensionActiveCornerOffset || null;
     if (endpointSnap) {
         x = endpointSnap.x;
@@ -679,7 +693,7 @@ window.handleDimensionMouseMove = function(e) {
     const isTouchingWall = hoverWall?.distance != null && hoverWall.distance <= WALL_HOVER_CONTACT_DISTANCE;
     window.hoveredWall = isTouchingWall ? hoverWall : null;
 
-    const snapEndpoint = findEndpointSnapTarget(x, y, window.hoveredWall);
+    const snapEndpoint = findEndpointSnapTarget(x, y, window.hoveredWall, window.dimensionEndpointHover);
     window.dimensionEndpointHover = snapEndpoint;
 
     if (window.hoveredWall) {
@@ -695,7 +709,12 @@ window.handleDimensionMouseMove = function(e) {
         coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to start measurement`;
     } else {
         // Manual dimension drawing mode
-        const activeSnap = findEndpointSnapTarget(x, y, window.dimensionActiveWall || window.hoveredWall);
+        const activeSnap = findEndpointSnapTarget(
+            x,
+            y,
+            window.dimensionActiveWall || window.hoveredWall,
+            window.dimensionEndpointHover
+        );
         let cornerOffset = window.dimensionActiveCornerOffset || null;
 
         if (activeSnap) {
