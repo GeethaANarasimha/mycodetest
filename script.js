@@ -7436,7 +7436,6 @@ function drawGrid() {
 
 function drawWalls() {
     const selectedToHighlight = [];
-    const showCornerMarkers = currentTool === 'dimension';
 
     // First draw all walls so selection handles aren't hidden behind joints
     for (const w of walls) {
@@ -7460,9 +7459,7 @@ function drawWalls() {
             selectedToHighlight.push({ n1, n2, wall: w });
         }
 
-        if (showCornerMarkers) {
-            drawWallCornerMarkers(w);
-        }
+        drawWallCornerMarkers(w);
     }
 
     // Draw selection highlight for selected walls after all walls are rendered
@@ -7721,6 +7718,7 @@ function drawWallCornerMarkers(wall) {
         lineWidth: 2,
         fill: '#ffffff'
     }));
+    drawCornerPoint(geometry.center, { radius: 4, stroke: '#d35400', fill: '#ffffff' });
     ctx.restore();
 
     drawPerpendicularConnectionCorners(wall);
