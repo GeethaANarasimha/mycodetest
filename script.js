@@ -934,12 +934,12 @@ function updateBackgroundPreview(previewData) {
 }
 
 function syncPreviewCanvasSize() {
-    if (!backgroundPreviewCanvas || !backgroundPreview) return;
-    const frameRect = backgroundPreviewFrame?.getBoundingClientRect();
-    if (!frameRect) return;
+    if (!backgroundPreviewCanvas || !backgroundPreview || !backgroundPreviewFrame) return;
 
-    const frameWidth = frameRect.width;
-    const frameHeight = frameRect.height;
+    // Use the frame's own box size so zooming the image never feeds back into
+    // layout calculations that could stretch the surrounding modal.
+    const frameWidth = backgroundPreviewFrame.clientWidth;
+    const frameHeight = backgroundPreviewFrame.clientHeight;
     const naturalWidth = backgroundPreview.naturalWidth;
     const naturalHeight = backgroundPreview.naturalHeight;
     if (!frameWidth || !frameHeight || !naturalWidth || !naturalHeight) return;
