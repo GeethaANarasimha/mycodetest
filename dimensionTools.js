@@ -157,27 +157,37 @@ function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWa
         const len = Math.hypot(dx, dy);
 
         if (len > 0) {
-            const dir = { x: dx / len, y: dy / len };
             const endpointTolerance = Math.max(2, scale / 6); // ~2 inches at default scale
 
-            const startProjection =
-                (anchorPositions.startX - n1.x) * dir.x +
-                (anchorPositions.startY - n1.y) * dir.y;
-            const endProjection =
-                (anchorPositions.endX - n1.x) * dir.x +
-                (anchorPositions.endY - n1.y) * dir.y;
+            const projectedStart = projectPointToWallSegment(
+                anchorPositions.startX,
+                anchorPositions.startY,
+                n1.x,
+                n1.y,
+                n2.x,
+                n2.y
+            );
 
-            if (Math.abs(startProjection) <= endpointTolerance) {
-                startRatio = 0;
-            } else if (Math.abs(startProjection - len) <= endpointTolerance) {
-                startRatio = 1;
-            }
+            const projectedEnd = projectPointToWallSegment(
+                anchorPositions.endX,
+                anchorPositions.endY,
+                n1.x,
+                n1.y,
+                n2.x,
+                n2.y
+            );
 
-            if (Math.abs(endProjection - len) <= endpointTolerance) {
-                endRatio = 1;
-            } else if (Math.abs(endProjection) <= endpointTolerance) {
-                endRatio = 0;
-            }
+            const clampToEndpoint = (ratio, projected) => {
+                const distanceToStart = Math.hypot(projected.x - n1.x, projected.y - n1.y);
+                const distanceToEnd = Math.hypot(projected.x - n2.x, projected.y - n2.y);
+
+                if (distanceToStart <= endpointTolerance) return 0;
+                if (distanceToEnd <= endpointTolerance) return 1;
+                return ratio;
+            };
+
+            startRatio = clampToEndpoint(projectedStart.t, projectedStart);
+            endRatio = clampToEndpoint(projectedEnd.t, projectedEnd);
         }
     }
 
