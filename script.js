@@ -22,6 +22,8 @@ const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
 const showDimensionsCheckbox = document.getElementById('showDimensions');
 const toggleGridButton = document.getElementById('toggleGrid');
+const snapToGridCheckbox = document.getElementById('snapToGrid');
+const precisionStatusDisplay = document.getElementById('precisionStatus');
 const coordinatesDisplay = document.querySelector('.coordinates');
 const toolInfoDisplay = document.querySelector('.tool-info');
 const measurementFontIncreaseButton = document.getElementById('measurementFontIncrease');
@@ -156,6 +158,7 @@ const RULER_SIZE = 28;
 const DEFAULT_VIEW_MARGIN_FEET = 3;
 const DIRECT_LINE_HANDLE_RADIUS = 8;
 const DIRECT_LINE_HIT_TOLERANCE = 8;
+const SNAP_RESOLUTION_INCHES = 0.125;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -165,6 +168,7 @@ let currentX, currentY;
 
 let gridSize = parseInt(gridSizeInput.value, 10);
 let showGrid = true;
+let gridSnappingEnabled = true;
 let showDimensions = showDimensionsCheckbox.checked;
 let textFontSize = 18;
 let textIsBold = false;
@@ -4914,6 +4918,14 @@ function init() {
         redrawCanvas();
     });
 
+    if (snapToGridCheckbox) {
+        gridSnappingEnabled = snapToGridCheckbox.checked;
+        snapToGridCheckbox.addEventListener('change', () => {
+            gridSnappingEnabled = snapToGridCheckbox.checked;
+            updatePrecisionStatus();
+        });
+    }
+
     if (textBoldButton) {
         textBoldButton.addEventListener('click', toggleTextBold);
     }
@@ -4978,6 +4990,7 @@ function init() {
     drawGrid();
     syncBackgroundControls();
     updateTextStyleButtons();
+    updatePrecisionStatus();
     updateMeasurementPreview();
     updateStaircaseSummary();
     updateToolInfo();
@@ -5036,17 +5049,30 @@ function snapToGridPoint(x, y) {
     return { x, y };
 }
 
-function snapPointToInch(x, y) {
+function getSnapPixelStep() {
     const inchPx = scale / 12;
+    return inchPx * SNAP_RESOLUTION_INCHES;
+}
+
+function snapPointToInch(x, y) {
+    if (!gridSnappingEnabled) return { x, y };
+
+    const snapStep = getSnapPixelStep();
+    if (!snapStep) return { x, y };
+
     return {
-        x: Math.round(x / inchPx) * inchPx,
-        y: Math.round(y / inchPx) * inchPx
+        x: Math.round(x / snapStep) * snapStep,
+        y: Math.round(y / snapStep) * snapStep
     };
 }
 
 function snapToInchAlongDirection(t) {
-    const inchPx = scale / 12;
-    return Math.round(t / inchPx) * inchPx;
+    if (!gridSnappingEnabled) return t;
+
+    const snapStep = getSnapPixelStep();
+    if (!snapStep) return t;
+
+    return Math.round(t / snapStep) * snapStep;
 }
 
 function getStairSnapCandidates(excludeIndex = null) {
@@ -5180,9 +5206,10 @@ function moveSelectedWalls(dx, dy, { skipUndo = false } = {}) {
     affectedNodeIds.forEach(nodeId => {
         const node = getNodeById(nodeId);
         if (!node) return;
-        const { x, y } = snapPointToInch(node.x + dx, node.y + dy);
-        node.x = x;
-        node.y = y;
+        const target = { x: node.x + dx, y: node.y + dy };
+        const snapped = snapPointToInch(target.x, target.y);
+        node.x = gridSnappingEnabled ? snapped.x : target.x;
+        node.y = gridSnappingEnabled ? snapped.y : target.y;
     });
 
     redrawCanvas();
@@ -5196,13 +5223,16 @@ function moveSelectedDimension(dx, dy, { skipUndo = false } = {}) {
 
     if (!skipUndo) pushUndoState();
 
-    const start = snapPointToInch(dimension.startX + dx, dimension.startY + dy);
-    const end = snapPointToInch(dimension.endX + dx, dimension.endY + dy);
+    const rawStart = { x: dimension.startX + dx, y: dimension.startY + dy };
+    const rawEnd = { x: dimension.endX + dx, y: dimension.endY + dy };
 
-    dimension.startX = start.x;
-    dimension.startY = start.y;
-    dimension.endX = end.x;
-    dimension.endY = end.y;
+    const start = snapPointToInch(rawStart.x, rawStart.y);
+    const end = snapPointToInch(rawEnd.x, rawEnd.y);
+
+    dimension.startX = gridSnappingEnabled ? start.x : rawStart.x;
+    dimension.startY = gridSnappingEnabled ? start.y : rawStart.y;
+    dimension.endX = gridSnappingEnabled ? end.x : rawEnd.x;
+    dimension.endY = gridSnappingEnabled ? end.y : rawEnd.y;
 
     if (typeof window.updateDimensionMeasurement === 'function') {
         window.updateDimensionMeasurement(dimension);
@@ -7211,13 +7241,18 @@ function applyDimensionDrag(x, y) {
     let newEnd = { x: initial.endX, y: initial.endY };
 
     if (dimensionDrag.handle === 'start') {
-        newStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
+        const rawStart = { x: initial.startX + dx, y: initial.startY + dy };
+        const snappedStart = snapPointToInch(rawStart.x, rawStart.y);
+        newStart = gridSnappingEnabled ? snappedStart : rawStart;
     } else if (dimensionDrag.handle === 'end') {
-        newEnd = snapPointToInch(initial.endX + dx, initial.endY + dy);
+        const rawEnd = { x: initial.endX + dx, y: initial.endY + dy };
+        const snappedEnd = snapPointToInch(rawEnd.x, rawEnd.y);
+        newEnd = gridSnappingEnabled ? snappedEnd : rawEnd;
     } else if (dimensionDrag.handle === 'line') {
-        const snappedStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
-        const offsetX = snappedStart.x - initial.startX;
-        const offsetY = snappedStart.y - initial.startY;
+        const rawStart = { x: initial.startX + dx, y: initial.startY + dy };
+        const snappedStart = snapPointToInch(rawStart.x, rawStart.y);
+        const offsetX = (gridSnappingEnabled ? snappedStart.x : rawStart.x) - initial.startX;
+        const offsetY = (gridSnappingEnabled ? snappedStart.y : rawStart.y) - initial.startY;
         newStart = { x: initial.startX + offsetX, y: initial.startY + offsetY };
         newEnd = { x: initial.endX + offsetX, y: initial.endY + offsetY };
     }
@@ -7748,17 +7783,10 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const len = Math.hypot(dx, dy);
     if (len < 1) return;
 
-    const totalInches = Math.round((len / scale) * 12);
-    const text = formatMeasurementText(totalInches);
-
-    const midX = (x1 + x2) / 2;
-    const midY = (y1 + y2) / 2;
-    const nx = -dy / len;
-    const ny = dx / len;
-    const offset = thicknessPx / 2 + 14;
-    const tx = midX + nx * offset;
-    const ty = midY + ny * offset;
-
+    const halfThickness = thicknessPx / 2;
+    const unitTangent = { x: dx / len, y: dy / len };
+    const unitNormal = { x: -dy / len, y: dx / len };
+    const baseOffset = halfThickness + 14;
     const angle = Math.atan2(dy, dx);
     let renderAngle = angle;
     if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
@@ -7766,22 +7794,70 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     }
 
     withViewTransform(() => {
-        ctx.save();
-        ctx.translate(tx, ty);
-        ctx.rotate(renderAngle);
-        ctx.fillStyle = '#e74c3c';
-        ctx.font = `${measurementFontSize}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        [-1, 1].forEach(direction => {
+            const startCorner = {
+                x: x1 - unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
+                y: y1 - unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
+            };
+            const endCorner = {
+                x: x2 + unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
+                y: y2 + unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
+            };
 
-        const textWidth = ctx.measureText(text).width;
-        const textHeight = measurementFontSize * 1.2;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+            const measuredLength = Math.hypot(endCorner.x - startCorner.x, endCorner.y - startCorner.y);
+            const text = formatMeasurementText(Math.round((measuredLength / scale) * 12));
 
-        ctx.fillStyle = '#e74c3c';
-        ctx.fillText(text, 0, 0);
-        ctx.restore();
+            const offsetVec = {
+                x: unitNormal.x * direction * baseOffset,
+                y: unitNormal.y * direction * baseOffset
+            };
+
+            const start = { x: startCorner.x + offsetVec.x, y: startCorner.y + offsetVec.y };
+            const end = { x: endCorner.x + offsetVec.x, y: endCorner.y + offsetVec.y };
+            const midX = (start.x + end.x) / 2;
+            const midY = (start.y + end.y) / 2;
+            const textOffsetVec = {
+                x: unitNormal.x * direction * (baseOffset + measurementFontSize + 6),
+                y: unitNormal.y * direction * (baseOffset + measurementFontSize + 6)
+            };
+
+            ctx.save();
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 1;
+
+            // Dimension line
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+
+            // Tick marks at the ends
+            const tickLength = 8;
+            const tickOffsetX = unitNormal.x * tickLength * 0.5;
+            const tickOffsetY = unitNormal.y * tickLength * 0.5;
+            ctx.moveTo(start.x - tickOffsetX, start.y - tickOffsetY);
+            ctx.lineTo(start.x + tickOffsetX, start.y + tickOffsetY);
+            ctx.moveTo(end.x - tickOffsetX, end.y - tickOffsetY);
+            ctx.lineTo(end.x + tickOffsetX, end.y + tickOffsetY);
+
+            ctx.stroke();
+
+            // Measurement label
+            ctx.translate(midX + textOffsetVec.x, midY + textOffsetVec.y);
+            ctx.rotate(renderAngle);
+            ctx.fillStyle = '#e74c3c';
+            ctx.font = `${measurementFontSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const textWidth = ctx.measureText(text).width;
+            const textHeight = measurementFontSize * 1.2;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillText(text, 0, 0);
+            ctx.restore();
+        });
     });
 }
 
@@ -9291,6 +9367,16 @@ function applyTextChangesToSelection(mutator) {
 function updateTextStyleButtons() {
     if (textBoldButton) textBoldButton.classList.toggle('active', textIsBold);
     if (textItalicButton) textItalicButton.classList.toggle('active', textIsItalic);
+}
+
+function updatePrecisionStatus() {
+    if (!precisionStatusDisplay) return;
+
+    const precise = !gridSnappingEnabled;
+    precisionStatusDisplay.textContent = precise
+        ? 'Precision move: ON (no snap)'
+        : 'Snap: ON';
+    precisionStatusDisplay.classList.toggle('active', precise);
 }
 
 function updateToolInfo() {
