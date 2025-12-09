@@ -6151,6 +6151,21 @@ function handleMouseDown(e) {
             return;
         }
 
+        const cornerHandle = getWallCornerHandleHit(x, y);
+        if (cornerHandle) {
+            clearDimensionSelection();
+            clearDirectLineSelection();
+            selectedWalls.clear();
+            selectedObjectIndices.clear();
+            selectedFloorIds.clear();
+            selectAllMode = false;
+
+            startNodeDrag(cornerHandle.node, x, y);
+            selectedWalls.add(cornerHandle.wall);
+            redrawCanvas();
+            return;
+        }
+
         // Check for node handles of selected walls
         for (const wall of selectedWalls) {
             const n1 = getNodeById(wall.startNodeId);
@@ -7408,6 +7423,8 @@ function drawWalls() {
         if (selectedWalls.has(w)) {
             selectedToHighlight.push({ n1, n2, wall: w });
         }
+
+        drawWallCornerMarkers(w);
     }
 
     // Draw selection highlight for selected walls after all walls are rendered
@@ -7438,8 +7455,6 @@ function drawWallSelectionHighlight(n1, n2, wall) {
 
     drawHandleNode(n1, horizontal);
     drawHandleNode(n2, horizontal);
-
-    drawWallCornerMarkers(wall);
 
     ctx.restore();
 }
@@ -7538,6 +7553,38 @@ function drawCornerPoint(point, { radius = 4, stroke = '#e67e22', fill = '#fffff
     ctx.strokeStyle = stroke;
     ctx.fill();
     ctx.stroke();
+}
+
+function getWallCornerHandleHit(x, y, hitRadius = NODE_HIT_RADIUS) {
+    let closest = null;
+    let bestDist = Infinity;
+
+    for (const wall of walls) {
+        const geometry = getWallCornerGeometry(wall);
+        if (!geometry) continue;
+
+        const startNode = getNodeById(wall.startNodeId);
+        const endNode = getNodeById(wall.endNodeId);
+        if (!startNode || !endNode) continue;
+
+        geometry.startCorners.forEach(corner => {
+            const d = Math.hypot(x - corner.x, y - corner.y);
+            if (d <= hitRadius && d < bestDist) {
+                bestDist = d;
+                closest = { wall, node: startNode };
+            }
+        });
+
+        geometry.endCorners.forEach(corner => {
+            const d = Math.hypot(x - corner.x, y - corner.y);
+            if (d <= hitRadius && d < bestDist) {
+                bestDist = d;
+                closest = { wall, node: endNode };
+            }
+        });
+    }
+
+    return closest;
 }
 
 function getWallDirectionFromNode(wall, nodeId) {
