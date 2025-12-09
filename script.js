@@ -7574,20 +7574,10 @@ function getWallCornerOffsets(wall, nodeId) {
     const otherNode = getNodeById(otherNodeId);
     if (!node || !otherNode) return null;
 
-    const dir = {
-        x: otherNode.x - node.x,
-        y: otherNode.y - node.y
-    };
-    const length = Math.hypot(dir.x, dir.y);
-    if (length === 0) return null;
-
-    const tangentLength = geometry.tangentOffset?.x !== undefined
-        ? Math.hypot(geometry.tangentOffset.x, geometry.tangentOffset.y)
-        : 0;
-
+    const tangentSign = wall.startNodeId === nodeId ? -1 : 1;
     const outwardTangent = {
-        x: (dir.x / length) * tangentLength,
-        y: (dir.y / length) * tangentLength
+        x: geometry.tangentOffset.x * tangentSign,
+        y: geometry.tangentOffset.y * tangentSign
     };
 
     return {
