@@ -965,7 +965,10 @@ function closeBackgroundImageModal() {
 function createBackgroundImageData(img) {
     const maxWidth = canvas.width * 0.9;
     const maxHeight = canvas.height * 0.9;
-    const scaleFactor = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+    // Always fit the uploaded image into the available canvas area so that
+    // different source resolutions start at the same apparent zoom level.
+    // Allow scaling up smaller images instead of capping at their natural size.
+    const scaleFactor = Math.min(maxWidth / img.width, maxHeight / img.height);
     const width = img.width * scaleFactor;
     const height = img.height * scaleFactor;
     const x = (canvas.width - width) / 2;
