@@ -7595,10 +7595,23 @@ function drawPerpendicularConnectionCorners(wall) {
                 const isStart = targetWall.startNodeId === nodeId;
                 const nodeCorners = isStart ? geometry.startCorners : geometry.endCorners;
                 nodeCorners.forEach(corner => addCorner(corner.x, corner.y));
+                return geometry.halfOffset;
             };
 
-            pushWallCornersAtNode(wall);
-            pushWallCornersAtNode(connected);
+            const wallNormal = pushWallCornersAtNode(wall);
+            const connectedNormal = pushWallCornersAtNode(connected);
+
+            if (wallNormal && connectedNormal) {
+                const signs = [1, -1];
+                signs.forEach(sa => {
+                    signs.forEach(sb => {
+                        addCorner(
+                            node.x + wallNormal.x * sa + connectedNormal.x * sb,
+                            node.y + wallNormal.y * sa + connectedNormal.y * sb
+                        );
+                    });
+                });
+            }
 
             ctx.save();
             cornerSet.forEach(({ point }) => drawCornerPoint(point, {
