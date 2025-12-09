@@ -7795,13 +7795,16 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
 
     withViewTransform(() => {
         [-1, 1].forEach(direction => {
+            // Anchor dimension endpoints to the outer face without extending past the joint.
+            // This keeps adjacent split walls from overlapping their dimension tails by the
+            // wall thickness and ensures the guides meet cleanly at shared nodes.
             const startCorner = {
-                x: x1 - unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
-                y: y1 - unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
+                x: x1 + unitNormal.x * halfThickness * direction,
+                y: y1 + unitNormal.y * halfThickness * direction
             };
             const endCorner = {
-                x: x2 + unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
-                y: y2 + unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
+                x: x2 + unitNormal.x * halfThickness * direction,
+                y: y2 + unitNormal.y * halfThickness * direction
             };
 
             const measuredLength = Math.hypot(endCorner.x - startCorner.x, endCorner.y - startCorner.y);
