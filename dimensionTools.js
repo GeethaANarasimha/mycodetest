@@ -77,12 +77,28 @@ function computeWallAnchorData(wall, startX, startY, endX, endY) {
     const startVec = { x: startX - n1.x, y: startY - n1.y };
     const endVec = { x: endX - n1.x, y: endY - n1.y };
 
-    const startRatio = (startVec.x * dir.x + startVec.y * dir.y) / len;
-    const endRatio = (endVec.x * dir.x + endVec.y * dir.y) / len;
+    let startRatio = (startVec.x * dir.x + startVec.y * dir.y) / len;
+    let endRatio = (endVec.x * dir.x + endVec.y * dir.y) / len;
 
     const startOffset = startVec.x * normal.x + startVec.y * normal.y;
     const endOffset = endVec.x * normal.x + endVec.y * normal.y;
     const offset = (startOffset + endOffset) / 2;
+
+    // If the anchor is effectively on the start/end node (e.g., a wall corner snap),
+    // clamp the ratio so extending the wall keeps the measurement pinned to that node.
+    const thickness = getWallThicknessPx(wall);
+    const clampDistance = Math.max(thickness * 0.75, 6);
+
+    const startDistanceToN1 = Math.hypot(startX - n1.x, startY - n1.y);
+    const startDistanceToN2 = Math.hypot(startX - n2.x, startY - n2.y);
+    const endDistanceToN1 = Math.hypot(endX - n1.x, endY - n1.y);
+    const endDistanceToN2 = Math.hypot(endX - n2.x, endY - n2.y);
+
+    if (startDistanceToN1 <= clampDistance) startRatio = 0;
+    else if (startDistanceToN2 <= clampDistance) startRatio = 1;
+
+    if (endDistanceToN1 <= clampDistance) endRatio = 0;
+    else if (endDistanceToN2 <= clampDistance) endRatio = 1;
 
     return {
         startRatio,
@@ -188,6 +204,11 @@ function updateDimensionsAttachedToWalls() {
         dim.startY = n1.y + dir.y * len * startRatio + normal.y * offset;
         dim.endX = n1.x + dir.x * len * endRatio + normal.x * offset;
         dim.endY = n1.y + dir.y * len * endRatio + normal.y * offset;
+
+        dim.anchorStartX = n1.x + dir.x * len * startRatio + normal.x * startOffset;
+        dim.anchorStartY = n1.y + dir.y * len * startRatio + normal.y * startOffset;
+        dim.anchorEndX = n1.x + dir.x * len * endRatio + normal.x * endOffset;
+        dim.anchorEndY = n1.y + dir.y * len * endRatio + normal.y * endOffset;
 
         dim.anchorStartX = n1.x + dir.x * len * startRatio + normal.x * startOffset;
         dim.anchorStartY = n1.y + dir.y * len * startRatio + normal.y * startOffset;
