@@ -15,6 +15,8 @@ window.dimensionHoverX = null;
 window.dimensionHoverY = null;
 window.dimensionActiveWall = null;
 window.dimensionActiveOffsetSign = 1;
+window.dimensionActiveCornerOffset = null;
+window.dimensionEndpointHover = null;
 window.selectedDimensionIndex = null;
 
 // Blue color for dimensions
@@ -23,9 +25,36 @@ const DIMENSION_TEXT_BG = 'rgba(255, 255, 255, 0.9)';
 const WALL_DIMENSION_COLOR = '#2980b9';
 const WALL_DIMENSION_OFFSET = 1; // 1px offset from wall
 const WALL_HOVER_CONTACT_DISTANCE = 7; // allow hover within 2px of the wall face
+const WALL_ENDPOINT_SNAP_DISTANCE = 5; // distance threshold to magnet to wall endpoints
 const DEFAULT_WALL_FACE_OFFSET = 6; // distance from wall face for manual dimensions
 const MANUAL_DIMENSION_EXTENSION = 12; // half-length of the end caps on manual dimensions
 const MANUAL_DIMENSION_PREVIEW_EXTENSION = 14; // preview end-cap half-length for better visibility
+const ENDPOINT_HIGHLIGHT_RADIUS = 7;
+const ENDPOINT_HIGHLIGHT_COLOR = '#e74c3c';
+
+function getWallNormal(wallData) {
+    const { n1, n2 } = wallData || {};
+    if (!n1 || !n2) return null;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const len = Math.hypot(dx, dy);
+    if (!len) return null;
+
+    return { x: -dy / len, y: dx / len };
+}
+
+function getEndpointCornerPosition(wallData, node, referenceX, referenceY) {
+    const normal = getWallNormal(wallData);
+    if (!normal) return { x: node.x, y: node.y, offset: { x: 0, y: 0 } };
+
+    const halfThickness = getWallThicknessPx(wallData.wall) / 2;
+    const toReference = { x: referenceX - node.x, y: referenceY - node.y };
+    const sign = (toReference.x * normal.x + toReference.y * normal.y) >= 0 ? 1 : -1;
+
+    const offset = { x: normal.x * halfThickness * sign, y: normal.y * halfThickness * sign };
+    return { x: node.x + offset.x, y: node.y + offset.y, offset };
+}
 
 function computeWallAnchorData(wall, startX, startY, endX, endY) {
     if (!wall) return null;
@@ -179,6 +208,100 @@ window.findNearestWall = function(x, y, maxDistance = 20) {
     return nearestWall;
 };
 
+function findNearestWallEndpoint(x, y, maxDistance = WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData = null) {
+    const wallsToCheck = preferredWallData?.wall ? [preferredWallData.wall] : walls;
+    let bestMatch = null;
+
+    for (const wall of wallsToCheck) {
+        const wallData = buildWallDataFromWall(wall);
+        if (!wallData) continue;
+
+        const endpoints = [wallData.n1, wallData.n2];
+        endpoints.forEach(node => {
+            const corner = getEndpointCornerPosition(wallData, node, x, y);
+            const distanceToCorner = Math.hypot(x - corner.x, y - corner.y);
+
+            if (distanceToCorner <= maxDistance && (!bestMatch || distanceToCorner < bestMatch.distance)) {
+                bestMatch = {
+                    wall,
+                    node,
+                    distance: distanceToCorner,
+                    cornerPosition: { x: corner.x, y: corner.y },
+                    cornerOffset: corner.offset,
+                    wallData
+                };
+            }
+        });
+    }
+
+    return bestMatch;
+}
+
+function buildWallDataFromWall(wall) {
+    const n1 = getNodeById(wall.startNodeId);
+    const n2 = getNodeById(wall.endNodeId);
+    if (!n1 || !n2) return null;
+    return { wall, n1, n2 };
+}
+
+function findEndpointSnapTarget(x, y, preferredWallData = null) {
+    const preferredSnap = findNearestWallEndpoint(x, y, WALL_ENDPOINT_SNAP_DISTANCE, preferredWallData);
+    const fallbackSnap = preferredSnap || findNearestWallEndpoint(x, y, WALL_ENDPOINT_SNAP_DISTANCE, null);
+    const snapTarget = fallbackSnap;
+
+    if (!snapTarget) return null;
+
+    const wallData = buildWallDataFromWall(snapTarget.wall);
+    if (!wallData) return null;
+
+    const hoverWallData = { ...wallData, hoverX: x, hoverY: y };
+
+    return {
+        x: snapTarget.cornerPosition?.x ?? snapTarget.node.x,
+        y: snapTarget.cornerPosition?.y ?? snapTarget.node.y,
+        node: snapTarget.node,
+        wallData: hoverWallData,
+        cornerOffset: snapTarget.cornerOffset
+    };
+}
+
+function drawWallEndpointTargets(wallData, activeEndpoint = null) {
+    if (!wallData?.n1 || !wallData?.n2) return;
+
+    const referenceX = wallData.hoverX ?? window.dimensionHoverX ?? wallData.n1.x;
+    const referenceY = wallData.hoverY ?? window.dimensionHoverY ?? wallData.n1.y;
+
+    withViewTransform(() => {
+        ctx.save();
+        const endpoints = [
+            { node: wallData.n1, isActive: activeEndpoint?.node?.id === wallData.n1.id },
+            { node: wallData.n2, isActive: activeEndpoint?.node?.id === wallData.n2.id }
+        ];
+
+        endpoints.forEach(endpoint => {
+            const corner = getEndpointCornerPosition(wallData, endpoint.node, referenceX, referenceY);
+
+            ctx.beginPath();
+            ctx.arc(corner.x, corner.y, ENDPOINT_HIGHLIGHT_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = endpoint.isActive
+                ? 'rgba(231, 76, 60, 0.45)'
+                : 'rgba(231, 76, 60, 0.25)';
+            ctx.fill();
+            ctx.lineWidth = endpoint.isActive ? 2.25 : 1.75;
+            ctx.strokeStyle = ENDPOINT_HIGHLIGHT_COLOR;
+            ctx.stroke();
+
+            // Inner magnet marker to reinforce selectable endpoints
+            ctx.beginPath();
+            ctx.arc(corner.x, corner.y, ENDPOINT_HIGHLIGHT_RADIUS / 2.25, 0, Math.PI * 2);
+            ctx.fillStyle = ENDPOINT_HIGHLIGHT_COLOR;
+            ctx.fill();
+        });
+
+        ctx.restore();
+    });
+}
+
 /**
  * Check if wall is horizontal (within tolerance)
  */
@@ -239,14 +362,31 @@ window.handleDimensionMouseDown = function(e) {
  * Start manual dimension
  */
 function startManualDimension(x, y) {
-    ({ x, y } = snapPointToInch(x, y));
+    const endpointSnap = findEndpointSnapTarget(x, y, window.hoveredWall);
+    const hasEndpointSnap = Boolean(endpointSnap);
+    if (endpointSnap) {
+        x = endpointSnap.x;
+        y = endpointSnap.y;
+        window.dimensionActiveWall = endpointSnap.wallData;
+        window.dimensionActiveCornerOffset = endpointSnap.cornerOffset || null;
+    } else {
+        ({ x, y } = snapPointToInch(x, y));
+        window.dimensionActiveWall = null;
+        window.dimensionActiveCornerOffset = null;
+    }
 
-    // If the user begins a manual dimension on or near a wall, align the dimension to that wall
-    const nearestWall = window.hoveredWall || (typeof window.findNearestWall === 'function' ? window.findNearestWall(x, y, 20) : null);
+    // If the user begins a manual dimension on a wall endpoint, align to that wall
+    const nearestWall = window.dimensionActiveWall;
     if (nearestWall?.n1 && nearestWall?.n2) {
         const projected = projectPointToWallSegment(x, y, nearestWall.n1.x, nearestWall.n1.y, nearestWall.n2.x, nearestWall.n2.y);
-        x = projected.x;
-        y = projected.y;
+
+        if (hasEndpointSnap && window.dimensionActiveCornerOffset) {
+            x = projected.x + window.dimensionActiveCornerOffset.x;
+            y = projected.y + window.dimensionActiveCornerOffset.y;
+        } else {
+            x = projected.x;
+            y = projected.y;
+        }
         window.dimensionActiveWall = nearestWall;
 
         const wallSide = getWallNormalAndSign(nearestWall, x, y);
@@ -273,7 +413,16 @@ function startManualDimension(x, y) {
  * End manual dimension
  */
 function endManualDimension(x, y) {
-    ({ x, y } = snapPointToInch(x, y));
+    const endpointSnap = findEndpointSnapTarget(x, y, window.dimensionActiveWall);
+    let cornerOffset = window.dimensionActiveCornerOffset || null;
+    if (endpointSnap) {
+        x = endpointSnap.x;
+        y = endpointSnap.y;
+        window.dimensionActiveWall = endpointSnap.wallData;
+        cornerOffset = endpointSnap.cornerOffset || cornerOffset;
+    } else {
+        ({ x, y } = snapPointToInch(x, y));
+    }
 
     if (window.dimensionActiveWall?.n1 && window.dimensionActiveWall?.n2) {
         const projected = projectPointToWallSegment(
@@ -284,8 +433,13 @@ function endManualDimension(x, y) {
             window.dimensionActiveWall.n2.x,
             window.dimensionActiveWall.n2.y
         );
-        x = projected.x;
-        y = projected.y;
+        if (cornerOffset) {
+            x = projected.x + cornerOffset.x;
+            y = projected.y + cornerOffset.y;
+        } else {
+            x = projected.x;
+            y = projected.y;
+        }
     }
 
     let startPoint = { x: dimensionStartX, y: dimensionStartY };
@@ -325,6 +479,8 @@ function endManualDimension(x, y) {
     dimensionPreviewY = null;
     window.dimensionActiveWall = null;
     window.dimensionActiveOffsetSign = 1;
+    window.dimensionActiveCornerOffset = null;
+    window.dimensionEndpointHover = null;
 
     redrawCanvas();
 }
@@ -460,6 +616,9 @@ window.handleDimensionMouseMove = function(e) {
     const isTouchingWall = hoverWall?.distance != null && hoverWall.distance <= WALL_HOVER_CONTACT_DISTANCE;
     window.hoveredWall = isTouchingWall ? hoverWall : null;
 
+    const snapEndpoint = findEndpointSnapTarget(x, y, window.hoveredWall);
+    window.dimensionEndpointHover = snapEndpoint;
+
     if (window.hoveredWall) {
         window.hoveredWall.hoverX = x;
         window.hoveredWall.hoverY = y;
@@ -467,13 +626,24 @@ window.handleDimensionMouseMove = function(e) {
     window.dimensionHoverX = x;
     window.dimensionHoverY = y;
     window.hoveredSpaceSegment = hoveredWall ? findAvailableSpacesOnWall(hoveredWall, x, y) : null;
-    
+
     if (!isDimensionDrawing) {
         // Hover mode
         coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to start measurement`;
     } else {
         // Manual dimension drawing mode
-        ({ x, y } = snapPointToInch(x, y));
+        const activeSnap = findEndpointSnapTarget(x, y, window.dimensionActiveWall || window.hoveredWall);
+        let cornerOffset = window.dimensionActiveCornerOffset || null;
+
+        if (activeSnap) {
+            x = activeSnap.x;
+            y = activeSnap.y;
+            window.dimensionEndpointHover = activeSnap;
+            window.dimensionActiveWall = activeSnap.wallData || window.dimensionActiveWall;
+            cornerOffset = activeSnap.cornerOffset || cornerOffset;
+        } else {
+            ({ x, y } = snapPointToInch(x, y));
+        }
 
         if (window.dimensionActiveWall?.n1 && window.dimensionActiveWall?.n2) {
             const projected = projectPointToWallSegment(
@@ -484,12 +654,18 @@ window.handleDimensionMouseMove = function(e) {
                 window.dimensionActiveWall.n2.x,
                 window.dimensionActiveWall.n2.y
             );
-            x = projected.x;
-            y = projected.y;
+            if (cornerOffset) {
+                x = projected.x + cornerOffset.x;
+                y = projected.y + cornerOffset.y;
+            } else {
+                x = projected.x;
+                y = projected.y;
+            }
         }
 
         dimensionPreviewX = x;
         dimensionPreviewY = y;
+        window.dimensionActiveCornerOffset = cornerOffset;
         coordinatesDisplay.textContent = `X: ${x.toFixed(1)}, Y: ${y.toFixed(1)} | Click to finish measurement`;
     }
     
@@ -874,6 +1050,13 @@ window.drawDimensionPreview = function() {
 window.drawDimensions = function() {
     updateDimensionsAttachedToWalls();
 
+    if (currentTool === 'dimension') {
+        const endpointWallData = window.hoveredWall || window.dimensionActiveWall;
+        if (endpointWallData) {
+            drawWallEndpointTargets(endpointWallData, window.dimensionEndpointHover);
+        }
+    }
+
     // Draw hover preview first
     if (currentTool === 'dimension' && !isDimensionDrawing) {
         const hoveredWallId = hoveredWall?.wall?.id;
@@ -1033,6 +1216,7 @@ window.resetDimensionTool = function() {
     dimensionPreviewX = null;
     dimensionPreviewY = null;
     window.dimensionActiveWall = null;
+    window.dimensionEndpointHover = null;
     hoveredWall = null;
     hoveredSpaceSegment = null;
     dimensionHoverX = null;
