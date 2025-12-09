@@ -7503,6 +7503,8 @@ function getWallCornerGeometry(wall) {
     const offsetX = (-dy / length) * (thickness / 2);
     const offsetY = (dx / length) * (thickness / 2);
 
+    const halfOffset = { x: offsetX, y: offsetY };
+
     const startCorners = [
         { x: n1.x + offsetX, y: n1.y + offsetY },
         { x: n1.x - offsetX, y: n1.y - offsetY }
@@ -7517,7 +7519,8 @@ function getWallCornerGeometry(wall) {
         corners: [startCorners[0], endCorners[0], endCorners[1], startCorners[1]],
         startCorners,
         endCorners,
-        center: { x: (n1.x + n2.x) / 2, y: (n1.y + n2.y) / 2 }
+        center: { x: (n1.x + n2.x) / 2, y: (n1.y + n2.y) / 2 },
+        halfOffset
     };
 }
 
@@ -7556,6 +7559,13 @@ function areWallsPerpendicularAtNode(wallA, wallB, nodeId) {
     return Math.abs(dot) <= 0.2; // Roughly within ~78-102 degrees
 }
 
+function getWallCornerOffsets(wall) {
+    const geometry = getWallCornerGeometry(wall);
+    if (!geometry) return null;
+
+    return geometry.halfOffset;
+}
+
 function drawPerpendicularConnectionCorners(wall) {
     const nodesToCheck = [
         { nodeId: wall.startNodeId },
@@ -7571,13 +7581,28 @@ function drawPerpendicularConnectionCorners(wall) {
         connectedWalls.forEach(connected => {
             if (!areWallsPerpendicularAtNode(wall, connected, nodeId)) return;
 
-            const connectedGeometry = getWallCornerGeometry(connected);
-            if (!connectedGeometry) return;
+            const selectedOffset = getWallCornerOffsets(wall);
+            const connectedOffset = getWallCornerOffsets(connected);
+            if (!selectedOffset || !connectedOffset) return;
 
-            const corners = connected.startNodeId === nodeId ? connectedGeometry.startCorners : connectedGeometry.endCorners;
+            const cornerSet = [];
+            const addCorner = (x, y) => {
+                const key = `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`;
+                if (!cornerSet.some(c => c.key === key)) {
+                    cornerSet.push({ key, point: { x, y } });
+                }
+            };
+
+            [1, -1].forEach(selSign => {
+                [1, -1].forEach(connSign => {
+                    const x = node.x + selectedOffset.x * selSign + connectedOffset.x * connSign;
+                    const y = node.y + selectedOffset.y * selSign + connectedOffset.y * connSign;
+                    addCorner(x, y);
+                });
+            });
 
             ctx.save();
-            corners.forEach(corner => drawCornerPoint(corner, {
+            cornerSet.forEach(({ point }) => drawCornerPoint(point, {
                 stroke: '#9b59b6',
                 lineWidth: 1.5,
                 radius: 3.5
