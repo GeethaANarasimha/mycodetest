@@ -7708,6 +7708,10 @@ function drawPerpendicularConnectionCorners(wall) {
 }
 
 function drawWallCornerMarkers(wall) {
+    // Only display corner markers while using the manual dimension tool to avoid
+    // visual clutter during normal editing.
+    if (currentTool !== 'dimension') return;
+
     const geometry = getWallCornerGeometry(wall);
     if (!geometry) return;
 
