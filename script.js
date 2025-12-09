@@ -7783,12 +7783,10 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const len = Math.hypot(dx, dy);
     if (len < 1) return;
 
-    const totalInches = Math.round((len / scale) * 12);
-    const text = formatMeasurementText(totalInches);
-
-    const nx = -dy / len;
-    const ny = dx / len;
-    const baseOffset = thicknessPx / 2 + 14;
+    const halfThickness = thicknessPx / 2;
+    const unitTangent = { x: dx / len, y: dy / len };
+    const unitNormal = { x: -dy / len, y: dx / len };
+    const baseOffset = halfThickness + 14;
     const angle = Math.atan2(dy, dx);
     let renderAngle = angle;
     if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
@@ -7797,12 +7795,31 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
 
     withViewTransform(() => {
         [-1, 1].forEach(direction => {
-            const lineOffset = baseOffset * direction;
-            const textOffset = lineOffset + direction * (measurementFontSize + 6);
-            const start = { x: x1 + nx * lineOffset, y: y1 + ny * lineOffset };
-            const end = { x: x2 + nx * lineOffset, y: y2 + ny * lineOffset };
+            const startCorner = {
+                x: x1 - unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
+                y: y1 - unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
+            };
+            const endCorner = {
+                x: x2 + unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
+                y: y2 + unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
+            };
+
+            const measuredLength = Math.hypot(endCorner.x - startCorner.x, endCorner.y - startCorner.y);
+            const text = formatMeasurementText(Math.round((measuredLength / scale) * 12));
+
+            const offsetVec = {
+                x: unitNormal.x * direction * baseOffset,
+                y: unitNormal.y * direction * baseOffset
+            };
+
+            const start = { x: startCorner.x + offsetVec.x, y: startCorner.y + offsetVec.y };
+            const end = { x: endCorner.x + offsetVec.x, y: endCorner.y + offsetVec.y };
             const midX = (start.x + end.x) / 2;
             const midY = (start.y + end.y) / 2;
+            const textOffsetVec = {
+                x: unitNormal.x * direction * (baseOffset + measurementFontSize + 6),
+                y: unitNormal.y * direction * (baseOffset + measurementFontSize + 6)
+            };
 
             ctx.save();
             ctx.strokeStyle = '#e74c3c';
@@ -7815,8 +7832,8 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
 
             // Tick marks at the ends
             const tickLength = 8;
-            const tickOffsetX = nx * tickLength * 0.5;
-            const tickOffsetY = ny * tickLength * 0.5;
+            const tickOffsetX = unitNormal.x * tickLength * 0.5;
+            const tickOffsetY = unitNormal.y * tickLength * 0.5;
             ctx.moveTo(start.x - tickOffsetX, start.y - tickOffsetY);
             ctx.lineTo(start.x + tickOffsetX, start.y + tickOffsetY);
             ctx.moveTo(end.x - tickOffsetX, end.y - tickOffsetY);
@@ -7825,7 +7842,7 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
             ctx.stroke();
 
             // Measurement label
-            ctx.translate(midX + nx * textOffset, midY + ny * textOffset);
+            ctx.translate(midX + textOffsetVec.x, midY + textOffsetVec.y);
             ctx.rotate(renderAngle);
             ctx.fillStyle = '#e74c3c';
             ctx.font = `${measurementFontSize}px Arial`;
