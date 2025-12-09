@@ -322,10 +322,11 @@ function startManualDimension(x, y) {
         window.dimensionActiveWall = endpointSnap.wallData;
     } else {
         ({ x, y } = snapPointToInch(x, y));
+        window.dimensionActiveWall = null;
     }
 
-    // If the user begins a manual dimension on or near a wall, align the dimension to that wall
-    const nearestWall = window.dimensionActiveWall || window.hoveredWall || (typeof window.findNearestWall === 'function' ? window.findNearestWall(x, y, 20) : null);
+    // If the user begins a manual dimension on a wall endpoint, align to that wall
+    const nearestWall = window.dimensionActiveWall;
     if (nearestWall?.n1 && nearestWall?.n2) {
         const projected = projectPointToWallSegment(x, y, nearestWall.n1.x, nearestWall.n1.y, nearestWall.n2.x, nearestWall.n2.y);
         x = projected.x;
