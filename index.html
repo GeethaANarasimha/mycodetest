@@ -192,6 +192,11 @@
         <label class="checkbox"><input type="checkbox" id="showDimensions" checked> Show Dimensions</label>
     </div>
 
+    <div class="property-group inline" data-contexts="wall,door,window,staircase,furniture,floor,dimension,directline,select,erase,pan">
+        <label class="checkbox"><input type="checkbox" id="snapToGrid" checked> Snap to grid</label>
+        <span id="precisionStatus" class="status-pill" aria-live="polite">Snap: ON</span>
+    </div>
+
     <div class="property-group button-row" data-contexts="wall,door,window,staircase,furniture,floor,dimension,directline,select,erase,pan">
         <button id="toggleGrid">Toggle Grid</button>
         <button id="toggleBackgroundImage" class="hidden">Hide Background Image</button>
