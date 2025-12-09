@@ -543,8 +543,8 @@ input[type="number"] {
     border-radius: 6px;
     overflow: auto;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-start;
+    justify-content: flex-start;
 }
 
 .preview-surface {

@@ -976,6 +976,33 @@ function getPreviewDimensions() {
     return { width, height };
 }
 
+function handlePreviewWheel(event) {
+    if (!backgroundPreviewFrame || !backgroundPreviewSurface) return;
+    const hasImage = !!(backgroundImageDraft || backgroundImageData);
+    const isPreviewVisible = !backgroundPreviewSurface.classList.contains('hidden');
+    if (!hasImage || !isPreviewVisible) return;
+
+    event.preventDefault();
+
+    const previousZoom = previewZoom;
+    const zoomDelta = event.deltaY < 0 ? PREVIEW_ZOOM_STEP : 1 / PREVIEW_ZOOM_STEP;
+    setPreviewZoom(previewZoom * zoomDelta);
+
+    if (previewZoom === previousZoom) {
+        backgroundPreviewFrame.scrollLeft += event.deltaX;
+        backgroundPreviewFrame.scrollTop += event.deltaY;
+        return;
+    }
+
+    const frameRect = backgroundPreviewFrame.getBoundingClientRect();
+    const focusX = event.clientX - frameRect.left + backgroundPreviewFrame.scrollLeft;
+    const focusY = event.clientY - frameRect.top + backgroundPreviewFrame.scrollTop;
+    const zoomRatio = previewZoom / previousZoom;
+
+    backgroundPreviewFrame.scrollLeft = focusX * zoomRatio - (event.clientX - frameRect.left);
+    backgroundPreviewFrame.scrollTop = focusY * zoomRatio - (event.clientY - frameRect.top);
+}
+
 function startPreviewPan(event) {
     if (!backgroundPreviewFrame) return;
     previewPanState = {
@@ -1111,18 +1138,10 @@ function updateBackgroundMeasurementUI() {
 
     if (backgroundMeasurementHint) {
         const hasDistance = hasValidMeasurementDistance();
-        const hasStartPoint = !!backgroundOriginNormalized;
-        const showHint = isBackgroundMeasurementActive && hasDistance;
+        const showHint = isBackgroundMeasurementActive && hasDistance && backgroundMeasurementStep === 'measure';
         backgroundMeasurementHint.classList.toggle('hidden', !showHint);
         if (showHint) {
-            if (backgroundMeasurementStep === 'startPoint') {
-                const startPointText = hasStartPoint
-                    ? 'Confirm the green origin marker before finishing.'
-                    : 'Click the preview to place the green origin marker at grid (0, 0).';
-                backgroundMeasurementHint.textContent = `Set your measured distance, then ${startPointText}`;
-            } else {
-                backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${getMeasurementLabel()}, then click Next to set the grid start point.`;
-            }
+            backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${getMeasurementLabel()}, then click Next to set the grid start point.`;
         }
     }
 
@@ -1187,12 +1206,7 @@ function setMeasurementDistance(feetValue, { resetLine = false } = {}) {
     }
 
     if (backgroundMeasurementHint && isBackgroundMeasurementActive && hasValidMeasurementDistance()) {
-        if (backgroundMeasurementStep === 'startPoint') {
-            const startPointText = backgroundOriginNormalized
-                ? 'Confirm the green origin marker before finishing.'
-                : 'Click the preview to place the green origin marker at grid (0, 0).';
-            backgroundMeasurementHint.textContent = `Set your measured distance, then ${startPointText}`;
-        } else {
+        if (backgroundMeasurementStep !== 'startPoint') {
             backgroundMeasurementHint.textContent = `Drag the measurement line on the preview to match ${getMeasurementLabel()}, then click Next to set the grid start point.`;
         }
     }
@@ -4691,6 +4705,8 @@ function init() {
             event.preventDefault();
             startPreviewPan(event);
         });
+
+        backgroundPreviewFrame.addEventListener('wheel', handlePreviewWheel, { passive: false });
     }
 
     window.addEventListener('mousemove', (event) => {
