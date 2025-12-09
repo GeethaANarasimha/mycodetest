@@ -7786,7 +7786,7 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const halfThickness = thicknessPx / 2;
     const unitTangent = { x: dx / len, y: dy / len };
     const unitNormal = { x: -dy / len, y: dx / len };
-    const baseOffset = halfThickness + 14;
+    const baseOffset = halfThickness + 8;
     const angle = Math.atan2(dy, dx);
     let renderAngle = angle;
     if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
@@ -7819,9 +7819,10 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
             const end = { x: endCorner.x + offsetVec.x, y: endCorner.y + offsetVec.y };
             const midX = (start.x + end.x) / 2;
             const midY = (start.y + end.y) / 2;
+            const textOffset = baseOffset + Math.max(4, measurementFontSize * 0.35);
             const textOffsetVec = {
-                x: unitNormal.x * direction * (baseOffset + measurementFontSize + 6),
-                y: unitNormal.y * direction * (baseOffset + measurementFontSize + 6)
+                x: unitNormal.x * direction * textOffset,
+                y: unitNormal.y * direction * textOffset
             };
 
             ctx.save();
