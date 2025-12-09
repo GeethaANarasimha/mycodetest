@@ -7786,7 +7786,7 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const halfThickness = thicknessPx / 2;
     const unitTangent = { x: dx / len, y: dy / len };
     const unitNormal = { x: -dy / len, y: dx / len };
-    const baseOffset = halfThickness + 8;
+    const baseOffset = halfThickness + 14;
     const angle = Math.atan2(dy, dx);
     let renderAngle = angle;
     if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
@@ -7795,16 +7795,13 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
 
     withViewTransform(() => {
         [-1, 1].forEach(direction => {
-            // Anchor dimension endpoints to the outer face without extending past the joint.
-            // This keeps adjacent split walls from overlapping their dimension tails by the
-            // wall thickness and ensures the guides meet cleanly at shared nodes.
             const startCorner = {
-                x: x1 + unitNormal.x * halfThickness * direction,
-                y: y1 + unitNormal.y * halfThickness * direction
+                x: x1 - unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
+                y: y1 - unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
             };
             const endCorner = {
-                x: x2 + unitNormal.x * halfThickness * direction,
-                y: y2 + unitNormal.y * halfThickness * direction
+                x: x2 + unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
+                y: y2 + unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
             };
 
             const measuredLength = Math.hypot(endCorner.x - startCorner.x, endCorner.y - startCorner.y);
@@ -7819,10 +7816,9 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
             const end = { x: endCorner.x + offsetVec.x, y: endCorner.y + offsetVec.y };
             const midX = (start.x + end.x) / 2;
             const midY = (start.y + end.y) / 2;
-            const textOffset = baseOffset + Math.max(4, measurementFontSize * 0.35);
             const textOffsetVec = {
-                x: unitNormal.x * direction * textOffset,
-                y: unitNormal.y * direction * textOffset
+                x: unitNormal.x * direction * (baseOffset + measurementFontSize + 6),
+                y: unitNormal.y * direction * (baseOffset + measurementFontSize + 6)
             };
 
             ctx.save();
