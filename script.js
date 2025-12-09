@@ -7439,7 +7439,11 @@ function drawWallSelectionHighlight(n1, n2, wall) {
     drawHandleNode(n1, horizontal);
     drawHandleNode(n2, horizontal);
 
-    drawWallCornerMarkers(wall);
+    if (currentTool === 'select') {
+        // Corner markers (including perpendicular joint indicators) should only be shown
+        // when the select tool is active so they don't linger during other workflows.
+        drawWallCornerMarkers(wall);
+    }
 
     ctx.restore();
 }
