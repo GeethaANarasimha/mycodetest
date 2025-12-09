@@ -516,6 +516,7 @@ input[type="number"] {
     gap: 12px;
     margin-top: 12px;
     align-items: start;
+    min-width: 0;
 }
 
 .preview-header {
@@ -532,6 +533,7 @@ input[type="number"] {
     padding: 10px;
     border-radius: 6px;
     border: 1px solid #e0e0e0;
+    min-width: 0;
 }
 
 .preview-frame {
@@ -543,8 +545,9 @@ input[type="number"] {
     border-radius: 6px;
     overflow: auto;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-start;
+    justify-content: flex-start;
+    min-width: 0;
 }
 
 .preview-surface {
