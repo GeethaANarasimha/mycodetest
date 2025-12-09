@@ -210,6 +210,11 @@ function updateDimensionsAttachedToWalls() {
         dim.anchorEndX = n1.x + dir.x * len * endRatio + normal.x * endOffset;
         dim.anchorEndY = n1.y + dir.y * len * endRatio + normal.y * endOffset;
 
+        dim.anchorStartX = n1.x + dir.x * len * startRatio + normal.x * startOffset;
+        dim.anchorStartY = n1.y + dir.y * len * startRatio + normal.y * startOffset;
+        dim.anchorEndX = n1.x + dir.x * len * endRatio + normal.x * endOffset;
+        dim.anchorEndY = n1.y + dir.y * len * endRatio + normal.y * endOffset;
+
         if (typeof window.updateDimensionMeasurement === 'function') {
             window.updateDimensionMeasurement(dim);
         }
