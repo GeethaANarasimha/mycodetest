@@ -93,6 +93,24 @@ function computeWallAnchorData(wall, startX, startY, endX, endY) {
     };
 }
 
+function getWallFaceEndpoints(wallData, offsetSign, referenceX, referenceY) {
+    const { n1, n2 } = wallData || {};
+    const normal = getWallNormal(wallData);
+    if (!n1 || !n2 || !normal) return null;
+
+    const refPoint = (referenceX != null && referenceY != null)
+        ? { x: referenceX, y: referenceY }
+        : {
+            x: (n1.x + n2.x) / 2 + normal.x * offsetSign,
+            y: (n1.y + n2.y) / 2 + normal.y * offsetSign
+        };
+
+    const startCorner = getEndpointCornerPosition(wallData, n1, refPoint.x, refPoint.y);
+    const endCorner = getEndpointCornerPosition(wallData, n2, refPoint.x, refPoint.y);
+
+    return { startCorner, endCorner, normal };
+}
+
 function getWallNormalAndSign(wallData, referenceX, referenceY) {
     const { n1, n2 } = wallData || {};
     if (!n1 || !n2) return null;
@@ -662,31 +680,22 @@ window.createWallDimension = function(wallData, options = {}) {
         ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
         : 1;
 
-    const wallThickness = getWallThicknessPx(wallData.wall ?? wallData);
-    const offsetDistance = (wallThickness / 2 + WALL_DIMENSION_OFFSET) * offsetSign;
-    const length = Math.hypot(n2.x - n1.x, n2.y - n1.y);
+    const faceData = getWallFaceEndpoints(wallData, offsetSign, referenceX, referenceY);
+    const wallOffset = WALL_DIMENSION_OFFSET * offsetSign;
+
+    const wallStart = faceData?.startCorner || n1;
+    const wallEnd = faceData?.endCorner || n2;
+    const faceNormal = faceData?.normal || { x: nx, y: ny };
+
+    const length = Math.hypot(wallEnd.x - wallStart.x, wallEnd.y - wallStart.y);
     const totalInches = Math.round((length / scale) * 12);
     const text = formatMeasurementText(totalInches);
 
-    let startX, startY, endX, endY;
+    const startX = wallStart.x + faceNormal.x * wallOffset;
+    const startY = wallStart.y + faceNormal.y * wallOffset;
+    const endX = wallEnd.x + faceNormal.x * wallOffset;
+    const endY = wallEnd.y + faceNormal.y * wallOffset;
 
-    if (orientation === 'horizontal') {
-        startX = n1.x + nx * offsetDistance;
-        startY = n1.y + ny * offsetDistance;
-        endX = n2.x + nx * offsetDistance;
-        endY = n2.y + ny * offsetDistance;
-    } else if (orientation === 'vertical') {
-        startX = n1.x + nx * offsetDistance;
-        startY = n1.y + ny * offsetDistance;
-        endX = n2.x + nx * offsetDistance;
-        endY = n2.y + ny * offsetDistance;
-    } else {
-        startX = n1.x + nx * offsetDistance;
-        startY = n1.y + ny * offsetDistance;
-        endX = n2.x + nx * offsetDistance;
-        endY = n2.y + ny * offsetDistance;
-    }
-    
     const dimension = {
         id: nextDimensionId++,
         startX: startX,
@@ -887,18 +896,11 @@ window.drawHoverWallDimension = function(wallData) {
         offsetSign = dot >= 0 ? 1 : -1;
     }
 
-    const wallThickness = getWallThicknessPx(wallData.wall ?? wallData);
-    const centerShift = -offsetSign * (wallThickness / 2);
-    const centerN1 = {
-        x: n1.x + nx * centerShift,
-        y: n1.y + ny * centerShift
-    };
-    const centerN2 = {
-        x: n2.x + nx * centerShift,
-        y: n2.y + ny * centerShift
-    };
-
-    const length = Math.hypot(centerN2.x - centerN1.x, centerN2.y - centerN1.y);
+    const faceData = getWallFaceEndpoints(wallData, offsetSign, referenceX, referenceY);
+    const faceNormal = faceData?.normal || { x: nx, y: ny };
+    const faceStart = faceData?.startCorner || n1;
+    const faceEnd = faceData?.endCorner || n2;
+    const length = Math.hypot(faceEnd.x - faceStart.x, faceEnd.y - faceStart.y);
     const totalInches = Math.round((length / scale) * 12);
     const text = formatMeasurementText(totalInches);
 
@@ -908,24 +910,24 @@ window.drawHoverWallDimension = function(wallData) {
     ctx.setLineDash([2, 2]);
 
     if (orientation === 'horizontal') {
-        const yPos = centerN1.y + WALL_DIMENSION_OFFSET * offsetSign;
+        const yPos = faceStart.y + faceNormal.y * WALL_DIMENSION_OFFSET * offsetSign;
 
         ctx.beginPath();
-        ctx.moveTo(centerN1.x, yPos);
-        ctx.lineTo(centerN2.x, yPos);
+        ctx.moveTo(faceStart.x + faceNormal.x * WALL_DIMENSION_OFFSET * offsetSign, yPos);
+        ctx.lineTo(faceEnd.x + faceNormal.x * WALL_DIMENSION_OFFSET * offsetSign, yPos);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(centerN1.x, centerN1.y);
-        ctx.lineTo(centerN1.x, yPos);
+        ctx.moveTo(faceStart.x, faceStart.y);
+        ctx.lineTo(faceStart.x + faceNormal.x * WALL_DIMENSION_OFFSET * offsetSign, yPos);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(centerN2.x, centerN2.y);
-        ctx.lineTo(centerN2.x, yPos);
+        ctx.moveTo(faceEnd.x, faceEnd.y);
+        ctx.lineTo(faceEnd.x + faceNormal.x * WALL_DIMENSION_OFFSET * offsetSign, yPos);
         ctx.stroke();
 
-        const midX = (centerN1.x + centerN2.x) / 2;
+        const midX = (faceStart.x + faceEnd.x) / 2 + faceNormal.x * WALL_DIMENSION_OFFSET * offsetSign;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         const fontPx = measurementFontSize || 12;
@@ -941,24 +943,24 @@ window.drawHoverWallDimension = function(wallData) {
         ctx.fillText(text, midX, yPos);
 
     } else if (orientation === 'vertical') {
-        const xPos = centerN1.x + WALL_DIMENSION_OFFSET * offsetSign;
+        const xPos = faceStart.x + faceNormal.x * WALL_DIMENSION_OFFSET * offsetSign;
 
         ctx.beginPath();
-        ctx.moveTo(xPos, centerN1.y);
-        ctx.lineTo(xPos, centerN2.y);
+        ctx.moveTo(xPos, faceStart.y + faceNormal.y * WALL_DIMENSION_OFFSET * offsetSign);
+        ctx.lineTo(xPos, faceEnd.y + faceNormal.y * WALL_DIMENSION_OFFSET * offsetSign);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(centerN1.x, centerN1.y);
-        ctx.lineTo(xPos, centerN1.y);
+        ctx.moveTo(faceStart.x, faceStart.y);
+        ctx.lineTo(xPos, faceStart.y + faceNormal.y * WALL_DIMENSION_OFFSET * offsetSign);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(centerN2.x, centerN2.y);
-        ctx.lineTo(xPos, centerN2.y);
+        ctx.moveTo(faceEnd.x, faceEnd.y);
+        ctx.lineTo(xPos, faceEnd.y + faceNormal.y * WALL_DIMENSION_OFFSET * offsetSign);
         ctx.stroke();
 
-        const midY = (centerN1.y + centerN2.y) / 2;
+        const midY = (faceStart.y + faceEnd.y) / 2 + faceNormal.y * WALL_DIMENSION_OFFSET * offsetSign;
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(41, 128, 185, 0.9)';
         ctx.font = '12px Arial';
@@ -978,22 +980,22 @@ window.drawHoverWallDimension = function(wallData) {
         ctx.fillText(text, 0, 0);
         ctx.restore();
     } else {
-        const offsetX = (-dy / len) * WALL_DIMENSION_OFFSET * offsetSign;
-        const offsetY = (dx / len) * WALL_DIMENSION_OFFSET * offsetSign;
+        const offsetX = faceNormal.x * WALL_DIMENSION_OFFSET * offsetSign;
+        const offsetY = faceNormal.y * WALL_DIMENSION_OFFSET * offsetSign;
 
         ctx.beginPath();
-        ctx.moveTo(centerN1.x + offsetX, centerN1.y + offsetY);
-        ctx.lineTo(centerN2.x + offsetX, centerN2.y + offsetY);
+        ctx.moveTo(faceStart.x + offsetX, faceStart.y + offsetY);
+        ctx.lineTo(faceEnd.x + offsetX, faceEnd.y + offsetY);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(centerN1.x, centerN1.y);
-        ctx.lineTo(centerN1.x + offsetX, centerN1.y + offsetY);
+        ctx.moveTo(faceStart.x, faceStart.y);
+        ctx.lineTo(faceStart.x + offsetX, faceStart.y + offsetY);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(centerN2.x, centerN2.y);
-        ctx.lineTo(centerN2.x + offsetX, centerN2.y + offsetY);
+        ctx.moveTo(faceEnd.x, faceEnd.y);
+        ctx.lineTo(faceEnd.x + offsetX, faceEnd.y + offsetY);
         ctx.stroke();
 
         ctx.setLineDash([]);
@@ -1015,7 +1017,9 @@ window.drawHoverWallDimension = function(wallData) {
         const textHeight = fontPx * 1.2;
 
         ctx.save();
-        ctx.translate(midX + offsetX, midY + offsetY);
+        const midFaceX = (faceStart.x + faceEnd.x) / 2;
+        const midFaceY = (faceStart.y + faceEnd.y) / 2;
+        ctx.translate(midFaceX + offsetX, midFaceY + offsetY);
         ctx.rotate(textAngle);
 
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
