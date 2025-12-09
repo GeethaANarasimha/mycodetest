@@ -7616,8 +7616,8 @@ function drawPerpendicularConnectionCorners(wall) {
             ctx.save();
             cornerSet.forEach(({ point }) => drawCornerPoint(point, {
                 stroke: '#e53935',
-                lineWidth: 2.25,
-                radius: 5,
+                lineWidth: 2,
+                radius: 4,
                 fill: '#ffffff'
             }));
             ctx.restore();
@@ -7632,11 +7632,11 @@ function drawWallCornerMarkers(wall) {
     ctx.save();
     geometry.corners.forEach(corner => drawCornerPoint(corner, {
         stroke: '#e53935',
-        radius: 5,
-        lineWidth: 2.25,
+        radius: 4,
+        lineWidth: 2,
         fill: '#ffffff'
     }));
-    drawCornerPoint(geometry.center, { radius: 5, stroke: '#d35400', fill: '#ffffff' });
+    drawCornerPoint(geometry.center, { radius: 4, stroke: '#d35400', fill: '#ffffff' });
     ctx.restore();
 
     drawPerpendicularConnectionCorners(wall);
