@@ -20,7 +20,6 @@ const textFontIncreaseButton = document.getElementById('textFontIncrease');
 const textFontDecreaseButton = document.getElementById('textFontDecrease');
 const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
-const snapToGridCheckbox = document.getElementById('snapToGrid');
 const showDimensionsCheckbox = document.getElementById('showDimensions');
 const toggleGridButton = document.getElementById('toggleGrid');
 const coordinatesDisplay = document.querySelector('.coordinates');
@@ -165,7 +164,6 @@ let startX, startY;
 let currentX, currentY;
 
 let gridSize = parseInt(gridSizeInput.value, 10);
-let snapToGrid = snapToGridCheckbox.checked;
 let showGrid = true;
 let showDimensions = showDimensionsCheckbox.checked;
 let textFontSize = 18;
@@ -236,7 +234,9 @@ function createDefaultBackgroundState() {
         measurementDistanceFeet: null,
         isBackgroundImageVisible: true,
         backgroundOriginNormalized: null,
-        previewZoom: 1
+        previewZoom: 1,
+        scale,
+        gridSize
     };
 }
 
@@ -257,6 +257,9 @@ function syncBackgroundGlobalsFromLayer(layerId = currentLayerId()) {
     isBackgroundImageVisible = state.isBackgroundImageVisible ?? true;
     backgroundOriginNormalized = state.backgroundOriginNormalized || null;
     previewZoom = state.previewZoom ?? 1;
+    scale = state.scale ?? scale;
+    gridSize = state.gridSize ?? gridSize;
+    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
 }
 
 function persistBackgroundGlobalsToLayer(layerId = currentLayerId()) {
@@ -268,6 +271,8 @@ function persistBackgroundGlobalsToLayer(layerId = currentLayerId()) {
     state.isBackgroundImageVisible = isBackgroundImageVisible ?? true;
     state.backgroundOriginNormalized = backgroundOriginNormalized || null;
     state.previewZoom = previewZoom ?? 1;
+    state.scale = scale;
+    state.gridSize = gridSize;
 }
 
 const BASE_CANVAS_WIDTH = canvas.width;
@@ -872,7 +877,7 @@ function drawRulers() {
     drawVerticalRuler();
 }
 
-function fitViewToBackground(data) {
+function fitViewToBackground(data, { preserveScale = false } = {}) {
     if (!data || !canvasContainer) return;
     const containerRect = canvasContainer.getBoundingClientRect();
     if (!containerRect.width || !containerRect.height) return;
@@ -885,10 +890,12 @@ function fitViewToBackground(data) {
 
     const scaleForWidth = availableWidth / data.width;
     const scaleForHeight = availableHeight / data.height;
-    const targetScale = Math.min(
-        MAX_VIEW_SCALE,
-        Math.max(MIN_VIEW_SCALE, Math.min(scaleForWidth, scaleForHeight, 1))
-    );
+    const targetScale = preserveScale
+        ? Math.min(MAX_VIEW_SCALE, Math.max(MIN_VIEW_SCALE, viewScale))
+        : Math.min(
+              MAX_VIEW_SCALE,
+              Math.max(MIN_VIEW_SCALE, Math.min(scaleForWidth, scaleForHeight, 1))
+          );
 
     const viewCenterX = availableWidth / 2 + margin;
     const viewCenterY = availableHeight / 2 + margin;
@@ -958,7 +965,10 @@ function closeBackgroundImageModal() {
 function createBackgroundImageData(img) {
     const maxWidth = canvas.width * 0.9;
     const maxHeight = canvas.height * 0.9;
-    const scaleFactor = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+    // Always fit the uploaded image into the available canvas area so that
+    // different source resolutions start at the same apparent zoom level.
+    // Allow scaling up smaller images instead of capping at their natural size.
+    const scaleFactor = Math.min(maxWidth / img.width, maxHeight / img.height);
     const width = img.width * scaleFactor;
     const height = img.height * scaleFactor;
     const x = (canvas.width - width) / 2;
@@ -1483,7 +1493,7 @@ function applyBackgroundMeasurement(closeModal = false) {
     persistBackgroundGlobalsToLayer();
     redrawPreviewMeasurementOverlay();
     redrawCanvas();
-    fitViewToBackground(backgroundImageData);
+    fitViewToBackground(backgroundImageData, { preserveScale: true });
     if (closeModal) closeBackgroundImageModal();
     return true;
 }
@@ -3356,7 +3366,9 @@ function serializeBackgroundLayerState(state) {
         isBackgroundImageVisible: state?.isBackgroundImageVisible ?? true,
         backgroundOriginNormalized: state?.backgroundOriginNormalized || null,
         measurementLineNormalized: state?.measurementLineNormalized || null,
-        previewZoom: state?.previewZoom ?? 1
+        previewZoom: state?.previewZoom ?? 1,
+        scale: state?.scale ?? scale,
+        gridSize: state?.gridSize ?? gridSize
     };
 }
 
@@ -3397,7 +3409,6 @@ function buildProjectState() {
         settings: {
             scale,
             gridSize,
-            snapToGrid,
             showDimensions,
             showGrid,
             measurementFontSize,
@@ -3442,6 +3453,8 @@ function hydrateBackgroundLayerState(layerId, payload = {}) {
     state.backgroundOriginNormalized = payload.backgroundOriginNormalized || null;
     state.measurementLineNormalized = payload.measurementLineNormalized || null;
     state.previewZoom = payload.previewZoom ?? 1;
+    state.scale = payload.scale ?? state.scale ?? scale;
+    state.gridSize = payload.gridSize ?? state.gridSize ?? gridSize;
     state.backgroundImageDraft = null;
     state.backgroundImageData = null;
 
@@ -3526,13 +3539,12 @@ function applyProjectState(state) {
      directLines = JSON.parse(JSON.stringify(state.directLines || []));
      resetDirectLineDrawing();
 
-     const settings = state.settings || {};
-     scale = settings.scale ?? scale;
-     gridSize = settings.gridSize ?? gridSize;
-     snapToGrid = settings.snapToGrid ?? snapToGrid;
-     showGrid = settings.showGrid ?? showGrid;
-     showDimensions = settings.showDimensions ?? showDimensions;
-     measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
+    const settings = state.settings || {};
+    scale = settings.scale ?? scale;
+    gridSize = settings.gridSize ?? gridSize;
+    showGrid = settings.showGrid ?? showGrid;
+    showDimensions = settings.showDimensions ?? showDimensions;
+    measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
      textFontSize = settings.textFontSize ?? textFontSize;
      textIsBold = settings.textIsBold ?? textIsBold;
      textIsItalic = settings.textIsItalic ?? textIsItalic;
@@ -3549,9 +3561,8 @@ function applyProjectState(state) {
          nextStairGroupId = state.ids?.nextStairGroupId ?? existingGroupMax + 1;
      }
 
-     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
-     if (snapToGridCheckbox) snapToGridCheckbox.checked = snapToGrid;
-     if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
+    if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+    if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
      if (lineWidthInput && Number.isFinite(settings.lineWidth)) lineWidthInput.value = settings.lineWidth;
      if (lineColorInput && settings.lineColor) lineColorInput.value = settings.lineColor;
      if (fillColorInput && settings.fillColor) fillColorInput.value = settings.fillColor;
@@ -4438,7 +4449,6 @@ function buildConvertedProject(parsed) {
         settings: {
             scale,
             gridSize,
-            snapToGrid,
             showDimensions,
             showGrid,
             measurementFontSize,
@@ -4899,7 +4909,6 @@ function init() {
     });
 
     gridSizeInput.addEventListener('input', updateGrid);
-    snapToGridCheckbox.addEventListener('change', updateGrid);
     showDimensionsCheckbox.addEventListener('change', () => {
         showDimensions = showDimensionsCheckbox.checked;
         redrawCanvas();
@@ -5024,11 +5033,7 @@ function handleCanvasContextMenu(e) {
 // SNAP HELPERS
 // ============================================================
 function snapToGridPoint(x, y) {
-    if (!snapToGrid) return { x, y };
-    return {
-        x: Math.round(x / gridSize) * gridSize,
-        y: Math.round(y / gridSize) * gridSize
-    };
+    return { x, y };
 }
 
 function snapPointToInch(x, y) {
@@ -9498,7 +9503,6 @@ function applyFloorTexture() {
 
 function updateGrid() {
     gridSize = parseInt(gridSizeInput.value, 10) || 20;
-    snapToGrid = snapToGridCheckbox.checked;
     redrawCanvas();
 }
 
