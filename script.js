@@ -5654,6 +5654,7 @@ function finalizeSelectionBox() {
         selectedDirectLineIndices.clear();
         directLinePointSelection = null;
         selectedFloorIds.clear();
+        clearDimensionSelection();
     }
 
     walls.forEach(wall => {
@@ -5701,6 +5702,16 @@ function finalizeSelectionBox() {
             }
         }
     });
+
+    if (window.dimensions && window.dimensions.length > 0) {
+        for (let i = window.dimensions.length - 1; i >= 0; i--) {
+            const dim = window.dimensions[i];
+            if (rectIntersectsSegment(rect, dim.startX, dim.startY, dim.endX, dim.endY)) {
+                setSelectedDimension(i);
+                break;
+            }
+        }
+    }
 
     expandSelectionWithGroups();
 
@@ -9082,7 +9093,11 @@ function selectAllEntities() {
     selectedNode = null;
     selectedFloorIds = new Set(floors.map(f => f.id));
     selectedDirectLineIndices = new Set(directLines.map((_, i) => i));
-    clearDimensionSelection();
+    if (window.dimensions && window.dimensions.length > 0) {
+        setSelectedDimension(window.dimensions.length - 1);
+    } else {
+        clearDimensionSelection();
+    }
     isDraggingNode = false;
     selectAllMode = true;
     expandSelectionWithGroups();
