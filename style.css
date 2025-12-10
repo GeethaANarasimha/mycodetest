@@ -441,26 +441,14 @@ input[type="number"] {
     font-size: 13px;
 }
 
-.shortcut-btn {
-    align-self: flex-start;
-    background: #f3f6ff;
-    color: #1c3f8c;
-    border: 1px solid #c8d6ff;
-    border-radius: 6px;
-    padding: 6px 10px;
-    cursor: pointer;
-    font-weight: bold;
-    transition: background 0.2s ease;
-}
-
-.shortcut-btn:hover,
-.shortcut-btn:focus {
-    background: #e3ebff;
-}
-
-.shortcut-status {
-    color: #1c3f8c;
-    font-weight: 600;
+.tool-guide-details {
+    margin: 0;
+    padding-left: 18px;
+    color: #2f2f2f;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
 }
 
 .user-guide-search {

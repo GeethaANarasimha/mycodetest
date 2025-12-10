@@ -68,10 +68,6 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_91139ebc0ad44fe38aad272fdbee8d06.svg" alt="">
         <span class="tool-label">Settings</span>
     </button>
-    <button id="openUserGuide" class="tool-btn" type="button" aria-label="User Guide">
-        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_ed51627557c44586b66fcc754c814e05.svg" alt="">
-        <span class="tool-label">User Guide</span>
-    </button>
     <button class="tool-btn" data-tool="text" aria-label="Text">
         <span class="tool-icon text-icon">T</span>
         <span class="tool-label">Text</span>
@@ -127,6 +123,11 @@
             <span class="tool-label">Download PDF</span>
         </button>
     </div>
+
+    <button id="openUserGuide" class="tool-btn" type="button" aria-label="User Guide">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_ed51627557c44586b66fcc754c814e05.svg" alt="">
+        <span class="tool-label">User Guide</span>
+    </button>
 
     <div class="toolbar-spacer"></div>
 </div>
@@ -228,19 +229,18 @@
         <div class="modal-header">
             <div>
                 <h3 id="userGuideTitle">Tool User Guide</h3>
-                <p class="modal-subtitle">Browse every drawing control, learn what it does, and click a shortcut to trigger it.</p>
+                <p class="modal-subtitle">Browse every drawing control, learn what it does, and explore usage tips.</p>
             </div>
             <div class="user-guide-search">
                 <label for="userGuideSearch" class="sr-only">Search tools</label>
-                <input id="userGuideSearch" type="search" placeholder="Search by keyword or shortcut" aria-label="Search tools by keyword or shortcut">
-                <span class="search-hint">Filter by tool name, task, or shortcut.</span>
+                <input id="userGuideSearch" type="search" placeholder="Search by keyword" aria-label="Search tools by keyword">
+                <span class="search-hint">Filter by tool name, task, or material keyword.</span>
             </div>
         </div>
 
         <div id="userGuideList" class="user-guide-body" aria-live="polite"></div>
 
         <div class="modal-actions">
-            <span id="shortcutStatus" class="shortcut-status" aria-live="polite"></span>
             <button id="closeUserGuide" class="tool-btn secondary-btn" type="button">Close</button>
         </div>
     </div>
