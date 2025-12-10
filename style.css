@@ -533,6 +533,12 @@ input[type="number"] {
     min-width: 0;
 }
 
+@media (max-width: 960px) {
+    .preview-row {
+        grid-template-columns: 1fr;
+    }
+}
+
 .preview-header {
     display: flex;
     align-items: center;
