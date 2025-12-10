@@ -20,6 +20,8 @@ window.dimensionEndpointHover = null;
 window.selectedDimensionIndex = null;
 window.dimensionAnchorStart = null;
 window.dimensionAnchorEnd = null;
+window.dimensionActiveStartNodeId = null;
+window.dimensionActiveEndNodeId = null;
 
 // Blue color for dimensions
 const DIMENSION_COLOR = '#3498db';
@@ -180,7 +182,16 @@ function computeWallOffset(dim, wall) {
     return Number.isFinite(dim?.wallOffset) ? dim.wallOffset : 0;
 }
 
-function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWallData = null, anchorPositions = null) {
+function attachDimensionToWall(
+    dimension,
+    startX,
+    startY,
+    endX,
+    endY,
+    explicitWallData = null,
+    anchorPositions = null,
+    anchorNodeIds = null
+) {
     let wallData = explicitWallData;
 
     // If no wall provided, try to find a common wall near both points
@@ -243,6 +254,20 @@ function attachDimensionToWall(dimension, startX, startY, endX, endY, explicitWa
     const lineData = anchorPositions
         ? computeWallAnchorData(wallData.wall, startX, startY, endX, endY) || anchorData
         : anchorData;
+
+    if (anchorNodeIds) {
+        if (anchorNodeIds.start === wallData.wall.startNodeId) {
+            startRatio = 0;
+        } else if (anchorNodeIds.start === wallData.wall.endNodeId) {
+            startRatio = 1;
+        }
+
+        if (anchorNodeIds.end === wallData.wall.endNodeId) {
+            endRatio = 1;
+        } else if (anchorNodeIds.end === wallData.wall.startNodeId) {
+            endRatio = 0;
+        }
+    }
 
     dimension.wallId = wallData.wall.id;
     dimension.wallStartRatio = startRatio;
@@ -569,10 +594,12 @@ function startManualDimension(x, y) {
         y = endpointSnap.y;
         window.dimensionActiveWall = endpointSnap.wallData;
         window.dimensionActiveCornerOffset = endpointSnap.cornerOffset || null;
+        window.dimensionActiveStartNodeId = endpointSnap.node?.id || null;
     } else {
         ({ x, y } = snapPointToInch(x, y));
         window.dimensionActiveWall = null;
         window.dimensionActiveCornerOffset = null;
+        window.dimensionActiveStartNodeId = null;
     }
 
     anchorStart.x = x;
@@ -627,8 +654,10 @@ function endManualDimension(x, y) {
         y = endpointSnap.y;
         window.dimensionActiveWall = endpointSnap.wallData;
         cornerOffset = endpointSnap.cornerOffset || cornerOffset;
+        window.dimensionActiveEndNodeId = endpointSnap.node?.id || null;
     } else {
         ({ x, y } = snapPointToInch(x, y));
+        window.dimensionActiveEndNodeId = null;
     }
 
     window.dimensionAnchorEnd = { x, y };
@@ -681,7 +710,9 @@ function endManualDimension(x, y) {
         explicitWallData: window.dimensionActiveWall,
         offsetFromWallFace: DEFAULT_WALL_FACE_OFFSET,
         anchorStart,
-        anchorEnd
+        anchorEnd,
+        startNodeId: window.dimensionActiveStartNodeId,
+        endNodeId: window.dimensionActiveEndNodeId
     });
     
     // Reset for next dimension
@@ -696,6 +727,8 @@ function endManualDimension(x, y) {
     window.dimensionEndpointHover = null;
     window.dimensionAnchorStart = null;
     window.dimensionAnchorEnd = null;
+    window.dimensionActiveStartNodeId = null;
+    window.dimensionActiveEndNodeId = null;
 
     redrawCanvas();
 }
@@ -806,7 +839,8 @@ window.createManualDimension = function(startX, startY, endX, endY, options = {}
         endX,
         endY,
         options.explicitWallData || window.dimensionActiveWall,
-        anchorPositions
+        anchorPositions,
+        { start: options.startNodeId, end: options.endNodeId }
     );
 
     window.updateDimensionMeasurement(dimension);
