@@ -707,62 +707,10 @@ function stopWallAutoScroll() {
     wallAutoScrollDelta.y = 0;
 }
 
-function applyWallAutoScroll() {
-    if (!canvasContainer) {
-        stopWallAutoScroll();
-        return;
-    }
-
-    const { x, y } = wallAutoScrollDelta;
-    if (x === 0 && y === 0) {
-        wallAutoScrollFrame = null;
-        return;
-    }
-
-    canvasContainer.scrollLeft += x;
-    canvasContainer.scrollTop += y;
-
-    wallAutoScrollFrame = requestAnimationFrame(applyWallAutoScroll);
-}
-
-function updateWallAutoScroll(event) {
-    if (!canvasContainer) return;
-
-    const shouldScroll = currentTool === 'wall' && isWallDrawing && wallChain.length > 0 && !isViewPanning;
-    if (!shouldScroll) {
-        stopWallAutoScroll();
-        return;
-    }
-
-    const containerRect = canvasContainer.getBoundingClientRect();
-    const leftZone = containerRect.left + RULER_SIZE;
-    const topZone = containerRect.top + RULER_SIZE;
-    const rightZone = containerRect.right - WALL_AUTOSCROLL_MARGIN;
-    const bottomZone = containerRect.bottom - WALL_AUTOSCROLL_MARGIN;
-
-    const newDelta = { x: 0, y: 0 };
-
-    if (event.clientX <= leftZone) {
-        newDelta.x = WALL_AUTOSCROLL_SPEED;
-    } else if (event.clientX >= rightZone) {
-        newDelta.x = -WALL_AUTOSCROLL_SPEED;
-    }
-
-    if (event.clientY <= topZone) {
-        newDelta.y = WALL_AUTOSCROLL_SPEED;
-    } else if (event.clientY >= bottomZone) {
-        newDelta.y = -WALL_AUTOSCROLL_SPEED;
-    }
-
-    wallAutoScrollDelta = newDelta;
-
-    if (newDelta.x !== 0 || newDelta.y !== 0) {
-        if (wallAutoScrollFrame === null) {
-            wallAutoScrollFrame = requestAnimationFrame(applyWallAutoScroll);
-        }
-    } else {
-        stopWallAutoScroll();
-    }
+function updateWallAutoScroll() {
+    // Auto-scroll was removed in favor of manual panning; keep this function
+    // to satisfy existing calls while ensuring no scroll is triggered.
+    stopWallAutoScroll();
 }
 
 function syncCanvasScrollArea() {
