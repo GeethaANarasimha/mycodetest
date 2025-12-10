@@ -110,6 +110,9 @@ const xmlFileInput = document.getElementById('xmlFileInput');
 const xmlConvertStatus = document.getElementById('xmlConvertStatus');
 const downloadConvertedProjectButton = document.getElementById('downloadConvertedProject');
 const closeXmlConverterButton = document.getElementById('closeXmlConverter');
+const restoreDraftModal = document.getElementById('restoreDraftModal');
+const restoreDraftButton = document.getElementById('restoreDraftButton');
+const discardDraftButton = document.getElementById('discardDraftButton');
 const exitWarningModal = document.getElementById('exitWarningModal');
 const exitWarningMessage = document.getElementById('exitWarningMessage');
 const exitDownloadButton = document.getElementById('exitDownloadButton');
@@ -3517,20 +3520,36 @@ function saveDraftToLocalStorage() {
     }
 }
 
-function loadDraftFromLocalStorage() {
-    if (!canUseLocalStorage()) return;
+function getStoredDraftPayload() {
+    if (!canUseLocalStorage()) return null;
 
     try {
         const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
-        if (!raw) return;
+        if (!raw) return null;
 
         const payload = JSON.parse(raw);
-        if (payload?.state) {
-            applyProjectState(payload.state);
-            hasUnsavedChanges = true;
-        }
+        return payload?.state ? payload : null;
+    } catch (error) {
+        console.error('Failed to parse draft from local storage', error);
+        return null;
+    }
+}
+
+function hasStoredDraft() {
+    return !!getStoredDraftPayload();
+}
+
+function loadDraftFromLocalStorage() {
+    try {
+        const payload = getStoredDraftPayload();
+        if (!payload) return false;
+
+        applyProjectState(payload.state);
+        hasUnsavedChanges = true;
+        return true;
     } catch (error) {
         console.error('Failed to load draft from local storage', error);
+        return false;
     }
 }
 
@@ -3541,6 +3560,18 @@ function clearDraftFromLocalStorage() {
         localStorage.removeItem(DRAFT_STORAGE_KEY);
     } catch (error) {
         console.error('Failed to clear draft from local storage', error);
+    }
+}
+
+function showRestoreDraftPromptIfAvailable() {
+    if (!restoreDraftModal || !hasStoredDraft()) return;
+
+    restoreDraftModal.classList.remove('hidden');
+}
+
+function hideRestoreDraftPrompt() {
+    if (restoreDraftModal) {
+        restoreDraftModal.classList.add('hidden');
     }
 }
 
@@ -4758,7 +4789,7 @@ function init() {
     syncSettingsControls();
     setLayerTransparency(belowFloorTransparency);
     setupNavigationGuards();
-    loadDraftFromLocalStorage();
+    showRestoreDraftPromptIfAvailable();
 
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {
@@ -4930,6 +4961,22 @@ function init() {
     }
     if (closeXmlConverterButton) {
         closeXmlConverterButton.addEventListener('click', closeXmlConverterModal);
+    }
+    if (restoreDraftButton) {
+        restoreDraftButton.addEventListener('click', () => {
+            const loaded = loadDraftFromLocalStorage();
+            hideRestoreDraftPrompt();
+            if (!loaded) {
+                clearDraftFromLocalStorage();
+            }
+        });
+    }
+    if (discardDraftButton) {
+        discardDraftButton.addEventListener('click', () => {
+            clearDraftFromLocalStorage();
+            hideRestoreDraftPrompt();
+            markProjectClean();
+        });
     }
     if (downloadPdfButton) {
         downloadPdfButton.addEventListener('click', openPdfOptionsModal);
