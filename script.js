@@ -1668,6 +1668,27 @@ function expandSelectionWithGroups() {
     additions.forEach(idx => selectedObjectIndices.add(idx));
 }
 
+function autoSelectDimensionsForWalls() {
+    if (!window.dimensions || window.dimensions.length === 0 || selectedWalls.size === 0) return;
+
+    const wallIds = new Set(Array.from(selectedWalls).map(w => w.id));
+
+    if (selectedDimensionIndex !== null) {
+        const selectedDim = window.dimensions[selectedDimensionIndex];
+        if (selectedDim?.wallId && wallIds.has(selectedDim.wallId)) {
+            return;
+        }
+    }
+
+    for (let i = window.dimensions.length - 1; i >= 0; i--) {
+        const dim = window.dimensions[i];
+        if (dim?.wallId && wallIds.has(dim.wallId)) {
+            setSelectedDimension(i);
+            return;
+        }
+    }
+}
+
 function hasAnySelection() {
     return selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0;
 }
@@ -5729,6 +5750,7 @@ function finalizeSelectionBox() {
         }
     }
 
+    autoSelectDimensionsForWalls();
     expandSelectionWithGroups();
 
     redrawCanvas();
@@ -6308,6 +6330,7 @@ function handleMouseDown(e) {
             selectedFloorIds.clear();
             selectedObjectIndices.clear();
             selectAllMode = false;
+            autoSelectDimensionsForWalls();
             redrawCanvas();
             return;
         }
@@ -9114,6 +9137,7 @@ function selectAllEntities() {
     } else {
         clearDimensionSelection();
     }
+    autoSelectDimensionsForWalls();
     isDraggingNode = false;
     selectAllMode = true;
     expandSelectionWithGroups();
