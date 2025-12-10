@@ -3657,6 +3657,38 @@ function setupNavigationGuards() {
     window.addEventListener('beforeunload', handleBeforeUnload);
 }
 
+// ============================================================
+// BASIC SECURITY GUARDS
+// ============================================================
+function setupSecurityGuards() {
+    // Disable the browser context menu outside of the drawing surface and the
+    // custom context menu to discourage inspecting the page while keeping tool
+    // right-click behavior intact.
+    document.addEventListener('contextmenu', (event) => {
+        const target = event.target;
+        const allowCanvasMenu = canvas && canvas.contains(target);
+        const allowCustomMenu = contextMenu && contextMenu.contains(target);
+
+        if (!allowCanvasMenu && !allowCustomMenu) {
+            event.preventDefault();
+        }
+    });
+
+    // Block common shortcuts that open developer tools or view source.
+    document.addEventListener('keydown', (event) => {
+        const key = event.key?.toLowerCase();
+        const blocked =
+            event.key === 'F12' ||
+            (event.ctrlKey && event.shiftKey && ['i', 'j', 'c', 'k'].includes(key)) ||
+            (event.ctrlKey && key === 'u');
+
+        if (blocked) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
+}
+
 function hydrateBackgroundFromState(background) {
     hydrateBackgroundStatesFromProject({
         backgroundsByLayer: {
@@ -4788,6 +4820,7 @@ function init() {
     syncSettingsControls();
     setLayerTransparency(belowFloorTransparency);
     setupNavigationGuards();
+    setupSecurityGuards();
     showRestoreDraftPromptIfAvailable();
 
     // MODIFIED: Separate event listeners for left and right click
