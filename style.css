@@ -322,6 +322,12 @@ input[type="number"] {
     background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
 }
 
+.view3d-mode #plan2dShell,
+.view3d-mode #horizontalRuler,
+.view3d-mode #verticalRuler {
+    display: none !important;
+}
+
 .view3d-empty {
     margin: auto;
     color: #475569;

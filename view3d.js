@@ -1,5 +1,7 @@
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js';
+
 (function () {
-    if (typeof THREE === 'undefined') return;
 
     const toggleButton = document.getElementById('toggle3DView');
     const viewToggleIcon = document.getElementById('viewToggleIcon');
@@ -10,6 +12,8 @@
     const doorHeightPx = (typeof scale === 'number' ? scale : 20) * 7;
     const windowHeightPx = (typeof scale === 'number' ? scale : 20) * 4;
     const windowSillPx = (typeof scale === 'number' ? scale : 20) * 3;
+
+    const DOOR_OPEN_ANGLE_DEG = 75;
 
     class Plan3DViewer {
         constructor(container) {
@@ -23,7 +27,7 @@
 
             const { clientWidth, clientHeight } = container;
             this.camera = new THREE.PerspectiveCamera(55, clientWidth / clientHeight, 1, 20000);
-            this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+            this.controls = new OrbitControls(this.camera, this.renderer.domElement);
             this.controls.enableDamping = true;
             this.controls.dampingFactor = 0.08;
             this.controls.maxDistance = 8000;
@@ -168,7 +172,8 @@
                 .filter(obj => obj.type === 'door')
                 .forEach(obj => {
                     const { length, thickness, center } = this.getLinearSize(obj);
-                    const geometry = new THREE.BoxGeometry(length, doorHeightPx, thickness || (scale * 0.5));
+                    const doorThickness = thickness || (scale * 0.5);
+                    const geometry = new THREE.BoxGeometry(length, doorHeightPx, doorThickness);
                     const material = new THREE.MeshStandardMaterial({
                         color: new THREE.Color('#c08457'),
                         metalness: 0.2,
@@ -177,9 +182,24 @@
                     const mesh = new THREE.Mesh(geometry, material);
                     mesh.castShadow = true;
                     mesh.receiveShadow = true;
-                    mesh.position.set(center.x, doorHeightPx / 2, center.z);
-                    mesh.rotation.y = obj.rotation || (obj.orientation === 'vertical' ? Math.PI / 2 : 0);
-                    group.add(mesh);
+
+                    const isHorizontal = obj.orientation !== 'vertical';
+                    const hinge = new THREE.Group();
+                    hinge.position.set(
+                        isHorizontal ? center.x - (length / 2) : center.x,
+                        doorHeightPx / 2,
+                        isHorizontal ? center.z : center.z - (length / 2)
+                    );
+
+                    const closedRotation = typeof obj.rotation === 'number'
+                        ? obj.rotation
+                        : (isHorizontal ? 0 : Math.PI / 2);
+                    const openRotation = THREE.MathUtils.degToRad(obj.openAngle || DOOR_OPEN_ANGLE_DEG);
+                    hinge.rotation.y = closedRotation + openRotation;
+
+                    mesh.position.set(length / 2, 0, 0);
+                    hinge.add(mesh);
+                    group.add(hinge);
                 });
             return group;
         }
@@ -222,7 +242,14 @@
         focusCameraOn(object3d) {
             const box = new THREE.Box3().setFromObject(object3d);
             if (box.isEmpty()) {
-                this.camera.position.set(600, 700, 600);
+                const defaultDistance = 900;
+                const spherical = new THREE.Spherical(
+                    defaultDistance,
+                    THREE.MathUtils.degToRad(60),
+                    THREE.MathUtils.degToRad(30)
+                );
+                const offset = new THREE.Vector3().setFromSpherical(spherical);
+                this.camera.position.copy(offset);
                 this.controls.target.set(0, 0, 0);
                 this.controls.update();
                 return;
@@ -237,7 +264,11 @@
             const fitHeightDistance = maxDim / (2 * Math.atan((Math.PI * this.camera.fov) / 360));
             const distance = fitHeightDistance * 1.35;
 
-            const offset = new THREE.Vector3(distance, distance * 0.8, distance);
+            const offset = new THREE.Vector3().setFromSpherical(new THREE.Spherical(
+                distance,
+                THREE.MathUtils.degToRad(60),
+                THREE.MathUtils.degToRad(30)
+            ));
             this.camera.position.copy(center.clone().add(offset));
             this.controls.target.copy(center);
             this.controls.update();
@@ -284,6 +315,7 @@
         view3dShell.classList.remove('hidden');
         view3dShell.setAttribute('aria-hidden', 'false');
         planShell.setAttribute('aria-hidden', 'true');
+        document.body.classList.add('view3d-mode');
         viewer.resize();
         if (viewToggleIcon) viewToggleIcon.textContent = '2D';
         if (toggleButton) toggleButton.setAttribute('aria-label', 'Switch to 2D view');
@@ -294,6 +326,7 @@
         view3dShell.classList.add('hidden');
         view3dShell.setAttribute('aria-hidden', 'true');
         planShell.setAttribute('aria-hidden', 'false');
+        document.body.classList.remove('view3d-mode');
         if (viewToggleIcon) viewToggleIcon.textContent = '3D';
         if (toggleButton) toggleButton.setAttribute('aria-label', 'Switch to 3D view');
     }
