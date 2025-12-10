@@ -178,6 +178,7 @@ const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
 const WALL_SCROLL_EDGE_THRESHOLD = 40;
 const WALL_SCROLL_MAX_SPEED = 8;
+const WALL_SCROLL_RULER_SPEED = 2.5;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -6902,19 +6903,38 @@ function updateWallAutoScroll(event) {
 
     const speedForDistance = (dist) => Math.min(maxSpeed, ((threshold - dist) / threshold) * maxSpeed);
 
+    const verticalRulerRect = verticalRuler?.getBoundingClientRect();
+    const horizontalRulerRect = horizontalRuler?.getBoundingClientRect();
+    const touchingVerticalRuler =
+        verticalRulerRect &&
+        event.clientX >= verticalRulerRect.left &&
+        event.clientX <= verticalRulerRect.right &&
+        event.clientY >= verticalRulerRect.top &&
+        event.clientY <= verticalRulerRect.bottom;
+    const touchingHorizontalRuler =
+        horizontalRulerRect &&
+        event.clientX >= horizontalRulerRect.left &&
+        event.clientX <= horizontalRulerRect.right &&
+        event.clientY >= horizontalRulerRect.top &&
+        event.clientY <= horizontalRulerRect.bottom;
+
     let vx = 0;
     let vy = 0;
 
-    if (distLeft < threshold) {
-        vx = -speedForDistance(distLeft);
+    if (touchingVerticalRuler) {
+        vx = WALL_SCROLL_RULER_SPEED;
+    } else if (distLeft < threshold) {
+        vx = speedForDistance(distLeft);
     } else if (distRight < threshold) {
-        vx = speedForDistance(distRight);
+        vx = -speedForDistance(distRight);
     }
 
-    if (distTop < threshold) {
-        vy = -speedForDistance(distTop);
+    if (touchingHorizontalRuler) {
+        vy = WALL_SCROLL_RULER_SPEED;
+    } else if (distTop < threshold) {
+        vy = speedForDistance(distTop);
     } else if (distBottom < threshold) {
-        vy = speedForDistance(distBottom);
+        vy = -speedForDistance(distBottom);
     }
 
     wallAutoScroll.vx = vx;
