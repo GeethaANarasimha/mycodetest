@@ -403,6 +403,73 @@ function updateDimensionsAttachedToWalls() {
     });
 }
 
+function updateSpaceDimensions() {
+    if (!dimensions || dimensions.length === 0) return;
+
+    const getPrimaryCoord = (wall, isHorizontal) => {
+        const wn1 = getNodeById(wall?.startNodeId);
+        const wn2 = getNodeById(wall?.endNodeId);
+        if (!wn1 || !wn2) return null;
+        return isHorizontal ? wn1.x : wn1.y;
+    };
+
+    dimensions.forEach(dim => {
+        if (!dim.isSpace || !dim.spaceAnchors) return;
+
+        const { baseWallId, orientation, offsetSign = 1, offsetMagnitude = 35, wallAxis } = dim.spaceAnchors;
+        const baseWall = walls.find(w => w.id === baseWallId);
+        const baseN1 = getNodeById(baseWall?.startNodeId);
+        const baseN2 = getNodeById(baseWall?.endNodeId);
+        if (!baseWall || !baseN1 || !baseN2) return;
+
+        const isHorizontalSpace = orientation === 'horizontal';
+        const wallThickness = getWallThicknessPx(baseWall);
+
+        const primaryStart = isHorizontalSpace ? Math.min(baseN1.x, baseN2.x) : Math.min(baseN1.y, baseN2.y);
+        const primaryEnd = isHorizontalSpace ? Math.max(baseN1.x, baseN2.x) : Math.max(baseN1.y, baseN2.y);
+
+        let startBoundary = primaryStart + wallThickness / 2;
+        let endBoundary = primaryEnd - wallThickness / 2;
+
+        if (isHorizontalSpace) {
+            const leftWall = dim.spaceAnchors.leftWallId ? walls.find(w => w.id === dim.spaceAnchors.leftWallId) : null;
+            const rightWall = dim.spaceAnchors.rightWallId ? walls.find(w => w.id === dim.spaceAnchors.rightWallId) : null;
+            const leftCoord = getPrimaryCoord(leftWall, false);
+            const rightCoord = getPrimaryCoord(rightWall, false);
+            startBoundary = leftCoord != null ? leftCoord + wallThickness / 2 : startBoundary;
+            endBoundary = rightCoord != null ? rightCoord - wallThickness / 2 : endBoundary;
+        } else {
+            const topWall = dim.spaceAnchors.topWallId ? walls.find(w => w.id === dim.spaceAnchors.topWallId) : null;
+            const bottomWall = dim.spaceAnchors.bottomWallId ? walls.find(w => w.id === dim.spaceAnchors.bottomWallId) : null;
+            const topCoord = getPrimaryCoord(topWall, true);
+            const bottomCoord = getPrimaryCoord(bottomWall, true);
+            startBoundary = topCoord != null ? topCoord + wallThickness / 2 : startBoundary;
+            endBoundary = bottomCoord != null ? bottomCoord - wallThickness / 2 : endBoundary;
+        }
+
+        const spaceLength = endBoundary - startBoundary;
+        if (spaceLength <= 0) return;
+
+        if (isHorizontalSpace) {
+            const dimensionY = (wallAxis ?? baseN1.y) + offsetMagnitude * offsetSign;
+            dim.startX = startBoundary;
+            dim.endX = endBoundary;
+            dim.startY = dimensionY;
+            dim.endY = dimensionY;
+        } else {
+            const dimensionX = (wallAxis ?? baseN1.x) + offsetMagnitude * offsetSign;
+            dim.startX = dimensionX;
+            dim.endX = dimensionX;
+            dim.startY = startBoundary;
+            dim.endY = endBoundary;
+        }
+
+        dim.length = spaceLength;
+        const totalInches = Math.round((spaceLength / scale) * 12);
+        dim.text = formatMeasurementText(totalInches);
+    });
+}
+
 /**
  * Find the nearest wall to a point with edge detection
  */
@@ -1477,8 +1544,9 @@ window.drawDimensionPreview = function() {
  */
 window.drawDimensions = function() {
     updateDimensionsAttachedToWalls();
+    updateSpaceDimensions();
 
-    if (currentTool === 'dimension') {
+    if (currentTool === 'dimension' || (typeof window.shouldShowKeyboardHoverDimensions === 'function' && window.shouldShowKeyboardHoverDimensions())) {
         const endpointWallData = window.dimensionEndpointHover?.wallData || window.hoveredWall || window.dimensionActiveWall;
         if (endpointWallData) {
             drawWallEndpointTargets(endpointWallData, window.dimensionEndpointHover);
@@ -1486,7 +1554,11 @@ window.drawDimensions = function() {
     }
 
     // Draw hover preview first
-    if (currentTool === 'dimension' && !isDimensionDrawing) {
+    const showHoverPreview =
+        (currentTool === 'dimension' && !isDimensionDrawing) ||
+        (typeof window.shouldShowKeyboardHoverDimensions === 'function' && window.shouldShowKeyboardHoverDimensions());
+
+    if (showHoverPreview) {
         const hoveredWallId = hoveredWall?.wall?.id;
         const hasAutoWallDimension = hoveredWallId != null
             && dimensions.some(dim => dim.isAuto && !dim.isSpace && dim.wallId === hoveredWallId);
@@ -1779,6 +1851,7 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
             spaces.push({
                 leftWall,
                 rightWall,
+                baseWallId: wall.id,
                 leftBoundary: startX,
                 rightBoundary: endX,
                 spaceLength,
@@ -1788,7 +1861,9 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 wallY: wallN1.y,
                 wallThickness,
                 hoverX, hoverY,
-                orientation: 'horizontal'
+                orientation: 'horizontal',
+                leftWallId: leftWall?.id || null,
+                rightWallId: rightWall?.id || null
             });
         };
 
@@ -1818,6 +1893,7 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
             spaces.push({
                 topWall,
                 bottomWall,
+                baseWallId: wall.id,
                 topBoundary: startY,
                 bottomBoundary: endY,
                 spaceLength,
@@ -1827,7 +1903,9 @@ window.findAvailableSpacesOnWall = function(wallData, hoverX, hoverY) {
                 wallX: wallN1.x,
                 wallThickness,
                 hoverX, hoverY,
-                orientation: 'vertical'
+                orientation: 'vertical',
+                topWallId: topWall?.id || null,
+                bottomWallId: bottomWall?.id || null
             });
         };
 
@@ -1873,13 +1951,16 @@ window.createSpaceDimension = function(spaceData) {
     const isHorizontalSpace = spaceData.orientation === 'horizontal';
     const spaceLength = spaceData.spaceLength;
 
+    const baseOffset = 35;
+
     let startX, startY, endX, endY;
+    let offsetSign = 1;
 
     if (isHorizontalSpace) {
         const { leftBoundary, rightBoundary, wallY, hoverY } = spaceData;
         const referenceY = hoverY ?? window.dimensionHoverY;
-        const offsetSign = referenceY != null && referenceY < wallY ? -1 : 1;
-        const dimensionY = wallY + 35 * offsetSign;
+        offsetSign = referenceY != null && referenceY < wallY ? -1 : 1;
+        const dimensionY = wallY + baseOffset * offsetSign;
         startX = leftBoundary;
         startY = dimensionY;
         endX = rightBoundary;
@@ -1887,13 +1968,25 @@ window.createSpaceDimension = function(spaceData) {
     } else {
         const { topBoundary, bottomBoundary, wallX, hoverX } = spaceData;
         const referenceX = hoverX ?? window.dimensionHoverX;
-        const offsetSign = referenceX != null && referenceX < wallX ? -1 : 1;
-        const dimensionX = wallX + 35 * offsetSign;
+        offsetSign = referenceX != null && referenceX < wallX ? -1 : 1;
+        const dimensionX = wallX + baseOffset * offsetSign;
         startX = dimensionX;
         startY = topBoundary;
         endX = dimensionX;
         endY = bottomBoundary;
     }
+
+    const anchorInfo = {
+        baseWallId: spaceData.baseWallId,
+        orientation: spaceData.orientation,
+        offsetSign,
+        offsetMagnitude: baseOffset,
+        wallAxis: isHorizontalSpace ? spaceData.wallY : spaceData.wallX,
+        leftWallId: spaceData.leftWallId,
+        rightWallId: spaceData.rightWallId,
+        topWallId: spaceData.topWallId,
+        bottomWallId: spaceData.bottomWallId
+    };
 
     const dimension = {
         id: nextDimensionId++,
@@ -1907,7 +2000,8 @@ window.createSpaceDimension = function(spaceData) {
         length: spaceLength,
         isAuto: true,
         isSpace: true,
-        spaceType: spaceData.type
+        spaceType: spaceData.type,
+        spaceAnchors: anchorInfo
     };
 
     dimensions.push(dimension);

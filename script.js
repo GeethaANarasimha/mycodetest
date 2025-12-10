@@ -175,6 +175,9 @@ let textIsBold = false;
 let textIsItalic = false;
 let measurementFontSize = 12;
 
+let selectionNudgePreviewUntil = 0;
+let keyboardHoverPreviewLocked = false;
+
 let nodes = [];
 let walls = [];
 let nextNodeId = 1;
@@ -6039,6 +6042,7 @@ function handleMouseDown(e) {
     }
 
     if (currentTool === 'select') {
+        keyboardHoverPreviewLocked = false;
         const pointHit = findDirectLinePointHit(x, y, DIRECT_LINE_HANDLE_RADIUS + 2);
         if (pointHit) {
             if (!selectedDirectLineIndices.has(pointHit.lineIndex)) {
@@ -6327,10 +6331,12 @@ function handleMouseDown(e) {
                 selectedNode = null;
                 ungroupSelectionElements();
             }
+            keyboardHoverPreviewLocked = true;
             selectedFloorIds.clear();
             selectedObjectIndices.clear();
             selectAllMode = false;
             autoSelectDimensionsForWalls();
+            updateHoverPreviewForDimensions(x, y, { force: true });
             redrawCanvas();
             return;
         }
@@ -6371,6 +6377,7 @@ function handleMouseDown(e) {
             selectedObjectIndices.clear();
             selectedFloorIds.clear();
             selectAllMode = false;
+            keyboardHoverPreviewLocked = false;
             ungroupSelectionElements();
             clearDimensionSelection();
             clearDirectLineSelection();
@@ -6533,6 +6540,40 @@ function measureTextDimensions(text, fontSize = 18, fontWeight = 'normal', fontS
     const height = fontSize * 1.2;
     ctx.restore();
     return { width, height };
+}
+
+function shouldShowKeyboardHoverDimensions() {
+    if (selectedWalls.size === 0) return false;
+
+    return keyboardHoverPreviewLocked || Date.now() < selectionNudgePreviewUntil;
+}
+
+function updateHoverPreviewForDimensions(x, y, { force = false } = {}) {
+    const allowPreview = force || shouldShowKeyboardHoverDimensions();
+
+    if (!allowPreview) {
+        window.hoveredWall = null;
+        window.hoveredSpaceSegment = null;
+        keyboardHoverPreviewLocked = false;
+        return;
+    }
+
+    if (typeof window.findNearestWall !== 'function') return;
+
+    const hoverWall = findNearestWall(x, y, 20);
+    const isTouchingWall = hoverWall?.distance != null && hoverWall.distance <= 10;
+    const wallIsSelected = isTouchingWall && hoverWall?.wall && selectedWalls.has(hoverWall.wall);
+    keyboardHoverPreviewLocked = force ? wallIsSelected : keyboardHoverPreviewLocked && wallIsSelected;
+
+    window.hoveredWall = isTouchingWall ? hoverWall : null;
+
+    if (window.hoveredWall && typeof window.findAvailableSpacesOnWall === 'function') {
+        window.hoveredWall.hoverX = x;
+        window.hoveredWall.hoverY = y;
+        window.hoveredSpaceSegment = findAvailableSpacesOnWall(window.hoveredWall, x, y);
+    } else {
+        window.hoveredSpaceSegment = null;
+    }
 }
 
 function handleMouseMove(e) {
@@ -7004,6 +7045,12 @@ function handleMouseMove(e) {
     currentX = x;
     currentY = y;
     coordinatesDisplay.textContent = `X: ${x}, Y: ${y}`;
+
+    updateHoverPreviewForDimensions(x, y, { force: keyboardHoverPreviewLocked });
+
+    if (shouldShowKeyboardHoverDimensions()) {
+        redrawCanvas();
+    }
 
     if (isDrawing) {
         redrawCanvas();
@@ -9235,6 +9282,10 @@ function handleKeyDown(e) {
                 moveSelectedDirectLines(dx, dy, { skipUndo: true });
                 moveSelectedDimension(dx, dy, { skipUndo: true });
                 maintainDoorAttachmentForSelection();
+                selectionNudgePreviewUntil = Date.now() + 600;
+                if (lastPointerCanvasX != null && lastPointerCanvasY != null) {
+                    updateHoverPreviewForDimensions(lastPointerCanvasX, lastPointerCanvasY, { force: keyboardHoverPreviewLocked });
+                }
                 redrawCanvas();
                 return;
             }
