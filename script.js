@@ -2322,30 +2322,46 @@ function drawPastePreview() {
 }
 
 function deleteSelection() {
-    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0 || selectedDirectLineIndices.size > 0) {
-        pushUndoState();
-        if (selectedWalls.size > 0) {
-            walls = walls.filter(w => !selectedWalls.has(w));
-            selectedWalls.clear();
-        }
-        if (selectedObjectIndices.size > 0) {
-            objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
-            selectedObjectIndices.clear();
-        }
-        if (selectedFloorIds.size > 0) {
-            floors = floors.filter(f => !selectedFloorIds.has(f.id));
-            selectedFloorIds.clear();
-        }
-        if (selectedDirectLineIndices.size > 0) {
-            directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
-            selectedDirectLineIndices.clear();
-            directLinePointSelection = null;
-        }
+    const hasSelection =
+        selectedWalls.size > 0 ||
+        selectedObjectIndices.size > 0 ||
+        selectedFloorIds.size > 0 ||
+        selectedDirectLineIndices.size > 0 ||
+        selectedDimensionIndex !== null;
 
-        cleanupOrphanNodes();
-        alignmentHints = [];
-        redrawCanvas();
+    if (!hasSelection) return;
+
+    pushUndoState();
+
+    if (selectedWalls.size > 0) {
+        walls = walls.filter(w => !selectedWalls.has(w));
+        selectedWalls.clear();
     }
+
+    if (selectedObjectIndices.size > 0) {
+        objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
+        selectedObjectIndices.clear();
+    }
+
+    if (selectedFloorIds.size > 0) {
+        floors = floors.filter(f => !selectedFloorIds.has(f.id));
+        selectedFloorIds.clear();
+    }
+
+    if (selectedDirectLineIndices.size > 0) {
+        directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
+        selectedDirectLineIndices.clear();
+        directLinePointSelection = null;
+    }
+
+    if (selectedDimensionIndex !== null && window.dimensions?.[selectedDimensionIndex]) {
+        window.dimensions.splice(selectedDimensionIndex, 1);
+        clearDimensionSelection();
+    }
+
+    cleanupOrphanNodes();
+    alignmentHints = [];
+    redrawCanvas();
 }
 
 function cleanupOrphanNodes() {
