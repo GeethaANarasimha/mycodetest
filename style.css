@@ -418,6 +418,17 @@ input[type="number"] {
     gap: 6px;
 }
 
+#layerTransparency {
+    flex: 1;
+}
+
+.settings-value {
+    min-width: 52px;
+    text-align: right;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
 
 .modal-grid {
     display: grid;

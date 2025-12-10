@@ -64,6 +64,10 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_407956fc7daf45d3803b4db9869a74e2.svg" alt="">
         <span class="tool-label">Direct Line</span>
     </button>
+    <button class="tool-btn" data-tool="settings" aria-label="Settings">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_91139ebc0ad44fe38aad272fdbee8d06.svg" alt="">
+        <span class="tool-label">Settings</span>
+    </button>
     <button class="tool-btn" data-tool="text" aria-label="Text">
         <span class="tool-icon text-icon">T</span>
         <span class="tool-label">Text</span>
@@ -213,6 +217,29 @@
 
 <div class="coordinates">X: 0, Y: 0</div>
 
+</div>
+
+<div id="settingsModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Drawing Settings</h3>
+        <p class="modal-subtitle">Quickly adjust grid helpers and floor visibility.</p>
+
+        <label class="modal-label checkbox"><input type="checkbox" id="settingsSnapToGrid"> Snap to grid</label>
+        <label class="modal-label checkbox"><input type="checkbox" id="settingsShowDimensions"> Show dimensions</label>
+
+        <label class="modal-label" for="settingsGridSize">Grid size (px)</label>
+        <input id="settingsGridSize" type="number" min="2" step="1" value="20">
+
+        <label class="modal-label" for="layerTransparency">Below-floor transparency</label>
+        <div class="modal-input-row">
+            <input id="layerTransparency" type="range" min="0" max="100" value="20">
+            <span id="layerTransparencyValue" class="settings-value">20%</span>
+        </div>
+
+        <div class="modal-actions">
+            <button id="closeSettingsModal" class="tool-btn secondary-btn" type="button">Close</button>
+        </div>
+    </div>
 </div>
 
 <div id="textModal" class="modal hidden">
