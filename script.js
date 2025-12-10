@@ -8725,13 +8725,13 @@ function drawReferenceLayers() {
     if (activeIndex <= 0) return;
 
     const alpha = Math.min(100, belowFloorTransparency) / 100;
-    const belowLayers = layers.slice(0, activeIndex);
+    const belowLayer = layers[activeIndex - 1];
+    if (!belowLayer) return;
 
-    belowLayers.forEach(layer => {
-        const snapshot = layerSnapshots[layer.id];
-        if (!snapshot) return;
-        drawReferenceSnapshot(snapshot, alpha);
-    });
+    const snapshot = layerSnapshots[belowLayer.id];
+    if (!snapshot) return;
+
+    drawReferenceSnapshot(snapshot, alpha);
 }
 
 function drawFloors() {
