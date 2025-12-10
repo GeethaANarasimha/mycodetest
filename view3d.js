@@ -1,5 +1,7 @@
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js';
+
 (function () {
-    if (typeof THREE === 'undefined') return;
 
     const toggleButton = document.getElementById('toggle3DView');
     const viewToggleIcon = document.getElementById('viewToggleIcon');
@@ -23,7 +25,7 @@
 
             const { clientWidth, clientHeight } = container;
             this.camera = new THREE.PerspectiveCamera(55, clientWidth / clientHeight, 1, 20000);
-            this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+            this.controls = new OrbitControls(this.camera, this.renderer.domElement);
             this.controls.enableDamping = true;
             this.controls.dampingFactor = 0.08;
             this.controls.maxDistance = 8000;
