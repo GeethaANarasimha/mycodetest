@@ -13,6 +13,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
     const windowHeightPx = (typeof scale === 'number' ? scale : 20) * 4;
     const windowSillPx = (typeof scale === 'number' ? scale : 20) * 3;
 
+    const DOOR_OPEN_ANGLE_DEG = 75;
+
     class Plan3DViewer {
         constructor(container) {
             this.container = container;
