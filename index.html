@@ -132,6 +132,11 @@
     </button>
 
     <div class="toolbar-spacer"></div>
+
+    <button id="toggle3DView" class="tool-btn secondary-btn view-toggle-btn" type="button" aria-label="Switch to 3D view">
+        <span id="viewToggleIcon" class="tool-icon text-icon">3D</span>
+        <span class="tool-label">View 3D model</span>
+    </button>
 </div>
 
 <div class="properties">
@@ -214,11 +219,17 @@
     </div>
 </div>
 
-<div class="canvas-shell">
+<div id="plan2dShell" class="canvas-shell">
     <div class="canvas-container">
         <canvas id="horizontalRuler" class="ruler ruler-horizontal" aria-hidden="true"></canvas>
         <canvas id="verticalRuler" class="ruler ruler-vertical" aria-hidden="true"></canvas>
         <canvas id="drawingCanvas" width="1800" height="1200"></canvas>
+    </div>
+</div>
+
+<div id="view3dShell" class="canvas-shell hidden" aria-hidden="true">
+    <div id="view3dContainer" class="view3d-container">
+        <div class="view3d-empty">Switch to the 3D view to generate a model of your plan.</div>
     </div>
 </div>
 
@@ -583,6 +594,8 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
 <script src="transformTools.js"></script>
 <script src="userGuide.js"></script>
 <script src="script.js"></script>
@@ -591,6 +604,7 @@
 <script src="windowTools.js"></script>
 <script src="panTools.js"></script>
 <script src="dimensionTools.js"></script>
+<script src="view3d.js"></script>
 
 </body>
 </html>
