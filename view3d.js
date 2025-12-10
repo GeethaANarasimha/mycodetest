@@ -13,6 +13,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
     const windowHeightPx = (typeof scale === 'number' ? scale : 20) * 4;
     const windowSillPx = (typeof scale === 'number' ? scale : 20) * 3;
 
+    const DOOR_OPEN_ANGLE_DEG = 75;
+
     class Plan3DViewer {
         constructor(container) {
             this.container = container;
@@ -170,7 +172,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 .filter(obj => obj.type === 'door')
                 .forEach(obj => {
                     const { length, thickness, center } = this.getLinearSize(obj);
-                    const geometry = new THREE.BoxGeometry(length, doorHeightPx, thickness || (scale * 0.5));
+                    const doorThickness = thickness || (scale * 0.5);
+                    const geometry = new THREE.BoxGeometry(length, doorHeightPx, doorThickness);
                     const material = new THREE.MeshStandardMaterial({
                         color: new THREE.Color('#c08457'),
                         metalness: 0.2,
@@ -179,9 +182,24 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     const mesh = new THREE.Mesh(geometry, material);
                     mesh.castShadow = true;
                     mesh.receiveShadow = true;
-                    mesh.position.set(center.x, doorHeightPx / 2, center.z);
-                    mesh.rotation.y = obj.rotation || (obj.orientation === 'vertical' ? Math.PI / 2 : 0);
-                    group.add(mesh);
+
+                    const isHorizontal = obj.orientation !== 'vertical';
+                    const hinge = new THREE.Group();
+                    hinge.position.set(
+                        isHorizontal ? center.x - (length / 2) : center.x,
+                        doorHeightPx / 2,
+                        isHorizontal ? center.z : center.z - (length / 2)
+                    );
+
+                    const closedRotation = typeof obj.rotation === 'number'
+                        ? obj.rotation
+                        : (isHorizontal ? 0 : Math.PI / 2);
+                    const openRotation = THREE.MathUtils.degToRad(obj.openAngle || DOOR_OPEN_ANGLE_DEG);
+                    hinge.rotation.y = closedRotation + openRotation;
+
+                    mesh.position.set(length / 2, 0, 0);
+                    hinge.add(mesh);
+                    group.add(hinge);
                 });
             return group;
         }
