@@ -209,6 +209,20 @@ input[type="number"] {
     font-weight: normal;
 }
 
+.status-pill {
+    background: #dbeafe;
+    color: #1d4ed8;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.status-pill.active {
+    background: #fef3c7;
+    color: #92400e;
+}
+
 .property-hint {
     font-size: 12px;
     color: #444;
@@ -404,6 +418,17 @@ input[type="number"] {
     gap: 6px;
 }
 
+#layerTransparency {
+    flex: 1;
+}
+
+.settings-value {
+    min-width: 52px;
+    text-align: right;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
 
 .modal-grid {
     display: grid;
@@ -517,6 +542,12 @@ input[type="number"] {
     margin-top: 12px;
     align-items: start;
     min-width: 0;
+}
+
+@media (max-width: 960px) {
+    .preview-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 .preview-header {

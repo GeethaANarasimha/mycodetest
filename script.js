@@ -22,6 +22,8 @@ const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
 const showDimensionsCheckbox = document.getElementById('showDimensions');
 const toggleGridButton = document.getElementById('toggleGrid');
+const snapToGridCheckbox = document.getElementById('snapToGrid');
+const precisionStatusDisplay = document.getElementById('precisionStatus');
 const coordinatesDisplay = document.querySelector('.coordinates');
 const toolInfoDisplay = document.querySelector('.tool-info');
 const measurementFontIncreaseButton = document.getElementById('measurementFontIncrease');
@@ -108,7 +110,15 @@ const xmlFileInput = document.getElementById('xmlFileInput');
 const xmlConvertStatus = document.getElementById('xmlConvertStatus');
 const downloadConvertedProjectButton = document.getElementById('downloadConvertedProject');
 const closeXmlConverterButton = document.getElementById('closeXmlConverter');
- 
+
+const settingsModal = document.getElementById('settingsModal');
+const closeSettingsModalButton = document.getElementById('closeSettingsModal');
+const settingsSnapToGridCheckbox = document.getElementById('settingsSnapToGrid');
+const settingsShowDimensionsCheckbox = document.getElementById('settingsShowDimensions');
+const settingsGridSizeInput = document.getElementById('settingsGridSize');
+const layerTransparencySlider = document.getElementById('layerTransparency');
+const layerTransparencyValue = document.getElementById('layerTransparencyValue');
+
 const horizontalRuler = document.getElementById('horizontalRuler');
 const verticalRuler = document.getElementById('verticalRuler');
 
@@ -156,6 +166,7 @@ const RULER_SIZE = 28;
 const DEFAULT_VIEW_MARGIN_FEET = 3;
 const DIRECT_LINE_HANDLE_RADIUS = 8;
 const DIRECT_LINE_HIT_TOLERANCE = 8;
+const SNAP_RESOLUTION_INCHES = 0.125;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -165,11 +176,16 @@ let currentX, currentY;
 
 let gridSize = parseInt(gridSizeInput.value, 10);
 let showGrid = true;
+let gridSnappingEnabled = true;
 let showDimensions = showDimensionsCheckbox.checked;
+let belowFloorTransparency = layerTransparencySlider ? parseInt(layerTransparencySlider.value, 10) || 0 : 20;
 let textFontSize = 18;
 let textIsBold = false;
 let textIsItalic = false;
 let measurementFontSize = 12;
+
+let selectionNudgePreviewUntil = 0;
+let keyboardHoverPreviewLocked = false;
 
 let nodes = [];
 let walls = [];
@@ -260,6 +276,7 @@ function syncBackgroundGlobalsFromLayer(layerId = currentLayerId()) {
     scale = state.scale ?? scale;
     gridSize = state.gridSize ?? gridSize;
     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+    if (settingsGridSizeInput) settingsGridSizeInput.value = Math.round(gridSize);
 }
 
 function persistBackgroundGlobalsToLayer(layerId = currentLayerId()) {
@@ -1664,6 +1681,27 @@ function expandSelectionWithGroups() {
     additions.forEach(idx => selectedObjectIndices.add(idx));
 }
 
+function autoSelectDimensionsForWalls() {
+    if (!window.dimensions || window.dimensions.length === 0 || selectedWalls.size === 0) return;
+
+    const wallIds = new Set(Array.from(selectedWalls).map(w => w.id));
+
+    if (selectedDimensionIndex !== null) {
+        const selectedDim = window.dimensions[selectedDimensionIndex];
+        if (selectedDim?.wallId && wallIds.has(selectedDim.wallId)) {
+            return;
+        }
+    }
+
+    for (let i = window.dimensions.length - 1; i >= 0; i--) {
+        const dim = window.dimensions[i];
+        if (dim?.wallId && wallIds.has(dim.wallId)) {
+            setSelectedDimension(i);
+            return;
+        }
+    }
+}
+
 function hasAnySelection() {
     return selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0;
 }
@@ -2318,30 +2356,46 @@ function drawPastePreview() {
 }
 
 function deleteSelection() {
-    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0 || selectedDirectLineIndices.size > 0) {
-        pushUndoState();
-        if (selectedWalls.size > 0) {
-            walls = walls.filter(w => !selectedWalls.has(w));
-            selectedWalls.clear();
-        }
-        if (selectedObjectIndices.size > 0) {
-            objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
-            selectedObjectIndices.clear();
-        }
-        if (selectedFloorIds.size > 0) {
-            floors = floors.filter(f => !selectedFloorIds.has(f.id));
-            selectedFloorIds.clear();
-        }
-        if (selectedDirectLineIndices.size > 0) {
-            directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
-            selectedDirectLineIndices.clear();
-            directLinePointSelection = null;
-        }
+    const hasSelection =
+        selectedWalls.size > 0 ||
+        selectedObjectIndices.size > 0 ||
+        selectedFloorIds.size > 0 ||
+        selectedDirectLineIndices.size > 0 ||
+        selectedDimensionIndex !== null;
 
-        cleanupOrphanNodes();
-        alignmentHints = [];
-        redrawCanvas();
+    if (!hasSelection) return;
+
+    pushUndoState();
+
+    if (selectedWalls.size > 0) {
+        walls = walls.filter(w => !selectedWalls.has(w));
+        selectedWalls.clear();
     }
+
+    if (selectedObjectIndices.size > 0) {
+        objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
+        selectedObjectIndices.clear();
+    }
+
+    if (selectedFloorIds.size > 0) {
+        floors = floors.filter(f => !selectedFloorIds.has(f.id));
+        selectedFloorIds.clear();
+    }
+
+    if (selectedDirectLineIndices.size > 0) {
+        directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
+        selectedDirectLineIndices.clear();
+        directLinePointSelection = null;
+    }
+
+    if (selectedDimensionIndex !== null && window.dimensions?.[selectedDimensionIndex]) {
+        window.dimensions.splice(selectedDimensionIndex, 1);
+        clearDimensionSelection();
+    }
+
+    cleanupOrphanNodes();
+    alignmentHints = [];
+    redrawCanvas();
 }
 
 function cleanupOrphanNodes() {
@@ -4549,6 +4603,11 @@ function init() {
     }
 
     setupLayering();
+    setSnapToGridEnabled(snapToGridCheckbox ? snapToGridCheckbox.checked : gridSnappingEnabled);
+    setShowDimensionsEnabled(showDimensionsCheckbox ? showDimensionsCheckbox.checked : showDimensions);
+    setGridSizeValue(gridSizeInput?.value ?? gridSize);
+    syncSettingsControls();
+    setLayerTransparency(belowFloorTransparency);
 
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {
@@ -4592,6 +4651,7 @@ function init() {
             cancelBackgroundMeasurement();
             closeTextModal();
             closeStaircaseModal();
+            closeSettingsModal();
             resetDirectLineDrawing();
         }
     });
@@ -4606,9 +4666,16 @@ function init() {
 
     toolButtons.forEach(button => {
         button.addEventListener('click', () => {
+            const tool = button.getAttribute('data-tool');
+
+            if (tool === 'settings') {
+                openSettingsModal();
+                return;
+            }
+
             toolButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
-            currentTool = button.getAttribute('data-tool');
+            currentTool = tool;
 
             resetFloorLasso();
 
@@ -4908,11 +4975,41 @@ function init() {
         redrawCanvas();
     });
 
-    gridSizeInput.addEventListener('input', updateGrid);
-    showDimensionsCheckbox.addEventListener('change', () => {
-        showDimensions = showDimensionsCheckbox.checked;
-        redrawCanvas();
-    });
+    gridSizeInput.addEventListener('input', () => setGridSizeValue(gridSizeInput.value));
+    showDimensionsCheckbox.addEventListener('change', () => setShowDimensionsEnabled(showDimensionsCheckbox.checked));
+
+    if (snapToGridCheckbox) {
+        gridSnappingEnabled = snapToGridCheckbox.checked;
+        snapToGridCheckbox.addEventListener('change', () => setSnapToGridEnabled(snapToGridCheckbox.checked));
+    }
+
+    if (settingsSnapToGridCheckbox) {
+        settingsSnapToGridCheckbox.addEventListener('change', () => setSnapToGridEnabled(settingsSnapToGridCheckbox.checked));
+    }
+
+    if (settingsShowDimensionsCheckbox) {
+        settingsShowDimensionsCheckbox.addEventListener('change', () => setShowDimensionsEnabled(settingsShowDimensionsCheckbox.checked));
+    }
+
+    if (settingsGridSizeInput) {
+        settingsGridSizeInput.addEventListener('input', () => setGridSizeValue(settingsGridSizeInput.value));
+    }
+
+    if (layerTransparencySlider) {
+        layerTransparencySlider.addEventListener('input', () => setLayerTransparency(layerTransparencySlider.value));
+    }
+
+    if (closeSettingsModalButton) {
+        closeSettingsModalButton.addEventListener('click', closeSettingsModal);
+    }
+
+    if (settingsModal) {
+        settingsModal.addEventListener('click', (event) => {
+            if (event.target === settingsModal) {
+                closeSettingsModal();
+            }
+        });
+    }
 
     if (textBoldButton) {
         textBoldButton.addEventListener('click', toggleTextBold);
@@ -4978,6 +5075,7 @@ function init() {
     drawGrid();
     syncBackgroundControls();
     updateTextStyleButtons();
+    updatePrecisionStatus();
     updateMeasurementPreview();
     updateStaircaseSummary();
     updateToolInfo();
@@ -5036,17 +5134,30 @@ function snapToGridPoint(x, y) {
     return { x, y };
 }
 
-function snapPointToInch(x, y) {
+function getSnapPixelStep() {
     const inchPx = scale / 12;
+    return inchPx * SNAP_RESOLUTION_INCHES;
+}
+
+function snapPointToInch(x, y) {
+    if (!gridSnappingEnabled) return { x, y };
+
+    const snapStep = getSnapPixelStep();
+    if (!snapStep) return { x, y };
+
     return {
-        x: Math.round(x / inchPx) * inchPx,
-        y: Math.round(y / inchPx) * inchPx
+        x: Math.round(x / snapStep) * snapStep,
+        y: Math.round(y / snapStep) * snapStep
     };
 }
 
 function snapToInchAlongDirection(t) {
-    const inchPx = scale / 12;
-    return Math.round(t / inchPx) * inchPx;
+    if (!gridSnappingEnabled) return t;
+
+    const snapStep = getSnapPixelStep();
+    if (!snapStep) return t;
+
+    return Math.round(t / snapStep) * snapStep;
 }
 
 function getStairSnapCandidates(excludeIndex = null) {
@@ -5180,9 +5291,10 @@ function moveSelectedWalls(dx, dy, { skipUndo = false } = {}) {
     affectedNodeIds.forEach(nodeId => {
         const node = getNodeById(nodeId);
         if (!node) return;
-        const { x, y } = snapPointToInch(node.x + dx, node.y + dy);
-        node.x = x;
-        node.y = y;
+        const target = { x: node.x + dx, y: node.y + dy };
+        const snapped = snapPointToInch(target.x, target.y);
+        node.x = gridSnappingEnabled ? snapped.x : target.x;
+        node.y = gridSnappingEnabled ? snapped.y : target.y;
     });
 
     redrawCanvas();
@@ -5196,13 +5308,16 @@ function moveSelectedDimension(dx, dy, { skipUndo = false } = {}) {
 
     if (!skipUndo) pushUndoState();
 
-    const start = snapPointToInch(dimension.startX + dx, dimension.startY + dy);
-    const end = snapPointToInch(dimension.endX + dx, dimension.endY + dy);
+    const rawStart = { x: dimension.startX + dx, y: dimension.startY + dy };
+    const rawEnd = { x: dimension.endX + dx, y: dimension.endY + dy };
 
-    dimension.startX = start.x;
-    dimension.startY = start.y;
-    dimension.endX = end.x;
-    dimension.endY = end.y;
+    const start = snapPointToInch(rawStart.x, rawStart.y);
+    const end = snapPointToInch(rawEnd.x, rawEnd.y);
+
+    dimension.startX = gridSnappingEnabled ? start.x : rawStart.x;
+    dimension.startY = gridSnappingEnabled ? start.y : rawStart.y;
+    dimension.endX = gridSnappingEnabled ? end.x : rawEnd.x;
+    dimension.endY = gridSnappingEnabled ? end.y : rawEnd.y;
 
     if (typeof window.updateDimensionMeasurement === 'function') {
         window.updateDimensionMeasurement(dimension);
@@ -5624,6 +5739,7 @@ function finalizeSelectionBox() {
         selectedDirectLineIndices.clear();
         directLinePointSelection = null;
         selectedFloorIds.clear();
+        clearDimensionSelection();
     }
 
     walls.forEach(wall => {
@@ -5672,6 +5788,17 @@ function finalizeSelectionBox() {
         }
     });
 
+    if (window.dimensions && window.dimensions.length > 0) {
+        for (let i = window.dimensions.length - 1; i >= 0; i--) {
+            const dim = window.dimensions[i];
+            if (rectIntersectsSegment(rect, dim.startX, dim.startY, dim.endX, dim.endY)) {
+                setSelectedDimension(i);
+                break;
+            }
+        }
+    }
+
+    autoSelectDimensionsForWalls();
     expandSelectionWithGroups();
 
     redrawCanvas();
@@ -5960,6 +6087,7 @@ function handleMouseDown(e) {
     }
 
     if (currentTool === 'select') {
+        keyboardHoverPreviewLocked = false;
         const pointHit = findDirectLinePointHit(x, y, DIRECT_LINE_HANDLE_RADIUS + 2);
         if (pointHit) {
             if (!selectedDirectLineIndices.has(pointHit.lineIndex)) {
@@ -6248,9 +6376,12 @@ function handleMouseDown(e) {
                 selectedNode = null;
                 ungroupSelectionElements();
             }
+            keyboardHoverPreviewLocked = true;
             selectedFloorIds.clear();
             selectedObjectIndices.clear();
             selectAllMode = false;
+            autoSelectDimensionsForWalls();
+            updateHoverPreviewForDimensions(x, y, { force: true });
             redrawCanvas();
             return;
         }
@@ -6291,6 +6422,7 @@ function handleMouseDown(e) {
             selectedObjectIndices.clear();
             selectedFloorIds.clear();
             selectAllMode = false;
+            keyboardHoverPreviewLocked = false;
             ungroupSelectionElements();
             clearDimensionSelection();
             clearDirectLineSelection();
@@ -6453,6 +6585,40 @@ function measureTextDimensions(text, fontSize = 18, fontWeight = 'normal', fontS
     const height = fontSize * 1.2;
     ctx.restore();
     return { width, height };
+}
+
+function shouldShowKeyboardHoverDimensions() {
+    if (selectedWalls.size === 0) return false;
+
+    return keyboardHoverPreviewLocked || Date.now() < selectionNudgePreviewUntil;
+}
+
+function updateHoverPreviewForDimensions(x, y, { force = false } = {}) {
+    const allowPreview = force || shouldShowKeyboardHoverDimensions();
+
+    if (!allowPreview) {
+        window.hoveredWall = null;
+        window.hoveredSpaceSegment = null;
+        keyboardHoverPreviewLocked = false;
+        return;
+    }
+
+    if (typeof window.findNearestWall !== 'function') return;
+
+    const hoverWall = findNearestWall(x, y, 20);
+    const isTouchingWall = hoverWall?.distance != null && hoverWall.distance <= 10;
+    const wallIsSelected = isTouchingWall && hoverWall?.wall && selectedWalls.has(hoverWall.wall);
+    keyboardHoverPreviewLocked = force ? wallIsSelected : keyboardHoverPreviewLocked && wallIsSelected;
+
+    window.hoveredWall = isTouchingWall ? hoverWall : null;
+
+    if (window.hoveredWall && typeof window.findAvailableSpacesOnWall === 'function') {
+        window.hoveredWall.hoverX = x;
+        window.hoveredWall.hoverY = y;
+        window.hoveredSpaceSegment = findAvailableSpacesOnWall(window.hoveredWall, x, y);
+    } else {
+        window.hoveredSpaceSegment = null;
+    }
 }
 
 function handleMouseMove(e) {
@@ -6925,6 +7091,12 @@ function handleMouseMove(e) {
     currentY = y;
     coordinatesDisplay.textContent = `X: ${x}, Y: ${y}`;
 
+    updateHoverPreviewForDimensions(x, y, { force: keyboardHoverPreviewLocked });
+
+    if (shouldShowKeyboardHoverDimensions()) {
+        redrawCanvas();
+    }
+
     if (isDrawing) {
         redrawCanvas();
         drawCurrentDragObject();
@@ -7211,13 +7383,18 @@ function applyDimensionDrag(x, y) {
     let newEnd = { x: initial.endX, y: initial.endY };
 
     if (dimensionDrag.handle === 'start') {
-        newStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
+        const rawStart = { x: initial.startX + dx, y: initial.startY + dy };
+        const snappedStart = snapPointToInch(rawStart.x, rawStart.y);
+        newStart = gridSnappingEnabled ? snappedStart : rawStart;
     } else if (dimensionDrag.handle === 'end') {
-        newEnd = snapPointToInch(initial.endX + dx, initial.endY + dy);
+        const rawEnd = { x: initial.endX + dx, y: initial.endY + dy };
+        const snappedEnd = snapPointToInch(rawEnd.x, rawEnd.y);
+        newEnd = gridSnappingEnabled ? snappedEnd : rawEnd;
     } else if (dimensionDrag.handle === 'line') {
-        const snappedStart = snapPointToInch(initial.startX + dx, initial.startY + dy);
-        const offsetX = snappedStart.x - initial.startX;
-        const offsetY = snappedStart.y - initial.startY;
+        const rawStart = { x: initial.startX + dx, y: initial.startY + dy };
+        const snappedStart = snapPointToInch(rawStart.x, rawStart.y);
+        const offsetX = (gridSnappingEnabled ? snappedStart.x : rawStart.x) - initial.startX;
+        const offsetY = (gridSnappingEnabled ? snappedStart.y : rawStart.y) - initial.startY;
         newStart = { x: initial.startX + offsetX, y: initial.startY + offsetY };
         newEnd = { x: initial.endX + offsetX, y: initial.endY + offsetY };
     }
@@ -7673,6 +7850,10 @@ function drawPerpendicularConnectionCorners(wall) {
 }
 
 function drawWallCornerMarkers(wall) {
+    // Only display corner markers while using the manual dimension tool to avoid
+    // visual clutter during normal editing.
+    if (currentTool !== 'dimension') return;
+
     const geometry = getWallCornerGeometry(wall);
     if (!geometry) return;
 
@@ -7748,17 +7929,10 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     const len = Math.hypot(dx, dy);
     if (len < 1) return;
 
-    const totalInches = Math.round((len / scale) * 12);
-    const text = formatMeasurementText(totalInches);
-
-    const midX = (x1 + x2) / 2;
-    const midY = (y1 + y2) / 2;
-    const nx = -dy / len;
-    const ny = dx / len;
-    const offset = thicknessPx / 2 + 14;
-    const tx = midX + nx * offset;
-    const ty = midY + ny * offset;
-
+    const halfThickness = thicknessPx / 2;
+    const unitTangent = { x: dx / len, y: dy / len };
+    const unitNormal = { x: -dy / len, y: dx / len };
+    const baseOffset = halfThickness + 14;
     const angle = Math.atan2(dy, dx);
     let renderAngle = angle;
     if (renderAngle > Math.PI / 2 || renderAngle < -Math.PI / 2) {
@@ -7766,22 +7940,70 @@ function drawWallDimension(x1, y1, x2, y2, thicknessPx) {
     }
 
     withViewTransform(() => {
-        ctx.save();
-        ctx.translate(tx, ty);
-        ctx.rotate(renderAngle);
-        ctx.fillStyle = '#e74c3c';
-        ctx.font = `${measurementFontSize}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        [-1, 1].forEach(direction => {
+            const startCorner = {
+                x: x1 - unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
+                y: y1 - unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
+            };
+            const endCorner = {
+                x: x2 + unitTangent.x * halfThickness + unitNormal.x * halfThickness * direction,
+                y: y2 + unitTangent.y * halfThickness + unitNormal.y * halfThickness * direction
+            };
 
-        const textWidth = ctx.measureText(text).width;
-        const textHeight = measurementFontSize * 1.2;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+            const measuredLength = Math.hypot(endCorner.x - startCorner.x, endCorner.y - startCorner.y);
+            const text = formatMeasurementText(Math.round((measuredLength / scale) * 12));
 
-        ctx.fillStyle = '#e74c3c';
-        ctx.fillText(text, 0, 0);
-        ctx.restore();
+            const offsetVec = {
+                x: unitNormal.x * direction * baseOffset,
+                y: unitNormal.y * direction * baseOffset
+            };
+
+            const start = { x: startCorner.x + offsetVec.x, y: startCorner.y + offsetVec.y };
+            const end = { x: endCorner.x + offsetVec.x, y: endCorner.y + offsetVec.y };
+            const midX = (start.x + end.x) / 2;
+            const midY = (start.y + end.y) / 2;
+            const textOffsetVec = {
+                x: unitNormal.x * direction * (baseOffset + measurementFontSize + 6),
+                y: unitNormal.y * direction * (baseOffset + measurementFontSize + 6)
+            };
+
+            ctx.save();
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 1;
+
+            // Dimension line
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+
+            // Tick marks at the ends
+            const tickLength = 8;
+            const tickOffsetX = unitNormal.x * tickLength * 0.5;
+            const tickOffsetY = unitNormal.y * tickLength * 0.5;
+            ctx.moveTo(start.x - tickOffsetX, start.y - tickOffsetY);
+            ctx.lineTo(start.x + tickOffsetX, start.y + tickOffsetY);
+            ctx.moveTo(end.x - tickOffsetX, end.y - tickOffsetY);
+            ctx.lineTo(end.x + tickOffsetX, end.y + tickOffsetY);
+
+            ctx.stroke();
+
+            // Measurement label
+            ctx.translate(midX + textOffsetVec.x, midY + textOffsetVec.y);
+            ctx.rotate(renderAngle);
+            ctx.fillStyle = '#e74c3c';
+            ctx.font = `${measurementFontSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const textWidth = ctx.measureText(text).width;
+            const textHeight = measurementFontSize * 1.2;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(-textWidth / 2 - 2, -textHeight / 2, textWidth + 4, textHeight);
+
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillText(text, 0, 0);
+            ctx.restore();
+        });
     });
 }
 
@@ -8437,6 +8659,81 @@ function drawDistancePreviews() {
     drawDistancePreviewOverlay(windowDistancePreview, '#3b83bd');
 }
 
+function getSnapshotFloorPoints(floor, nodesById) {
+    const points = [];
+    (floor.nodeIds || []).forEach(nodeId => {
+        const node = nodesById.get(nodeId);
+        if (node) {
+            points.push({ x: node.x, y: node.y });
+        }
+    });
+    return points;
+}
+
+function drawReferenceSnapshot(snapshot, alpha) {
+    const nodesById = new Map((snapshot.nodes || []).map(node => [node.id, node]));
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    (snapshot.floors || []).forEach(floor => {
+        const points = getSnapshotFloorPoints(floor, nodesById);
+        if (points.length < 3) return;
+
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.closePath();
+
+        if (floor.texture?.pattern) {
+            ctx.fillStyle = floor.texture.pattern;
+        } else if (floor.texture?.color) {
+            ctx.fillStyle = floor.texture.color;
+        } else {
+            ctx.fillStyle = '#d9d9d9';
+        }
+        ctx.fill();
+    });
+
+    (snapshot.walls || []).forEach(wall => {
+        const start = nodesById.get(wall.startNodeId);
+        const end = nodesById.get(wall.endNodeId);
+        if (!start || !end) return;
+
+        ctx.lineWidth = wall.thicknessPx ?? scale * 0.5;
+        ctx.strokeStyle = wall.lineColor || DEFAULT_WALL_COLOR;
+        ctx.lineCap = 'square';
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+    });
+
+    ctx.restore();
+}
+
+function drawReferenceLayers() {
+    if (belowFloorTransparency <= 0) return;
+    if (typeof getLayerState !== 'function') return;
+
+    const layerState = getLayerState();
+    const activeLayer = currentLayerId();
+    const layers = layerState?.layers || [];
+    const activeIndex = layers.findIndex(layer => layer.id === activeLayer);
+    if (activeIndex <= 0) return;
+
+    const alpha = Math.min(100, belowFloorTransparency) / 100;
+    const belowLayer = layers[activeIndex - 1];
+    if (!belowLayer) return;
+
+    const snapshot = layerSnapshots[belowLayer.id];
+    if (!snapshot) return;
+
+    drawReferenceSnapshot(snapshot, alpha);
+}
+
 function drawFloors() {
     floors.forEach(floor => {
         const points = getFloorPoints(floor);
@@ -8978,6 +9275,7 @@ function redrawCanvas() {
     ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
     drawBackgroundImage();
     drawGrid();
+    drawReferenceLayers();
     drawFloors();
     drawWalls();
     drawObjects();
@@ -9002,7 +9300,12 @@ function selectAllEntities() {
     selectedNode = null;
     selectedFloorIds = new Set(floors.map(f => f.id));
     selectedDirectLineIndices = new Set(directLines.map((_, i) => i));
-    clearDimensionSelection();
+    if (window.dimensions && window.dimensions.length > 0) {
+        setSelectedDimension(window.dimensions.length - 1);
+    } else {
+        clearDimensionSelection();
+    }
+    autoSelectDimensionsForWalls();
     isDraggingNode = false;
     selectAllMode = true;
     expandSelectionWithGroups();
@@ -9100,6 +9403,10 @@ function handleKeyDown(e) {
                 moveSelectedDirectLines(dx, dy, { skipUndo: true });
                 moveSelectedDimension(dx, dy, { skipUndo: true });
                 maintainDoorAttachmentForSelection();
+                selectionNudgePreviewUntil = Date.now() + 600;
+                if (lastPointerCanvasX != null && lastPointerCanvasY != null) {
+                    updateHoverPreviewForDimensions(lastPointerCanvasX, lastPointerCanvasY, { force: keyboardHoverPreviewLocked });
+                }
                 redrawCanvas();
                 return;
             }
@@ -9213,6 +9520,23 @@ function handleKeyDown(e) {
             return;
         }
     }
+
+    // Manual dimension flip
+    if (!e.ctrlKey && !e.metaKey && selectedDimensionIndex !== null) {
+        const key = e.key.toLowerCase();
+        if (key === 'f') {
+            const dimension = window.dimensions?.[selectedDimensionIndex];
+            if (dimension && !dimension.isAuto && typeof window.flipManualDimensionLine === 'function') {
+                const preview = window.flipManualDimensionLine(dimension, { preview: true });
+                if (preview?.success) {
+                    pushUndoState();
+                    window.flipManualDimensionLine(dimension);
+                    redrawCanvas();
+                }
+            }
+            return;
+        }
+    }
 }
 
 // ============================================================
@@ -9291,6 +9615,64 @@ function applyTextChangesToSelection(mutator) {
 function updateTextStyleButtons() {
     if (textBoldButton) textBoldButton.classList.toggle('active', textIsBold);
     if (textItalicButton) textItalicButton.classList.toggle('active', textIsItalic);
+}
+
+function setGridSizeValue(nextSize) {
+    const parsed = Math.max(2, parseInt(nextSize, 10) || 0);
+    gridSize = parsed;
+    if (gridSizeInput) gridSizeInput.value = parsed;
+    if (settingsGridSizeInput) settingsGridSizeInput.value = parsed;
+    redrawCanvas();
+}
+
+function setShowDimensionsEnabled(enabled) {
+    showDimensions = !!enabled;
+    if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
+    if (settingsShowDimensionsCheckbox) settingsShowDimensionsCheckbox.checked = showDimensions;
+    redrawCanvas();
+}
+
+function setSnapToGridEnabled(enabled) {
+    gridSnappingEnabled = !!enabled;
+    if (snapToGridCheckbox) snapToGridCheckbox.checked = gridSnappingEnabled;
+    if (settingsSnapToGridCheckbox) settingsSnapToGridCheckbox.checked = gridSnappingEnabled;
+    updatePrecisionStatus();
+}
+
+function setLayerTransparency(percent) {
+    belowFloorTransparency = Math.min(100, Math.max(0, parseInt(percent, 10) || 0));
+    if (layerTransparencySlider) layerTransparencySlider.value = belowFloorTransparency;
+    if (layerTransparencyValue) layerTransparencyValue.textContent = `${belowFloorTransparency}%`;
+    redrawCanvas();
+}
+
+function syncSettingsControls() {
+    if (settingsSnapToGridCheckbox) settingsSnapToGridCheckbox.checked = gridSnappingEnabled;
+    if (settingsShowDimensionsCheckbox) settingsShowDimensionsCheckbox.checked = showDimensions;
+    if (settingsGridSizeInput) settingsGridSizeInput.value = gridSize;
+    if (layerTransparencySlider) layerTransparencySlider.value = belowFloorTransparency;
+    if (layerTransparencyValue) layerTransparencyValue.textContent = `${belowFloorTransparency}%`;
+}
+
+function openSettingsModal() {
+    if (!settingsModal) return;
+    syncSettingsControls();
+    settingsModal.classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+    if (!settingsModal) return;
+    settingsModal.classList.add('hidden');
+}
+
+function updatePrecisionStatus() {
+    if (!precisionStatusDisplay) return;
+
+    const precise = !gridSnappingEnabled;
+    precisionStatusDisplay.textContent = precise
+        ? 'Precision move: ON (no snap)'
+        : 'Snap: ON';
+    precisionStatusDisplay.classList.toggle('active', precise);
 }
 
 function updateToolInfo() {
@@ -9704,8 +10086,7 @@ function applyFloorTexture() {
 }
 
 function updateGrid() {
-    gridSize = parseInt(gridSizeInput.value, 10) || 20;
-    redrawCanvas();
+    setGridSizeValue(gridSizeInput?.value ?? gridSize);
 }
 
 window.onload = init;
