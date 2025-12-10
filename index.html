@@ -68,6 +68,10 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_91139ebc0ad44fe38aad272fdbee8d06.svg" alt="">
         <span class="tool-label">Settings</span>
     </button>
+    <button id="openUserGuide" class="tool-btn" type="button" aria-label="User Guide">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_ed51627557c44586b66fcc754c814e05.svg" alt="">
+        <span class="tool-label">User Guide</span>
+    </button>
     <button class="tool-btn" data-tool="text" aria-label="Text">
         <span class="tool-icon text-icon">T</span>
         <span class="tool-label">Text</span>
@@ -217,6 +221,29 @@
 
 <div class="coordinates">X: 0, Y: 0</div>
 
+</div>
+
+<div id="userGuideModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="userGuideTitle">
+    <div class="modal-content user-guide-modal">
+        <div class="modal-header">
+            <div>
+                <h3 id="userGuideTitle">Tool User Guide</h3>
+                <p class="modal-subtitle">Browse every drawing control, learn what it does, and click a shortcut to trigger it.</p>
+            </div>
+            <div class="user-guide-search">
+                <label for="userGuideSearch" class="sr-only">Search tools</label>
+                <input id="userGuideSearch" type="search" placeholder="Search by keyword or shortcut" aria-label="Search tools by keyword or shortcut">
+                <span class="search-hint">Filter by tool name, task, or shortcut.</span>
+            </div>
+        </div>
+
+        <div id="userGuideList" class="user-guide-body" aria-live="polite"></div>
+
+        <div class="modal-actions">
+            <span id="shortcutStatus" class="shortcut-status" aria-live="polite"></span>
+            <button id="closeUserGuide" class="tool-btn secondary-btn" type="button">Close</button>
+        </div>
+    </div>
 </div>
 
 <div id="settingsModal" class="modal hidden">
@@ -555,6 +582,7 @@
 </div>
 
 <script src="transformTools.js"></script>
+<script src="userGuide.js"></script>
 <script src="script.js"></script>
 <script src="layerTools.js"></script>
 <script src="doorTools.js"></script>
