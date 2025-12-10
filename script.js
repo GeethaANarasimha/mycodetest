@@ -480,6 +480,7 @@ function resetTransientState() {
     dragOriginMousePos = null;
     floorDragData = null;
     isWallDrawing = false;
+    stopWallAutoScroll();
     wallChain = [];
     wallPreviewX = null;
     wallPreviewY = null;
@@ -664,6 +665,8 @@ window.getCanvasCoordsFromEvent = getCanvasCoordsFromEvent;
 let isViewPanning = false;
 let panOrigin = null;
 let panStartOffset = null;
+let wallAutoScrollFrame = null;
+let wallAutoScrollDelta = { x: 0, y: 0 };
 
 function withViewTransform(drawFn) {
     ctx.save();
@@ -691,6 +694,21 @@ function panView(deltaX, deltaY) {
     viewOffsetY += deltaY / pixelScale.y;
     syncCanvasScrollArea();
     redrawCanvas();
+}
+
+function stopWallAutoScroll() {
+    if (wallAutoScrollFrame !== null) {
+        cancelAnimationFrame(wallAutoScrollFrame);
+        wallAutoScrollFrame = null;
+    }
+    wallAutoScrollDelta.x = 0;
+    wallAutoScrollDelta.y = 0;
+}
+
+function updateWallAutoScroll() {
+    // Auto-scroll was removed in favor of manual panning; keep this function
+    // to satisfy existing calls while ensuring no scroll is triggered.
+    stopWallAutoScroll();
 }
 
 function syncCanvasScrollArea() {
@@ -3322,6 +3340,7 @@ function restoreState(state) {
     dragOriginNodePos = null;
     dragOriginMousePos = null;
     isWallDrawing = false;
+    stopWallAutoScroll();
     wallChain = [];
     wallPreviewX = null;
     wallPreviewY = null;
@@ -3775,6 +3794,7 @@ function applyProjectState(state) {
      dragOriginNodePos = null;
      dragOriginMousePos = null;
      isWallDrawing = false;
+     stopWallAutoScroll();
      wallChain = [];
      wallPreviewX = null;
      wallPreviewY = null;
@@ -4832,6 +4852,7 @@ function init() {
 
             if (currentTool !== 'wall') {
                 isWallDrawing = false;
+                stopWallAutoScroll();
                 wallChain = [];
                 wallPreviewX = wallPreviewY = null;
                 alignmentHints = [];
@@ -6808,6 +6829,8 @@ function handleMouseMove(e) {
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
 
+    updateWallAutoScroll(e);
+
     if (isBackgroundMeasurementActive) {
         return;
     }
@@ -7699,6 +7722,7 @@ function handleCanvasDoubleClick(e) {
         wallPreviewX = null;
         wallPreviewY = null;
         isWallDrawing = false;
+        stopWallAutoScroll();
         wallChain = [];
         alignmentHints = [];
         redrawCanvas();
@@ -9603,6 +9627,7 @@ function handleKeyDown(e) {
             redrawCanvas();
         } else if (currentTool === 'wall' && isWallDrawing) {
             isWallDrawing = false;
+            stopWallAutoScroll();
             wallChain = [];
             wallPreviewX = null;
             wallPreviewY = null;
