@@ -173,6 +173,8 @@ const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
+const WALL_AUTOSCROLL_SPEED = 4;
+const WALL_AUTOSCROLL_MARGIN = 14;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
