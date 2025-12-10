@@ -2322,30 +2322,46 @@ function drawPastePreview() {
 }
 
 function deleteSelection() {
-    if (selectedWalls.size > 0 || selectedObjectIndices.size > 0 || selectedFloorIds.size > 0 || selectedDirectLineIndices.size > 0) {
-        pushUndoState();
-        if (selectedWalls.size > 0) {
-            walls = walls.filter(w => !selectedWalls.has(w));
-            selectedWalls.clear();
-        }
-        if (selectedObjectIndices.size > 0) {
-            objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
-            selectedObjectIndices.clear();
-        }
-        if (selectedFloorIds.size > 0) {
-            floors = floors.filter(f => !selectedFloorIds.has(f.id));
-            selectedFloorIds.clear();
-        }
-        if (selectedDirectLineIndices.size > 0) {
-            directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
-            selectedDirectLineIndices.clear();
-            directLinePointSelection = null;
-        }
+    const hasSelection =
+        selectedWalls.size > 0 ||
+        selectedObjectIndices.size > 0 ||
+        selectedFloorIds.size > 0 ||
+        selectedDirectLineIndices.size > 0 ||
+        selectedDimensionIndex !== null;
 
-        cleanupOrphanNodes();
-        alignmentHints = [];
-        redrawCanvas();
+    if (!hasSelection) return;
+
+    pushUndoState();
+
+    if (selectedWalls.size > 0) {
+        walls = walls.filter(w => !selectedWalls.has(w));
+        selectedWalls.clear();
     }
+
+    if (selectedObjectIndices.size > 0) {
+        objects = objects.filter((_, idx) => !selectedObjectIndices.has(idx));
+        selectedObjectIndices.clear();
+    }
+
+    if (selectedFloorIds.size > 0) {
+        floors = floors.filter(f => !selectedFloorIds.has(f.id));
+        selectedFloorIds.clear();
+    }
+
+    if (selectedDirectLineIndices.size > 0) {
+        directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
+        selectedDirectLineIndices.clear();
+        directLinePointSelection = null;
+    }
+
+    if (selectedDimensionIndex !== null && window.dimensions?.[selectedDimensionIndex]) {
+        window.dimensions.splice(selectedDimensionIndex, 1);
+        clearDimensionSelection();
+    }
+
+    cleanupOrphanNodes();
+    alignmentHints = [];
+    redrawCanvas();
 }
 
 function cleanupOrphanNodes() {
@@ -5654,6 +5670,7 @@ function finalizeSelectionBox() {
         selectedDirectLineIndices.clear();
         directLinePointSelection = null;
         selectedFloorIds.clear();
+        clearDimensionSelection();
     }
 
     walls.forEach(wall => {
@@ -5701,6 +5718,16 @@ function finalizeSelectionBox() {
             }
         }
     });
+
+    if (window.dimensions && window.dimensions.length > 0) {
+        for (let i = window.dimensions.length - 1; i >= 0; i--) {
+            const dim = window.dimensions[i];
+            if (rectIntersectsSegment(rect, dim.startX, dim.startY, dim.endX, dim.endY)) {
+                setSelectedDimension(i);
+                break;
+            }
+        }
+    }
 
     expandSelectionWithGroups();
 
@@ -9082,7 +9109,11 @@ function selectAllEntities() {
     selectedNode = null;
     selectedFloorIds = new Set(floors.map(f => f.id));
     selectedDirectLineIndices = new Set(directLines.map((_, i) => i));
-    clearDimensionSelection();
+    if (window.dimensions && window.dimensions.length > 0) {
+        setSelectedDimension(window.dimensions.length - 1);
+    } else {
+        clearDimensionSelection();
+    }
     isDraggingNode = false;
     selectAllMode = true;
     expandSelectionWithGroups();
