@@ -174,6 +174,23 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 });
 
                 openings.forEach(opening => {
+                    const topHeight = Math.max(0, wallHeightPx - doorHeightPx);
+                    if (topHeight > 0) {
+                        const lintelGeometry = new THREE.BoxGeometry(opening.length, topHeight, thickness);
+                        const lintelMesh = new THREE.Mesh(lintelGeometry, material);
+                        lintelMesh.castShadow = true;
+                        lintelMesh.receiveShadow = true;
+
+                        const centerOffset = wallDir.clone().multiplyScalar(opening.along);
+                        lintelMesh.position.set(
+                            start.x + centerOffset.x,
+                            doorHeightPx + (topHeight / 2),
+                            start.y + centerOffset.y
+                        );
+                        lintelMesh.rotation.y = Math.atan2(dy, dx);
+                        group.add(lintelMesh);
+                    }
+
                     const frame = this.createDoorFrame(opening, start, wallDir, thickness, dy, dx);
                     if (frame) {
                         group.add(frame);
