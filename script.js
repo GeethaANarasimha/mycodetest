@@ -176,6 +176,8 @@ const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
+const WALL_SCROLL_EDGE_THRESHOLD = 40;
+const WALL_SCROLL_MAX_SPEED = 8;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -350,6 +352,12 @@ let wallChain = [];
 let wallPreviewX = null;
 let wallPreviewY = null;
 let alignmentHints = [];
+
+const wallAutoScroll = {
+    vx: 0,
+    vy: 0,
+    frameId: null
+};
 
 // node drag
 let selectedNode = null;
@@ -6848,12 +6856,90 @@ function updateHoverPreviewForDimensions(x, y, { force = false } = {}) {
     }
 }
 
+function stopWallAutoScroll() {
+    wallAutoScroll.vx = 0;
+    wallAutoScroll.vy = 0;
+
+    if (wallAutoScroll.frameId !== null) {
+        cancelAnimationFrame(wallAutoScroll.frameId);
+        wallAutoScroll.frameId = null;
+    }
+}
+
+function stepWallAutoScroll() {
+    if (!(currentTool === 'wall' && isWallDrawing)) {
+        stopWallAutoScroll();
+        return;
+    }
+
+    const { vx, vy } = wallAutoScroll;
+
+    if (vx === 0 && vy === 0) {
+        stopWallAutoScroll();
+        return;
+    }
+
+    canvasContainer.scrollLeft += vx;
+    canvasContainer.scrollTop += vy;
+
+    wallAutoScroll.frameId = requestAnimationFrame(stepWallAutoScroll);
+}
+
+function updateWallAutoScroll(event) {
+    if (!(currentTool === 'wall' && isWallDrawing) || !canvasContainer) {
+        stopWallAutoScroll();
+        return;
+    }
+
+    const rect = canvasContainer.getBoundingClientRect();
+    const threshold = WALL_SCROLL_EDGE_THRESHOLD;
+    const maxSpeed = WALL_SCROLL_MAX_SPEED;
+
+    const distLeft = event.clientX - rect.left;
+    const distRight = rect.right - event.clientX;
+    const distTop = event.clientY - rect.top;
+    const distBottom = rect.bottom - event.clientY;
+
+    const speedForDistance = (dist) => Math.min(maxSpeed, ((threshold - dist) / threshold) * maxSpeed);
+
+    let vx = 0;
+    let vy = 0;
+
+    if (distLeft < threshold) {
+        vx = -speedForDistance(distLeft);
+    } else if (distRight < threshold) {
+        vx = speedForDistance(distRight);
+    }
+
+    if (distTop < threshold) {
+        vy = -speedForDistance(distTop);
+    } else if (distBottom < threshold) {
+        vy = speedForDistance(distBottom);
+    }
+
+    wallAutoScroll.vx = vx;
+    wallAutoScroll.vy = vy;
+
+    if ((vx !== 0 || vy !== 0) && wallAutoScroll.frameId === null) {
+        wallAutoScroll.frameId = requestAnimationFrame(stepWallAutoScroll);
+    }
+
+    if (vx === 0 && vy === 0) {
+        stopWallAutoScroll();
+    }
+}
+
 function handleMouseMove(e) {
     let { x, y } = screenToWorld(e.clientX, e.clientY);
 
     // Track last pointer position for quick paste placement
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
+
+    const wallDrawingActive = currentTool === 'wall' && isWallDrawing;
+    if (!wallDrawingActive) {
+        stopWallAutoScroll();
+    }
 
     if (isBackgroundMeasurementActive) {
         return;
@@ -7212,6 +7298,8 @@ function handleMouseMove(e) {
     if (currentTool === 'wall' && isWallDrawing && wallChain.length > 0) {
         ({ x, y } = snapPointToInch(x, y));
 
+        updateWallAutoScroll(e);
+
         const lastNode = wallChain[wallChain.length - 1];
         const sx = lastNode.x;
         const sy = lastNode.y;
@@ -7331,6 +7419,8 @@ function handleMouseMove(e) {
 }
 
 function handleMouseUp() {
+    stopWallAutoScroll();
+
     if (isViewPanning) {
         isViewPanning = false;
         panOrigin = null;
