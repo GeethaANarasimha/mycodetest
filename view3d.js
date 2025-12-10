@@ -81,7 +81,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const content = new THREE.Group();
             content.name = 'plan-content';
 
-            const wallsGroup = this.buildWalls(walls, nodes);
+            const wallsGroup = this.buildWalls(walls, nodes, objects);
             const floorsGroup = this.buildFloors(floors, nodes);
             const doorsGroup = this.buildDoors(objects);
             const windowsGroup = this.buildWindows(objects);
@@ -134,8 +134,9 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             return group;
         }
 
-        buildWalls(walls, nodes) {
+        buildWalls(walls, nodes, objects = []) {
             const group = new THREE.Group();
+            const doorObjects = objects.filter(obj => obj.type === 'door');
             walls.forEach(wall => {
                 const start = nodes.find(n => n.id === wall.startNodeId);
                 const end = nodes.find(n => n.id === wall.endNodeId);
@@ -146,62 +147,136 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const length = Math.hypot(dx, dy) || 1;
                 const thickness = wall.thicknessPx || (scale * 0.5);
 
-                const geometry = new THREE.BoxGeometry(length, wallHeightPx, thickness);
+                const wallDir = new THREE.Vector2(dx, dy).normalize();
+                const openings = this.getDoorOpeningsForWall(start, wallDir, length, thickness, doorObjects);
+                const segments = this.buildWallSegments(openings, length);
+
                 const material = new THREE.MeshStandardMaterial({
                     color: new THREE.Color(wall.lineColor || '#1f2937'),
                     metalness: 0.1,
                     roughness: 0.65
                 });
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                mesh.position.set(
-                    (start.x + end.x) / 2,
-                    wallHeightPx / 2,
-                    (start.y + end.y) / 2
-                );
-                mesh.rotation.y = Math.atan2(dy, dx);
-                group.add(mesh);
-            });
-            return group;
-        }
 
-        buildDoors(objects) {
-            const group = new THREE.Group();
-            objects
-                .filter(obj => obj.type === 'door')
-                .forEach(obj => {
-                    const { length, thickness, center } = this.getLinearSize(obj);
-                    const doorThickness = thickness || (scale * 0.5);
-                    const geometry = new THREE.BoxGeometry(length, doorHeightPx, doorThickness);
-                    const material = new THREE.MeshStandardMaterial({
-                        color: new THREE.Color('#c08457'),
-                        metalness: 0.2,
-                        roughness: 0.55
-                    });
+                segments.forEach(segment => {
+                    const geometry = new THREE.BoxGeometry(segment.length, wallHeightPx, thickness);
                     const mesh = new THREE.Mesh(geometry, material);
                     mesh.castShadow = true;
                     mesh.receiveShadow = true;
 
-                    const isHorizontal = obj.orientation !== 'vertical';
-                    const hinge = new THREE.Group();
-                    hinge.position.set(
-                        isHorizontal ? center.x - (length / 2) : center.x,
-                        doorHeightPx / 2,
-                        isHorizontal ? center.z : center.z - (length / 2)
+                    const centerOffset = wallDir.clone().multiplyScalar(segment.start + (segment.length / 2));
+                    mesh.position.set(
+                        start.x + centerOffset.x,
+                        wallHeightPx / 2,
+                        start.y + centerOffset.y
                     );
-
-                    const closedRotation = typeof obj.rotation === 'number'
-                        ? obj.rotation
-                        : (isHorizontal ? 0 : Math.PI / 2);
-                    const openRotation = THREE.MathUtils.degToRad(obj.openAngle || DOOR_OPEN_ANGLE_DEG);
-                    hinge.rotation.y = closedRotation + openRotation;
-
-                    mesh.position.set(length / 2, 0, 0);
-                    hinge.add(mesh);
-                    group.add(hinge);
+                    mesh.rotation.y = Math.atan2(dy, dx);
+                    group.add(mesh);
                 });
+
+                openings.forEach(opening => {
+                    const frame = this.createDoorFrame(opening, start, wallDir, thickness, dy, dx);
+                    if (frame) {
+                        group.add(frame);
+                    }
+                });
+            });
             return group;
+        }
+
+        buildDoors() {
+            // Door visualization is handled as openings and frames within buildWalls.
+            return new THREE.Group();
+        }
+
+        getDoorOpeningsForWall(start, wallDir, wallLength, wallThickness, doorObjects) {
+            const openings = [];
+            doorObjects.forEach(obj => {
+                const { length: doorLength, thickness: doorThickness, center } = this.getLinearSize(obj);
+                const doorOrientation = (obj.orientation === 'vertical')
+                    ? new THREE.Vector2(0, 1)
+                    : new THREE.Vector2(1, 0);
+                const alignment = Math.abs(wallDir.dot(doorOrientation));
+                if (alignment < 0.9) return;
+
+                const doorCenter = new THREE.Vector2(center.x, center.z);
+                const startVec = new THREE.Vector2(start.x, start.y);
+                const rel = doorCenter.clone().sub(startVec);
+                const along = rel.dot(wallDir);
+
+                // Ensure the door lies on or near the wall span
+                if (along + (doorLength / 2) < 0 || along - (doorLength / 2) > wallLength) return;
+
+                const perpendicular = rel.clone().sub(wallDir.clone().multiplyScalar(along));
+                if (perpendicular.length() > (wallThickness * 0.75)) return;
+
+                openings.push({
+                    start: Math.max(0, along - (doorLength / 2)),
+                    end: Math.min(wallLength, along + (doorLength / 2)),
+                    length: doorLength,
+                    along,
+                    thickness: doorThickness || wallThickness
+                });
+            });
+            return openings;
+        }
+
+        buildWallSegments(openings, totalLength) {
+            const segments = [];
+            const sorted = openings.slice().sort((a, b) => a.start - b.start);
+            let cursor = 0;
+            sorted.forEach(opening => {
+                const start = Math.max(0, opening.start);
+                const end = Math.min(totalLength, opening.end);
+                if (end <= 0 || start >= totalLength) return;
+                if (start > cursor) {
+                    segments.push({ start: cursor, length: start - cursor });
+                }
+                cursor = Math.max(cursor, end);
+            });
+            if (cursor < totalLength) {
+                segments.push({ start: cursor, length: totalLength - cursor });
+            }
+            return segments;
+        }
+
+        createDoorFrame(opening, wallStart, wallDir, wallThickness, dy, dx) {
+            const frameGroup = new THREE.Group();
+            const frameDepth = wallThickness;
+            const frameWidth = Math.max(4, wallThickness * 0.3);
+
+            const material = new THREE.MeshStandardMaterial({
+                color: new THREE.Color('#c08457'),
+                metalness: 0.25,
+                roughness: 0.45
+            });
+
+            const postGeometry = new THREE.BoxGeometry(frameWidth, doorHeightPx, frameDepth);
+            const lintelGeometry = new THREE.BoxGeometry(opening.length + (frameWidth * 2), frameWidth, frameDepth);
+
+            const leftPost = new THREE.Mesh(postGeometry, material);
+            const rightPost = new THREE.Mesh(postGeometry, material);
+            const lintel = new THREE.Mesh(lintelGeometry, material);
+
+            [leftPost, rightPost, lintel].forEach(mesh => {
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+            });
+
+            leftPost.position.set(-(opening.length / 2) - (frameWidth / 2), doorHeightPx / 2, 0);
+            rightPost.position.set((opening.length / 2) + (frameWidth / 2), doorHeightPx / 2, 0);
+            lintel.position.set(0, doorHeightPx - (frameWidth / 2), 0);
+
+            frameGroup.add(leftPost, rightPost, lintel);
+
+            const offset = wallDir.clone().multiplyScalar(opening.along);
+            frameGroup.position.set(
+                wallStart.x + offset.x,
+                0,
+                wallStart.y + offset.y
+            );
+            frameGroup.rotation.y = Math.atan2(dy, dx);
+
+            return frameGroup;
         }
 
         buildWindows(objects) {
