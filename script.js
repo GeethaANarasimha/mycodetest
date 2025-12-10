@@ -177,7 +177,10 @@ const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
 const WALL_SCROLL_EDGE_THRESHOLD = 40;
-const WALL_SCROLL_MAX_SPEED = 8;
+const WALL_SCROLL_MAX_SPEED = 6;
+const WALL_SCROLL_RULER_SPEED = 1.25;
+const WALL_SCROLL_EASING = 0.18;
+const WALL_SCROLL_STOP_EPS = 0.05;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -356,6 +359,8 @@ let alignmentHints = [];
 const wallAutoScroll = {
     vx: 0,
     vy: 0,
+    targetVx: 0,
+    targetVy: 0,
     frameId: null
 };
 
@@ -6859,6 +6864,8 @@ function updateHoverPreviewForDimensions(x, y, { force = false } = {}) {
 function stopWallAutoScroll() {
     wallAutoScroll.vx = 0;
     wallAutoScroll.vy = 0;
+    wallAutoScroll.targetVx = 0;
+    wallAutoScroll.targetVy = 0;
 
     if (wallAutoScroll.frameId !== null) {
         cancelAnimationFrame(wallAutoScroll.frameId);
@@ -6872,9 +6879,19 @@ function stepWallAutoScroll() {
         return;
     }
 
-    const { vx, vy } = wallAutoScroll;
+    const { targetVx, targetVy } = wallAutoScroll;
 
-    if (vx === 0 && vy === 0) {
+    wallAutoScroll.vx += (targetVx - wallAutoScroll.vx) * WALL_SCROLL_EASING;
+    wallAutoScroll.vy += (targetVy - wallAutoScroll.vy) * WALL_SCROLL_EASING;
+
+    const { vx, vy } = wallAutoScroll;
+    const settling =
+        Math.abs(vx) < WALL_SCROLL_STOP_EPS &&
+        Math.abs(vy) < WALL_SCROLL_STOP_EPS &&
+        Math.abs(targetVx) < WALL_SCROLL_STOP_EPS &&
+        Math.abs(targetVy) < WALL_SCROLL_STOP_EPS;
+
+    if (settling) {
         stopWallAutoScroll();
         return;
     }
@@ -6902,29 +6919,50 @@ function updateWallAutoScroll(event) {
 
     const speedForDistance = (dist) => Math.min(maxSpeed, ((threshold - dist) / threshold) * maxSpeed);
 
-    let vx = 0;
-    let vy = 0;
+    const verticalRulerRect = verticalRuler?.getBoundingClientRect();
+    const horizontalRulerRect = horizontalRuler?.getBoundingClientRect();
+    const touchingVerticalRuler =
+        verticalRulerRect &&
+        event.clientX >= verticalRulerRect.left &&
+        event.clientX <= verticalRulerRect.right &&
+        event.clientY >= verticalRulerRect.top &&
+        event.clientY <= verticalRulerRect.bottom;
+    const touchingHorizontalRuler =
+        horizontalRulerRect &&
+        event.clientX >= horizontalRulerRect.left &&
+        event.clientX <= horizontalRulerRect.right &&
+        event.clientY >= horizontalRulerRect.top &&
+        event.clientY <= horizontalRulerRect.bottom;
 
-    if (distLeft < threshold) {
-        vx = -speedForDistance(distLeft);
+    let targetVx = 0;
+    let targetVy = 0;
+
+    if (touchingVerticalRuler) {
+        targetVx = WALL_SCROLL_RULER_SPEED;
+    } else if (distLeft < threshold) {
+        targetVx = speedForDistance(distLeft);
     } else if (distRight < threshold) {
-        vx = speedForDistance(distRight);
+        targetVx = -speedForDistance(distRight);
     }
 
-    if (distTop < threshold) {
-        vy = -speedForDistance(distTop);
+    if (touchingHorizontalRuler) {
+        targetVy = WALL_SCROLL_RULER_SPEED;
+    } else if (distTop < threshold) {
+        targetVy = speedForDistance(distTop);
     } else if (distBottom < threshold) {
-        vy = speedForDistance(distBottom);
+        targetVy = -speedForDistance(distBottom);
     }
 
-    wallAutoScroll.vx = vx;
-    wallAutoScroll.vy = vy;
+    wallAutoScroll.targetVx = targetVx;
+    wallAutoScroll.targetVy = targetVy;
 
-    if ((vx !== 0 || vy !== 0) && wallAutoScroll.frameId === null) {
+    const wantsToScroll = targetVx !== 0 || targetVy !== 0;
+
+    if (wantsToScroll && wallAutoScroll.frameId === null) {
         wallAutoScroll.frameId = requestAnimationFrame(stepWallAutoScroll);
     }
 
-    if (vx === 0 && vy === 0) {
+    if (!wantsToScroll && Math.abs(wallAutoScroll.vx) < WALL_SCROLL_STOP_EPS && Math.abs(wallAutoScroll.vy) < WALL_SCROLL_STOP_EPS) {
         stopWallAutoScroll();
     }
 }
