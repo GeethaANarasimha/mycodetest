@@ -175,6 +175,8 @@ let textIsBold = false;
 let textIsItalic = false;
 let measurementFontSize = 12;
 
+let selectionNudgePreviewUntil = 0;
+
 let nodes = [];
 let walls = [];
 let nextNodeId = 1;
@@ -6535,6 +6537,32 @@ function measureTextDimensions(text, fontSize = 18, fontWeight = 'normal', fontS
     return { width, height };
 }
 
+function shouldShowKeyboardHoverDimensions() {
+    return Date.now() < selectionNudgePreviewUntil && selectedWalls.size > 0;
+}
+
+function updateHoverPreviewForDimensions(x, y) {
+    if (!shouldShowKeyboardHoverDimensions()) {
+        window.hoveredWall = null;
+        window.hoveredSpaceSegment = null;
+        return;
+    }
+
+    if (typeof window.findNearestWall !== 'function') return;
+
+    const hoverWall = findNearestWall(x, y, 20);
+    const isTouchingWall = hoverWall?.distance != null && hoverWall.distance <= 10;
+    window.hoveredWall = isTouchingWall ? hoverWall : null;
+
+    if (window.hoveredWall && typeof window.findAvailableSpacesOnWall === 'function') {
+        window.hoveredWall.hoverX = x;
+        window.hoveredWall.hoverY = y;
+        window.hoveredSpaceSegment = findAvailableSpacesOnWall(window.hoveredWall, x, y);
+    } else {
+        window.hoveredSpaceSegment = null;
+    }
+}
+
 function handleMouseMove(e) {
     let { x, y } = screenToWorld(e.clientX, e.clientY);
 
@@ -7004,6 +7032,12 @@ function handleMouseMove(e) {
     currentX = x;
     currentY = y;
     coordinatesDisplay.textContent = `X: ${x}, Y: ${y}`;
+
+    updateHoverPreviewForDimensions(x, y);
+
+    if (shouldShowKeyboardHoverDimensions()) {
+        redrawCanvas();
+    }
 
     if (isDrawing) {
         redrawCanvas();
@@ -9235,6 +9269,7 @@ function handleKeyDown(e) {
                 moveSelectedDirectLines(dx, dy, { skipUndo: true });
                 moveSelectedDimension(dx, dy, { skipUndo: true });
                 maintainDoorAttachmentForSelection();
+                selectionNudgePreviewUntil = Date.now() + 600;
                 redrawCanvas();
                 return;
             }
