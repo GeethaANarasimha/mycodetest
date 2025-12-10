@@ -173,6 +173,8 @@ const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
+const WALL_AUTOSCROLL_SPEED = 4;
+const WALL_AUTOSCROLL_MARGIN = 14;
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -480,6 +482,7 @@ function resetTransientState() {
     dragOriginMousePos = null;
     floorDragData = null;
     isWallDrawing = false;
+    stopWallAutoScroll();
     wallChain = [];
     wallPreviewX = null;
     wallPreviewY = null;
@@ -664,6 +667,8 @@ window.getCanvasCoordsFromEvent = getCanvasCoordsFromEvent;
 let isViewPanning = false;
 let panOrigin = null;
 let panStartOffset = null;
+let wallAutoScrollFrame = null;
+let wallAutoScrollDelta = { x: 0, y: 0 };
 
 function withViewTransform(drawFn) {
     ctx.save();
@@ -691,6 +696,73 @@ function panView(deltaX, deltaY) {
     viewOffsetY += deltaY / pixelScale.y;
     syncCanvasScrollArea();
     redrawCanvas();
+}
+
+function stopWallAutoScroll() {
+    if (wallAutoScrollFrame !== null) {
+        cancelAnimationFrame(wallAutoScrollFrame);
+        wallAutoScrollFrame = null;
+    }
+    wallAutoScrollDelta.x = 0;
+    wallAutoScrollDelta.y = 0;
+}
+
+function applyWallAutoScroll() {
+    if (!canvasContainer) {
+        stopWallAutoScroll();
+        return;
+    }
+
+    const { x, y } = wallAutoScrollDelta;
+    if (x === 0 && y === 0) {
+        wallAutoScrollFrame = null;
+        return;
+    }
+
+    canvasContainer.scrollLeft += x;
+    canvasContainer.scrollTop += y;
+
+    wallAutoScrollFrame = requestAnimationFrame(applyWallAutoScroll);
+}
+
+function updateWallAutoScroll(event) {
+    if (!canvasContainer) return;
+
+    const shouldScroll = currentTool === 'wall' && isWallDrawing && wallChain.length > 0 && !isViewPanning;
+    if (!shouldScroll) {
+        stopWallAutoScroll();
+        return;
+    }
+
+    const containerRect = canvasContainer.getBoundingClientRect();
+    const leftZone = containerRect.left + RULER_SIZE;
+    const topZone = containerRect.top + RULER_SIZE;
+    const rightZone = containerRect.right - WALL_AUTOSCROLL_MARGIN;
+    const bottomZone = containerRect.bottom - WALL_AUTOSCROLL_MARGIN;
+
+    const newDelta = { x: 0, y: 0 };
+
+    if (event.clientX <= leftZone) {
+        newDelta.x = WALL_AUTOSCROLL_SPEED;
+    } else if (event.clientX >= rightZone) {
+        newDelta.x = -WALL_AUTOSCROLL_SPEED;
+    }
+
+    if (event.clientY <= topZone) {
+        newDelta.y = WALL_AUTOSCROLL_SPEED;
+    } else if (event.clientY >= bottomZone) {
+        newDelta.y = -WALL_AUTOSCROLL_SPEED;
+    }
+
+    wallAutoScrollDelta = newDelta;
+
+    if (newDelta.x !== 0 || newDelta.y !== 0) {
+        if (wallAutoScrollFrame === null) {
+            wallAutoScrollFrame = requestAnimationFrame(applyWallAutoScroll);
+        }
+    } else {
+        stopWallAutoScroll();
+    }
 }
 
 function syncCanvasScrollArea() {
@@ -3322,6 +3394,7 @@ function restoreState(state) {
     dragOriginNodePos = null;
     dragOriginMousePos = null;
     isWallDrawing = false;
+    stopWallAutoScroll();
     wallChain = [];
     wallPreviewX = null;
     wallPreviewY = null;
@@ -3775,6 +3848,7 @@ function applyProjectState(state) {
      dragOriginNodePos = null;
      dragOriginMousePos = null;
      isWallDrawing = false;
+     stopWallAutoScroll();
      wallChain = [];
      wallPreviewX = null;
      wallPreviewY = null;
@@ -4832,6 +4906,7 @@ function init() {
 
             if (currentTool !== 'wall') {
                 isWallDrawing = false;
+                stopWallAutoScroll();
                 wallChain = [];
                 wallPreviewX = wallPreviewY = null;
                 alignmentHints = [];
@@ -6808,6 +6883,8 @@ function handleMouseMove(e) {
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
 
+    updateWallAutoScroll(e);
+
     if (isBackgroundMeasurementActive) {
         return;
     }
@@ -7699,6 +7776,7 @@ function handleCanvasDoubleClick(e) {
         wallPreviewX = null;
         wallPreviewY = null;
         isWallDrawing = false;
+        stopWallAutoScroll();
         wallChain = [];
         alignmentHints = [];
         redrawCanvas();
@@ -9603,6 +9681,7 @@ function handleKeyDown(e) {
             redrawCanvas();
         } else if (currentTool === 'wall' && isWallDrawing) {
             isWallDrawing = false;
+            stopWallAutoScroll();
             wallChain = [];
             wallPreviewX = null;
             wallPreviewY = null;
