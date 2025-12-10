@@ -176,12 +176,6 @@ const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
-const WALL_SCROLL_EDGE_THRESHOLD = 40;
-const WALL_SCROLL_MAX_SPEED = 6;
-const WALL_SCROLL_RULER_SPEED = 1.25;
-const WALL_SCROLL_EASING = 0.18;
-const WALL_SCROLL_STOP_EPS = 0.05;
-
 // ---------------- STATE ----------------
 let currentTool = 'select';
 let isDrawing = false;
@@ -355,14 +349,6 @@ let wallChain = [];
 let wallPreviewX = null;
 let wallPreviewY = null;
 let alignmentHints = [];
-
-const wallAutoScroll = {
-    vx: 0,
-    vy: 0,
-    targetVx: 0,
-    targetVy: 0,
-    frameId: null
-};
 
 // node drag
 let selectedNode = null;
@@ -6861,123 +6847,12 @@ function updateHoverPreviewForDimensions(x, y, { force = false } = {}) {
     }
 }
 
-function stopWallAutoScroll() {
-    wallAutoScroll.vx = 0;
-    wallAutoScroll.vy = 0;
-    wallAutoScroll.targetVx = 0;
-    wallAutoScroll.targetVy = 0;
-
-    if (wallAutoScroll.frameId !== null) {
-        cancelAnimationFrame(wallAutoScroll.frameId);
-        wallAutoScroll.frameId = null;
-    }
-}
-
-function stepWallAutoScroll() {
-    if (!(currentTool === 'wall' && isWallDrawing)) {
-        stopWallAutoScroll();
-        return;
-    }
-
-    const { targetVx, targetVy } = wallAutoScroll;
-
-    wallAutoScroll.vx += (targetVx - wallAutoScroll.vx) * WALL_SCROLL_EASING;
-    wallAutoScroll.vy += (targetVy - wallAutoScroll.vy) * WALL_SCROLL_EASING;
-
-    const { vx, vy } = wallAutoScroll;
-    const settling =
-        Math.abs(vx) < WALL_SCROLL_STOP_EPS &&
-        Math.abs(vy) < WALL_SCROLL_STOP_EPS &&
-        Math.abs(targetVx) < WALL_SCROLL_STOP_EPS &&
-        Math.abs(targetVy) < WALL_SCROLL_STOP_EPS;
-
-    if (settling) {
-        stopWallAutoScroll();
-        return;
-    }
-
-    canvasContainer.scrollLeft += vx;
-    canvasContainer.scrollTop += vy;
-
-    wallAutoScroll.frameId = requestAnimationFrame(stepWallAutoScroll);
-}
-
-function updateWallAutoScroll(event) {
-    if (!(currentTool === 'wall' && isWallDrawing) || !canvasContainer) {
-        stopWallAutoScroll();
-        return;
-    }
-
-    const rect = canvasContainer.getBoundingClientRect();
-    const threshold = WALL_SCROLL_EDGE_THRESHOLD;
-    const maxSpeed = WALL_SCROLL_MAX_SPEED;
-
-    const distLeft = event.clientX - rect.left;
-    const distRight = rect.right - event.clientX;
-    const distTop = event.clientY - rect.top;
-    const distBottom = rect.bottom - event.clientY;
-
-    const speedForDistance = (dist) => Math.min(maxSpeed, ((threshold - dist) / threshold) * maxSpeed);
-
-    const verticalRulerRect = verticalRuler?.getBoundingClientRect();
-    const horizontalRulerRect = horizontalRuler?.getBoundingClientRect();
-    const touchingVerticalRuler =
-        verticalRulerRect &&
-        event.clientX >= verticalRulerRect.left &&
-        event.clientX <= verticalRulerRect.right &&
-        event.clientY >= verticalRulerRect.top &&
-        event.clientY <= verticalRulerRect.bottom;
-    const touchingHorizontalRuler =
-        horizontalRulerRect &&
-        event.clientX >= horizontalRulerRect.left &&
-        event.clientX <= horizontalRulerRect.right &&
-        event.clientY >= horizontalRulerRect.top &&
-        event.clientY <= horizontalRulerRect.bottom;
-
-    let targetVx = 0;
-    let targetVy = 0;
-
-    if (touchingVerticalRuler) {
-        targetVx = WALL_SCROLL_RULER_SPEED;
-    } else if (distLeft < threshold) {
-        targetVx = speedForDistance(distLeft);
-    } else if (distRight < threshold) {
-        targetVx = -speedForDistance(distRight);
-    }
-
-    if (touchingHorizontalRuler) {
-        targetVy = WALL_SCROLL_RULER_SPEED;
-    } else if (distTop < threshold) {
-        targetVy = speedForDistance(distTop);
-    } else if (distBottom < threshold) {
-        targetVy = -speedForDistance(distBottom);
-    }
-
-    wallAutoScroll.targetVx = targetVx;
-    wallAutoScroll.targetVy = targetVy;
-
-    const wantsToScroll = targetVx !== 0 || targetVy !== 0;
-
-    if (wantsToScroll && wallAutoScroll.frameId === null) {
-        wallAutoScroll.frameId = requestAnimationFrame(stepWallAutoScroll);
-    }
-
-    if (!wantsToScroll && Math.abs(wallAutoScroll.vx) < WALL_SCROLL_STOP_EPS && Math.abs(wallAutoScroll.vy) < WALL_SCROLL_STOP_EPS) {
-        stopWallAutoScroll();
-    }
-}
-
 function handleMouseMove(e) {
     let { x, y } = screenToWorld(e.clientX, e.clientY);
 
     // Track last pointer position for quick paste placement
     lastPointerCanvasX = x;
     lastPointerCanvasY = y;
-
-    const wallDrawingActive = currentTool === 'wall' && isWallDrawing;
-    if (!wallDrawingActive) {
-        stopWallAutoScroll();
-    }
 
     if (isBackgroundMeasurementActive) {
         return;
@@ -7336,8 +7211,6 @@ function handleMouseMove(e) {
     if (currentTool === 'wall' && isWallDrawing && wallChain.length > 0) {
         ({ x, y } = snapPointToInch(x, y));
 
-        updateWallAutoScroll(e);
-
         const lastNode = wallChain[wallChain.length - 1];
         const sx = lastNode.x;
         const sy = lastNode.y;
@@ -7457,8 +7330,6 @@ function handleMouseMove(e) {
 }
 
 function handleMouseUp() {
-    stopWallAutoScroll();
-
     if (isViewPanning) {
         isViewPanning = false;
         panOrigin = null;
