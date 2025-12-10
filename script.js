@@ -110,6 +110,13 @@ const xmlFileInput = document.getElementById('xmlFileInput');
 const xmlConvertStatus = document.getElementById('xmlConvertStatus');
 const downloadConvertedProjectButton = document.getElementById('downloadConvertedProject');
 const closeXmlConverterButton = document.getElementById('closeXmlConverter');
+const restoreDraftModal = document.getElementById('restoreDraftModal');
+const restoreDraftButton = document.getElementById('restoreDraftButton');
+const discardDraftButton = document.getElementById('discardDraftButton');
+const exitWarningModal = document.getElementById('exitWarningModal');
+const exitWarningMessage = document.getElementById('exitWarningMessage');
+const exitDownloadButton = document.getElementById('exitDownloadButton');
+const exitStayButton = document.getElementById('exitStayButton');
 
 const settingsModal = document.getElementById('settingsModal');
 const closeSettingsModalButton = document.getElementById('closeSettingsModal');
@@ -167,6 +174,8 @@ const DEFAULT_VIEW_MARGIN_FEET = 3;
 const DIRECT_LINE_HANDLE_RADIUS = 8;
 const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
+const DRAFT_STORAGE_KEY = 'apzok-project-draft';
+const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
 
 // ---------------- STATE ----------------
 let currentTool = 'select';
@@ -198,6 +207,9 @@ let selectedDimensionIndex = null;
 let dimensionDrag = null;
 
 let objects = [];
+let autosaveTimeout = null;
+let hasUnsavedChanges = false;
+let emergencyDownloadTriggered = false;
 
 let staircaseSettings = {
     mode: 'steps',
@@ -3332,12 +3344,14 @@ function restoreState(state) {
 
     updateToolInfo();
     redrawCanvas();
+    markProjectDirty();
 }
 
 function pushUndoState() {
     undoStack.push(cloneState());
     if (undoStack.length > MAX_HISTORY) undoStack.shift();
     redoStack.length = 0;
+    markProjectDirty();
 }
 
 function undo() {
@@ -3479,6 +3493,169 @@ function buildProjectState() {
         measurementDistanceFeet: activeLayerBackgroundState.measurementDistanceFeet,
         backgroundImageVisible: activeLayerBackgroundState.isBackgroundImageVisible
     };
+}
+
+// ---------------- PROJECT AUTOSAVE / NAV GUARD HELPERS ----------------
+function canUseLocalStorage() {
+    try {
+        return typeof window !== 'undefined' && !!window.localStorage;
+    } catch (error) {
+        console.error('Local storage unavailable', error);
+        return false;
+    }
+}
+
+function saveDraftToLocalStorage() {
+    if (!canUseLocalStorage() || isProjectLoading) return;
+
+    try {
+        const state = buildProjectState();
+        const payload = {
+            savedAt: Date.now(),
+            state
+        };
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+        console.error('Failed to save draft to local storage', error);
+    }
+}
+
+function getStoredDraftPayload() {
+    if (!canUseLocalStorage()) return null;
+
+    try {
+        const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+        if (!raw) return null;
+
+        const payload = JSON.parse(raw);
+        return payload?.state ? payload : null;
+    } catch (error) {
+        console.error('Failed to parse draft from local storage', error);
+        return null;
+    }
+}
+
+function hasStoredDraft() {
+    return !!getStoredDraftPayload();
+}
+
+function loadDraftFromLocalStorage() {
+    try {
+        const payload = getStoredDraftPayload();
+        if (!payload) return false;
+
+        applyProjectState(payload.state);
+        hasUnsavedChanges = true;
+        return true;
+    } catch (error) {
+        console.error('Failed to load draft from local storage', error);
+        return false;
+    }
+}
+
+function clearDraftFromLocalStorage() {
+    if (!canUseLocalStorage()) return;
+
+    try {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch (error) {
+        console.error('Failed to clear draft from local storage', error);
+    }
+}
+
+function showRestoreDraftPromptIfAvailable() {
+    if (!restoreDraftModal || !hasStoredDraft()) return;
+
+    restoreDraftModal.classList.remove('hidden');
+}
+
+function hideRestoreDraftPrompt() {
+    if (restoreDraftModal) {
+        restoreDraftModal.classList.add('hidden');
+    }
+}
+
+function scheduleDraftSave() {
+    if (!canUseLocalStorage()) return;
+
+    if (autosaveTimeout) {
+        clearTimeout(autosaveTimeout);
+    }
+
+    autosaveTimeout = setTimeout(saveDraftToLocalStorage, 750);
+}
+
+function markProjectDirty() {
+    hasUnsavedChanges = true;
+    scheduleDraftSave();
+}
+
+function markProjectClean() {
+    hasUnsavedChanges = false;
+    clearDraftFromLocalStorage();
+}
+
+function showExitWarning(source) {
+    if (!hasUnsavedChanges) return false;
+
+    const message = source === 'close'
+        ? 'Project not saved. A download will start so you do not lose work.'
+        : EXIT_WARNING_TEXT;
+
+    if (exitWarningMessage) {
+        exitWarningMessage.textContent = message;
+    }
+
+    if (exitWarningModal) {
+        exitWarningModal.classList.remove('hidden');
+        return true;
+    }
+
+    alert(message);
+    return true;
+}
+
+function hideExitWarning() {
+    if (exitWarningModal) {
+        exitWarningModal.classList.add('hidden');
+    }
+}
+
+function triggerEmergencyDownload() {
+    if (emergencyDownloadTriggered || !hasUnsavedChanges) return;
+
+    emergencyDownloadTriggered = true;
+    saveProjectToFile();
+}
+
+function handleBeforeUnload(event) {
+    if (!hasUnsavedChanges) return;
+
+    triggerEmergencyDownload();
+    showExitWarning('close');
+    event.preventDefault();
+    event.returnValue = EXIT_WARNING_TEXT;
+}
+
+function setupNavigationGuards() {
+    if (window?.history) {
+        if (!window.history.state || !window.history.state.apzokGuard) {
+            const nextState = { ...(window.history.state || {}), apzokGuard: true };
+            window.history.replaceState(nextState, '');
+            window.history.pushState({ apzokGuard: true }, '');
+        }
+
+        window.addEventListener('popstate', (event) => {
+            if (event.state?.apzokGuard && hasUnsavedChanges) {
+                const warned = showExitWarning('back');
+                if (warned) {
+                    window.history.pushState({ apzokGuard: true }, '');
+                }
+            }
+        });
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
 }
 
 function hydrateBackgroundFromState(background) {
@@ -3652,6 +3829,7 @@ function applyProjectState(state) {
      redrawCanvas();
 
      isProjectLoading = false;
+     markProjectDirty();
 }
 
 let jsPdfLoader = null;
@@ -3925,6 +4103,8 @@ function saveProjectToFile() {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+        markProjectClean();
+        emergencyDownloadTriggered = false;
     } catch (error) {
         console.error('Failed to save project', error);
         alert('Failed to save project. Please try again.');
@@ -4608,6 +4788,8 @@ function init() {
     setGridSizeValue(gridSizeInput?.value ?? gridSize);
     syncSettingsControls();
     setLayerTransparency(belowFloorTransparency);
+    setupNavigationGuards();
+    showRestoreDraftPromptIfAvailable();
 
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {
@@ -4780,9 +4962,54 @@ function init() {
     if (closeXmlConverterButton) {
         closeXmlConverterButton.addEventListener('click', closeXmlConverterModal);
     }
+    if (restoreDraftButton) {
+        restoreDraftButton.addEventListener('click', () => {
+            const loaded = loadDraftFromLocalStorage();
+            hideRestoreDraftPrompt();
+            if (!loaded) {
+                clearDraftFromLocalStorage();
+            }
+        });
+    }
+    if (discardDraftButton) {
+        discardDraftButton.addEventListener('click', () => {
+            clearDraftFromLocalStorage();
+            hideRestoreDraftPrompt();
+            markProjectClean();
+        });
+    }
     if (downloadPdfButton) {
         downloadPdfButton.addEventListener('click', openPdfOptionsModal);
     }
+
+    if (exitDownloadButton) {
+        exitDownloadButton.addEventListener('click', () => {
+            saveProjectToFile();
+            hideExitWarning();
+        });
+    }
+    if (exitStayButton) {
+        exitStayButton.addEventListener('click', hideExitWarning);
+    }
+
+    [
+        lineWidthInput,
+        lineColorInput,
+        fillColorInput,
+        textColorInput,
+        gridSizeInput,
+        showDimensionsCheckbox,
+        snapToGridCheckbox,
+        wallThicknessFeetInput,
+        wallThicknessInchesInput,
+        doorTypeSelect
+    ].forEach(input => {
+        if (input) {
+            const handler = () => markProjectDirty();
+            input.addEventListener('change', handler);
+            input.addEventListener('input', handler);
+        }
+    });
 
     if (textModalConfirm) {
         textModalConfirm.addEventListener('click', submitTextModal);
