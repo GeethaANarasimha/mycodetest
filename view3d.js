@@ -100,7 +100,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const typicalWallThickness = walls.length
                 ? walls.reduce((sum, wall) => sum + (wall.thicknessPx || (scale * 0.5)), 0) / walls.length
                 : (scale * 0.5);
-            const floorInset = Math.max(0.5, typicalWallThickness * 0.05);
+            const floorInset = Math.max(0, typicalWallThickness * 0.02);
 
             floors.forEach(floor => {
                 const points = (floor.nodeIds || [])
@@ -121,15 +121,17 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
                 const geometry = new THREE.ShapeGeometry(shape);
                 geometry.rotateX(-Math.PI / 2);
-                geometry.computeBoundingBox();
-                const bbox = geometry.boundingBox;
-                const size = bbox.getSize(new THREE.Vector3());
-                const center = bbox.getCenter(new THREE.Vector3());
-                const scaleX = Math.max(0.98, (size.x - (floorInset * 2)) / Math.max(size.x, 1));
-                const scaleZ = Math.max(0.98, (size.z - (floorInset * 2)) / Math.max(size.z, 1));
-                geometry.translate(-center.x, 0, -center.z);
-                geometry.scale(scaleX, 1, scaleZ);
-                geometry.translate(center.x, 0, center.z);
+                if (floorInset > 0) {
+                    geometry.computeBoundingBox();
+                    const bbox = geometry.boundingBox;
+                    const size = bbox.getSize(new THREE.Vector3());
+                    const center = bbox.getCenter(new THREE.Vector3());
+                    const scaleX = (size.x - (floorInset * 2)) / Math.max(size.x, 1);
+                    const scaleZ = (size.z - (floorInset * 2)) / Math.max(size.z, 1);
+                    geometry.translate(-center.x, 0, -center.z);
+                    geometry.scale(scaleX, 1, scaleZ);
+                    geometry.translate(center.x, 0, center.z);
+                }
 
                 const fillColor = floor?.texture?.color || defaultColor;
                 const material = new THREE.MeshStandardMaterial({
@@ -241,7 +243,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 if (perpendicular.length() > (wallThickness * 0.75)) return;
 
                 const { frameWidth } = this.getDoorFrameDimensions(wallThickness);
-                const clearance = Math.max(2, frameWidth * 0.4);
+                const clearance = Math.max(1, frameWidth * 0.15);
                 const gapLength = doorLength + (frameWidth * 2) + (clearance * 2);
 
                 openings.push({
@@ -277,7 +279,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
         }
 
         getDoorFrameDimensions(wallThickness) {
-            const frameDepth = Math.max(3, Math.min(wallThickness * 0.55, wallThickness - 4));
+            const frameDepth = Math.max(3, wallThickness - 1);
             const frameWidth = Math.max(4, wallThickness * 0.3);
             return { frameDepth, frameWidth };
         }
@@ -293,7 +295,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             });
 
             const postGeometry = new THREE.BoxGeometry(frameWidth, doorHeightPx, frameDepth);
-            const lintelWidth = opening.length + (frameWidth * 2);
+            const lintelWidth = opening.gapLength;
             const lintelGeometry = new THREE.BoxGeometry(lintelWidth, frameWidth, frameDepth);
 
             const leftPost = new THREE.Mesh(postGeometry, material);
@@ -312,7 +314,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             frameGroup.add(leftPost, rightPost, lintel);
 
             const alongOffset = wallDir.clone().multiplyScalar(opening.along);
-            const normalOffset = new THREE.Vector2(-wallDir.y, wallDir.x).multiplyScalar(Math.max(0, (wallThickness - frameDepth) / 4));
+            const normalOffset = new THREE.Vector2(-wallDir.y, wallDir.x).multiplyScalar(0);
             frameGroup.position.set(
                 wallStart.x + alongOffset.x + normalOffset.x,
                 0,
