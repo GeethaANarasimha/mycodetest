@@ -82,7 +82,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             content.name = 'plan-content';
 
             const wallsGroup = this.buildWalls(walls, nodes, objects);
-            const floorsGroup = this.buildFloors(floors, nodes);
+            const floorsGroup = this.buildFloors(floors, nodes, walls);
             const doorsGroup = this.buildDoors(objects);
             const windowsGroup = this.buildWindows(objects);
 
@@ -94,9 +94,13 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             this.focusCameraOn(content);
         }
 
-        buildFloors(floors, nodes) {
+        buildFloors(floors, nodes, walls = []) {
             const group = new THREE.Group();
             const defaultColor = new THREE.Color('#dbeafe');
+            const typicalWallThickness = walls.length
+                ? walls.reduce((sum, wall) => sum + (wall.thicknessPx || (scale * 0.5)), 0) / walls.length
+                : (scale * 0.5);
+            const floorInset = Math.max(2, typicalWallThickness * 0.45);
 
             floors.forEach(floor => {
                 const points = (floor.nodeIds || [])
@@ -117,6 +121,15 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
                 const geometry = new THREE.ShapeGeometry(shape);
                 geometry.rotateX(-Math.PI / 2);
+                geometry.computeBoundingBox();
+                const bbox = geometry.boundingBox;
+                const size = bbox.getSize(new THREE.Vector3());
+                const center = bbox.getCenter(new THREE.Vector3());
+                const scaleX = 1 + ((floorInset * 2) / Math.max(size.x, 1));
+                const scaleZ = 1 + ((floorInset * 2) / Math.max(size.z, 1));
+                geometry.translate(-center.x, 0, -center.z);
+                geometry.scale(scaleX, 1, scaleZ);
+                geometry.translate(center.x, 0, center.z);
 
                 const fillColor = floor?.texture?.color || defaultColor;
                 const material = new THREE.MeshStandardMaterial({
@@ -127,6 +140,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 });
 
                 const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.y = -0.5;
                 mesh.receiveShadow = true;
                 group.add(mesh);
             });
@@ -258,7 +272,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
         createDoorFrame(opening, wallStart, wallDir, wallThickness, dy, dx) {
             const frameGroup = new THREE.Group();
-            const frameDepth = wallThickness;
+            const frameDepth = Math.max(2, wallThickness - 2);
             const frameWidth = Math.max(4, wallThickness * 0.3);
 
             const material = new THREE.MeshStandardMaterial({
@@ -285,11 +299,14 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
             frameGroup.add(leftPost, rightPost, lintel);
 
-            const offset = wallDir.clone().multiplyScalar(opening.along);
+            const alongOffset = wallDir.clone().multiplyScalar(opening.along);
+            const normalOffset = new THREE.Vector2(-wallDir.y, wallDir.x)
+                .normalize()
+                .multiplyScalar((wallThickness - frameDepth) / 2);
             frameGroup.position.set(
-                wallStart.x + offset.x,
+                wallStart.x + alongOffset.x + normalOffset.x,
                 0,
-                wallStart.y + offset.y
+                wallStart.y + alongOffset.y + normalOffset.y
             );
             frameGroup.rotation.y = Math.atan2(dy, dx);
 
