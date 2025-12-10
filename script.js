@@ -110,7 +110,15 @@ const xmlFileInput = document.getElementById('xmlFileInput');
 const xmlConvertStatus = document.getElementById('xmlConvertStatus');
 const downloadConvertedProjectButton = document.getElementById('downloadConvertedProject');
 const closeXmlConverterButton = document.getElementById('closeXmlConverter');
- 
+
+const settingsModal = document.getElementById('settingsModal');
+const closeSettingsModalButton = document.getElementById('closeSettingsModal');
+const settingsSnapToGridCheckbox = document.getElementById('settingsSnapToGrid');
+const settingsShowDimensionsCheckbox = document.getElementById('settingsShowDimensions');
+const settingsGridSizeInput = document.getElementById('settingsGridSize');
+const layerTransparencySlider = document.getElementById('layerTransparency');
+const layerTransparencyValue = document.getElementById('layerTransparencyValue');
+
 const horizontalRuler = document.getElementById('horizontalRuler');
 const verticalRuler = document.getElementById('verticalRuler');
 
@@ -170,6 +178,7 @@ let gridSize = parseInt(gridSizeInput.value, 10);
 let showGrid = true;
 let gridSnappingEnabled = true;
 let showDimensions = showDimensionsCheckbox.checked;
+let belowFloorTransparency = layerTransparencySlider ? parseInt(layerTransparencySlider.value, 10) || 0 : 20;
 let textFontSize = 18;
 let textIsBold = false;
 let textIsItalic = false;
@@ -267,6 +276,7 @@ function syncBackgroundGlobalsFromLayer(layerId = currentLayerId()) {
     scale = state.scale ?? scale;
     gridSize = state.gridSize ?? gridSize;
     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
+    if (settingsGridSizeInput) settingsGridSizeInput.value = Math.round(gridSize);
 }
 
 function persistBackgroundGlobalsToLayer(layerId = currentLayerId()) {
@@ -4593,6 +4603,11 @@ function init() {
     }
 
     setupLayering();
+    setSnapToGridEnabled(snapToGridCheckbox ? snapToGridCheckbox.checked : gridSnappingEnabled);
+    setShowDimensionsEnabled(showDimensionsCheckbox ? showDimensionsCheckbox.checked : showDimensions);
+    setGridSizeValue(gridSizeInput?.value ?? gridSize);
+    syncSettingsControls();
+    setLayerTransparency(belowFloorTransparency);
 
     // MODIFIED: Separate event listeners for left and right click
     canvas.addEventListener('mousedown', (e) => {
@@ -4636,6 +4651,7 @@ function init() {
             cancelBackgroundMeasurement();
             closeTextModal();
             closeStaircaseModal();
+            closeSettingsModal();
             resetDirectLineDrawing();
         }
     });
@@ -4650,9 +4666,16 @@ function init() {
 
     toolButtons.forEach(button => {
         button.addEventListener('click', () => {
+            const tool = button.getAttribute('data-tool');
+
+            if (tool === 'settings') {
+                openSettingsModal();
+                return;
+            }
+
             toolButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
-            currentTool = button.getAttribute('data-tool');
+            currentTool = tool;
 
             resetFloorLasso();
 
@@ -4952,17 +4975,39 @@ function init() {
         redrawCanvas();
     });
 
-    gridSizeInput.addEventListener('input', updateGrid);
-    showDimensionsCheckbox.addEventListener('change', () => {
-        showDimensions = showDimensionsCheckbox.checked;
-        redrawCanvas();
-    });
+    gridSizeInput.addEventListener('input', () => setGridSizeValue(gridSizeInput.value));
+    showDimensionsCheckbox.addEventListener('change', () => setShowDimensionsEnabled(showDimensionsCheckbox.checked));
 
     if (snapToGridCheckbox) {
         gridSnappingEnabled = snapToGridCheckbox.checked;
-        snapToGridCheckbox.addEventListener('change', () => {
-            gridSnappingEnabled = snapToGridCheckbox.checked;
-            updatePrecisionStatus();
+        snapToGridCheckbox.addEventListener('change', () => setSnapToGridEnabled(snapToGridCheckbox.checked));
+    }
+
+    if (settingsSnapToGridCheckbox) {
+        settingsSnapToGridCheckbox.addEventListener('change', () => setSnapToGridEnabled(settingsSnapToGridCheckbox.checked));
+    }
+
+    if (settingsShowDimensionsCheckbox) {
+        settingsShowDimensionsCheckbox.addEventListener('change', () => setShowDimensionsEnabled(settingsShowDimensionsCheckbox.checked));
+    }
+
+    if (settingsGridSizeInput) {
+        settingsGridSizeInput.addEventListener('input', () => setGridSizeValue(settingsGridSizeInput.value));
+    }
+
+    if (layerTransparencySlider) {
+        layerTransparencySlider.addEventListener('input', () => setLayerTransparency(layerTransparencySlider.value));
+    }
+
+    if (closeSettingsModalButton) {
+        closeSettingsModalButton.addEventListener('click', closeSettingsModal);
+    }
+
+    if (settingsModal) {
+        settingsModal.addEventListener('click', (event) => {
+            if (event.target === settingsModal) {
+                closeSettingsModal();
+            }
         });
     }
 
@@ -8614,6 +8659,81 @@ function drawDistancePreviews() {
     drawDistancePreviewOverlay(windowDistancePreview, '#3b83bd');
 }
 
+function getSnapshotFloorPoints(floor, nodesById) {
+    const points = [];
+    (floor.nodeIds || []).forEach(nodeId => {
+        const node = nodesById.get(nodeId);
+        if (node) {
+            points.push({ x: node.x, y: node.y });
+        }
+    });
+    return points;
+}
+
+function drawReferenceSnapshot(snapshot, alpha) {
+    const nodesById = new Map((snapshot.nodes || []).map(node => [node.id, node]));
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    (snapshot.floors || []).forEach(floor => {
+        const points = getSnapshotFloorPoints(floor, nodesById);
+        if (points.length < 3) return;
+
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.closePath();
+
+        if (floor.texture?.pattern) {
+            ctx.fillStyle = floor.texture.pattern;
+        } else if (floor.texture?.color) {
+            ctx.fillStyle = floor.texture.color;
+        } else {
+            ctx.fillStyle = '#d9d9d9';
+        }
+        ctx.fill();
+    });
+
+    (snapshot.walls || []).forEach(wall => {
+        const start = nodesById.get(wall.startNodeId);
+        const end = nodesById.get(wall.endNodeId);
+        if (!start || !end) return;
+
+        ctx.lineWidth = wall.thicknessPx ?? scale * 0.5;
+        ctx.strokeStyle = wall.lineColor || DEFAULT_WALL_COLOR;
+        ctx.lineCap = 'square';
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+    });
+
+    ctx.restore();
+}
+
+function drawReferenceLayers() {
+    if (belowFloorTransparency <= 0) return;
+    if (typeof getLayerState !== 'function') return;
+
+    const layerState = getLayerState();
+    const activeLayer = currentLayerId();
+    const layers = layerState?.layers || [];
+    const activeIndex = layers.findIndex(layer => layer.id === activeLayer);
+    if (activeIndex <= 0) return;
+
+    const alpha = Math.min(100, belowFloorTransparency) / 100;
+    const belowLayers = layers.slice(0, activeIndex);
+
+    belowLayers.forEach(layer => {
+        const snapshot = layerSnapshots[layer.id];
+        if (!snapshot) return;
+        drawReferenceSnapshot(snapshot, alpha);
+    });
+}
+
 function drawFloors() {
     floors.forEach(floor => {
         const points = getFloorPoints(floor);
@@ -9155,6 +9275,7 @@ function redrawCanvas() {
     ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
     drawBackgroundImage();
     drawGrid();
+    drawReferenceLayers();
     drawFloors();
     drawWalls();
     drawObjects();
@@ -9494,6 +9615,54 @@ function applyTextChangesToSelection(mutator) {
 function updateTextStyleButtons() {
     if (textBoldButton) textBoldButton.classList.toggle('active', textIsBold);
     if (textItalicButton) textItalicButton.classList.toggle('active', textIsItalic);
+}
+
+function setGridSizeValue(nextSize) {
+    const parsed = Math.max(2, parseInt(nextSize, 10) || 0);
+    gridSize = parsed;
+    if (gridSizeInput) gridSizeInput.value = parsed;
+    if (settingsGridSizeInput) settingsGridSizeInput.value = parsed;
+    redrawCanvas();
+}
+
+function setShowDimensionsEnabled(enabled) {
+    showDimensions = !!enabled;
+    if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
+    if (settingsShowDimensionsCheckbox) settingsShowDimensionsCheckbox.checked = showDimensions;
+    redrawCanvas();
+}
+
+function setSnapToGridEnabled(enabled) {
+    gridSnappingEnabled = !!enabled;
+    if (snapToGridCheckbox) snapToGridCheckbox.checked = gridSnappingEnabled;
+    if (settingsSnapToGridCheckbox) settingsSnapToGridCheckbox.checked = gridSnappingEnabled;
+    updatePrecisionStatus();
+}
+
+function setLayerTransparency(percent) {
+    belowFloorTransparency = Math.min(100, Math.max(0, parseInt(percent, 10) || 0));
+    if (layerTransparencySlider) layerTransparencySlider.value = belowFloorTransparency;
+    if (layerTransparencyValue) layerTransparencyValue.textContent = `${belowFloorTransparency}%`;
+    redrawCanvas();
+}
+
+function syncSettingsControls() {
+    if (settingsSnapToGridCheckbox) settingsSnapToGridCheckbox.checked = gridSnappingEnabled;
+    if (settingsShowDimensionsCheckbox) settingsShowDimensionsCheckbox.checked = showDimensions;
+    if (settingsGridSizeInput) settingsGridSizeInput.value = gridSize;
+    if (layerTransparencySlider) layerTransparencySlider.value = belowFloorTransparency;
+    if (layerTransparencyValue) layerTransparencyValue.textContent = `${belowFloorTransparency}%`;
+}
+
+function openSettingsModal() {
+    if (!settingsModal) return;
+    syncSettingsControls();
+    settingsModal.classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+    if (!settingsModal) return;
+    settingsModal.classList.add('hidden');
 }
 
 function updatePrecisionStatus() {
@@ -9917,8 +10086,7 @@ function applyFloorTexture() {
 }
 
 function updateGrid() {
-    gridSize = parseInt(gridSizeInput.value, 10) || 20;
-    redrawCanvas();
+    setGridSizeValue(gridSizeInput?.value ?? gridSize);
 }
 
 window.onload = init;
