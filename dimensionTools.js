@@ -49,6 +49,89 @@ function getWallNormal(wallData) {
     return { x: -dy / len, y: dx / len };
 }
 
+function raySegmentIntersectionDistance(origin, dir, p1, p2) {
+    const v1 = { x: origin.x - p1.x, y: origin.y - p1.y };
+    const v2 = { x: p2.x - p1.x, y: p2.y - p1.y };
+    const cross = dir.x * v2.y - dir.y * v2.x;
+
+    if (Math.abs(cross) < 1e-8) return null;
+
+    const t = (v2.x * v1.y - v2.y * v1.x) / cross;
+    const u = (dir.x * v1.y - dir.y * v1.x) / cross;
+
+    if (t >= 0 && u >= 0 && u <= 1) {
+        return t;
+    }
+
+    return null;
+}
+
+function getWallSideClearance(wallData, sign) {
+    const normal = getWallNormal(wallData);
+    if (!normal) return 0;
+
+    const origin = {
+        x: (wallData.n1.x + wallData.n2.x) / 2,
+        y: (wallData.n1.y + wallData.n2.y) / 2
+    };
+
+    const dir = { x: normal.x * sign, y: normal.y * sign };
+    let nearest = Infinity;
+
+    for (const other of walls) {
+        if (other.id === wallData.wall.id) continue;
+
+        const o1 = getNodeById(other.startNodeId);
+        const o2 = getNodeById(other.endNodeId);
+        if (!o1 || !o2) continue;
+
+        const distance = raySegmentIntersectionDistance(origin, dir, o1, o2);
+        if (distance !== null && distance < nearest) {
+            nearest = distance;
+        }
+    }
+
+    return nearest;
+}
+
+function getPreferredWallOffsetSign(wallData, referenceX, referenceY) {
+    const { n1, n2 } = wallData || {};
+    if (!n1 || !n2) return 1;
+
+    const dx = n2.x - n1.x;
+    const dy = n2.y - n1.y;
+    const len = Math.hypot(dx, dy);
+    if (!len) return 1;
+
+    const nx = -dy / len;
+    const ny = dx / len;
+    const midX = (n1.x + n2.x) / 2;
+    const midY = (n1.y + n2.y) / 2;
+
+    let offsetSign = null;
+
+    if (referenceX != null && referenceY != null) {
+        const dot = (referenceX - midX) * nx + (referenceY - midY) * ny;
+        offsetSign = dot >= 0 ? 1 : -1;
+    }
+
+    const clearancePositive = getWallSideClearance(wallData, 1);
+    const clearanceNegative = getWallSideClearance(wallData, -1);
+
+    const bestSign = clearancePositive >= clearanceNegative ? 1 : -1;
+
+    if (offsetSign == null) return bestSign;
+
+    const preferredClearance = offsetSign === 1 ? clearancePositive : clearanceNegative;
+    const oppositeClearance = offsetSign === 1 ? clearanceNegative : clearancePositive;
+
+    if (preferredClearance + 5 < oppositeClearance) {
+        return oppositeClearance >= preferredClearance ? -offsetSign : offsetSign;
+    }
+
+    return offsetSign;
+}
+
 function hasCollinearNeighbor(wallData, nodeId) {
     if (!wallData?.wall || !Array.isArray(walls)) return false;
 
@@ -745,14 +828,10 @@ window.createWallDimension = function(wallData, options = {}) {
     const len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len;
     const ny = dx / len;
-    const midX = (n1.x + n2.x) / 2;
-    const midY = (n1.y + n2.y) / 2;
 
     const referenceX = options.referenceX ?? null;
     const referenceY = options.referenceY ?? null;
-    const offsetSign = referenceX != null && referenceY != null
-        ? ((referenceX - midX) * nx + (referenceY - midY) * ny >= 0 ? 1 : -1)
-        : 1;
+    const offsetSign = getPreferredWallOffsetSign(wallData, referenceX, referenceY);
 
     const faceData = getWallFaceEndpoints(wallData, offsetSign, referenceX, referenceY);
     const wallOffset = WALL_DIMENSION_OFFSET * offsetSign;
@@ -1052,12 +1131,7 @@ window.drawHoverWallDimension = function(wallData) {
 
     const referenceX = wallData.hoverX ?? window.dimensionHoverX;
     const referenceY = wallData.hoverY ?? window.dimensionHoverY;
-    let offsetSign = 1;
-
-    if (referenceX != null && referenceY != null) {
-        const dot = (referenceX - midX) * nx + (referenceY - midY) * ny;
-        offsetSign = dot >= 0 ? 1 : -1;
-    }
+    const offsetSign = getPreferredWallOffsetSign(wallData, referenceX, referenceY);
 
     const faceData = getWallFaceEndpoints(wallData, offsetSign, referenceX, referenceY);
     const faceNormal = faceData?.normal || { x: nx, y: ny };
