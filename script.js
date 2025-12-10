@@ -4796,6 +4796,15 @@ function init() {
         if (e.button === 0) {
             handleMouseDown(e);
         }
+
+        // While drawing walls, right-click dragging pans the view instead of
+        // opening the context menu.
+        if (e.button === 2 && currentTool === 'wall' && isWallDrawing) {
+            e.preventDefault();
+            isViewPanning = true;
+            panOrigin = { x: e.clientX, y: e.clientY };
+            panStartOffset = { x: viewOffsetX, y: viewOffsetY };
+        }
     });
     
     canvas.addEventListener('mousemove', handleMouseMove);
@@ -5313,6 +5322,13 @@ function init() {
 // CONTEXT MENU HANDLER - UPDATED TO OPEN ANYWHERE
 // ============================================================
 function handleCanvasContextMenu(e) {
+    // When actively drawing walls, right-click pans the view rather than
+    // opening context options.
+    if (currentTool === 'wall' && isWallDrawing) {
+        e.preventDefault();
+        return;
+    }
+
     e.preventDefault();
 
     const { x, y } = screenToWorld(e.clientX, e.clientY);
