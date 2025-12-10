@@ -827,21 +827,25 @@ window.createManualDimension = function(startX, startY, endX, endY, options = {}
         anchorEndY: options.anchorEnd?.y
     };
 
-    // Attach to the active wall if available, otherwise attempt to find a shared wall near both points
-    const anchorPositions = options.anchorStart && options.anchorEnd
-        ? { startX: options.anchorStart.x, startY: options.anchorStart.y, endX: options.anchorEnd.x, endY: options.anchorEnd.y }
-        : null;
+    const shouldAttachToWall = options.attachToWall === true;
 
-    attachDimensionToWall(
-        dimension,
-        startX,
-        startY,
-        endX,
-        endY,
-        options.explicitWallData || window.dimensionActiveWall,
-        anchorPositions,
-        { start: options.startNodeId, end: options.endNodeId }
-    );
+    if (shouldAttachToWall) {
+        // Attach to the active wall if available, otherwise attempt to find a shared wall near both points
+        const anchorPositions = options.anchorStart && options.anchorEnd
+            ? { startX: options.anchorStart.x, startY: options.anchorStart.y, endX: options.anchorEnd.x, endY: options.anchorEnd.y }
+            : null;
+
+        attachDimensionToWall(
+            dimension,
+            startX,
+            startY,
+            endX,
+            endY,
+            options.explicitWallData || window.dimensionActiveWall,
+            anchorPositions,
+            { start: options.startNodeId, end: options.endNodeId }
+        );
+    }
 
     window.updateDimensionMeasurement(dimension);
 
