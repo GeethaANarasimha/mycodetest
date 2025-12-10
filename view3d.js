@@ -100,7 +100,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const typicalWallThickness = walls.length
                 ? walls.reduce((sum, wall) => sum + (wall.thicknessPx || (scale * 0.5)), 0) / walls.length
                 : (scale * 0.5);
-            const floorInset = Math.max(2, typicalWallThickness * 0.45);
+            const floorInset = Math.max(2, typicalWallThickness * 0.3);
 
             floors.forEach(floor => {
                 const points = (floor.nodeIds || [])
@@ -125,8 +125,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const bbox = geometry.boundingBox;
                 const size = bbox.getSize(new THREE.Vector3());
                 const center = bbox.getCenter(new THREE.Vector3());
-                const scaleX = 1 + ((floorInset * 2) / Math.max(size.x, 1));
-                const scaleZ = 1 + ((floorInset * 2) / Math.max(size.z, 1));
+                const scaleX = Math.max(0.1, (size.x - (floorInset * 2)) / Math.max(size.x, 1));
+                const scaleZ = Math.max(0.1, (size.z - (floorInset * 2)) / Math.max(size.z, 1));
                 geometry.translate(-center.x, 0, -center.z);
                 geometry.scale(scaleX, 1, scaleZ);
                 geometry.translate(center.x, 0, center.z);
@@ -272,7 +272,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
         createDoorFrame(opening, wallStart, wallDir, wallThickness, dy, dx) {
             const frameGroup = new THREE.Group();
-            const frameDepth = Math.max(2, wallThickness - 2);
+            const frameDepth = Math.max(3, Math.min(wallThickness * 0.55, wallThickness - 4));
             const frameWidth = Math.max(4, wallThickness * 0.3);
 
             const material = new THREE.MeshStandardMaterial({
@@ -300,9 +300,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             frameGroup.add(leftPost, rightPost, lintel);
 
             const alongOffset = wallDir.clone().multiplyScalar(opening.along);
-            const normalOffset = new THREE.Vector2(-wallDir.y, wallDir.x)
-                .normalize()
-                .multiplyScalar((wallThickness - frameDepth) / 2);
+            const normalOffset = new THREE.Vector2(0, 0);
             frameGroup.position.set(
                 wallStart.x + alongOffset.x + normalOffset.x,
                 0,
