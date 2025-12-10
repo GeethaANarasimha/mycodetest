@@ -669,6 +669,8 @@ let panOrigin = null;
 let panStartOffset = null;
 let wallAutoScrollFrame = null;
 let wallAutoScrollDelta = { x: 0, y: 0 };
+const WALL_AUTOPAN_MARGIN = 60;
+const WALL_AUTOPAN_MAX_SPEED = 16;
 
 function withViewTransform(drawFn) {
     ctx.save();
@@ -707,10 +709,58 @@ function stopWallAutoScroll() {
     wallAutoScrollDelta.y = 0;
 }
 
-function updateWallAutoScroll() {
-    // Auto-scroll was removed in favor of manual panning; keep this function
-    // to satisfy existing calls while ensuring no scroll is triggered.
-    stopWallAutoScroll();
+function updateWallAutoScroll(event) {
+    if (!canvasContainer || currentTool !== 'wall' || !isWallDrawing) {
+        stopWallAutoScroll();
+        return;
+    }
+
+    const rect = canvasContainer.getBoundingClientRect();
+    const { clientX, clientY } = event || {};
+
+    if (typeof clientX !== 'number' || typeof clientY !== 'number') {
+        stopWallAutoScroll();
+        return;
+    }
+
+    const leftOverlap = Math.max(0, (rect.left + WALL_AUTOPAN_MARGIN) - clientX);
+    const rightOverlap = Math.max(0, clientX - (rect.right - WALL_AUTOPAN_MARGIN));
+    const topOverlap = Math.max(0, (rect.top + WALL_AUTOPAN_MARGIN) - clientY);
+    const bottomOverlap = Math.max(0, clientY - (rect.bottom - WALL_AUTOPAN_MARGIN));
+
+    const deltaX = leftOverlap > 0
+        ? Math.min(WALL_AUTOPAN_MAX_SPEED, leftOverlap * 0.35)
+        : rightOverlap > 0
+            ? -Math.min(WALL_AUTOPAN_MAX_SPEED, rightOverlap * 0.35)
+            : 0;
+
+    const deltaY = topOverlap > 0
+        ? Math.min(WALL_AUTOPAN_MAX_SPEED, topOverlap * 0.35)
+        : bottomOverlap > 0
+            ? -Math.min(WALL_AUTOPAN_MAX_SPEED, bottomOverlap * 0.35)
+            : 0;
+
+    wallAutoScrollDelta.x = deltaX;
+    wallAutoScrollDelta.y = deltaY;
+
+    if (deltaX === 0 && deltaY === 0) {
+        stopWallAutoScroll();
+        return;
+    }
+
+    if (wallAutoScrollFrame !== null) return;
+
+    const step = () => {
+        if (wallAutoScrollDelta.x === 0 && wallAutoScrollDelta.y === 0) {
+            wallAutoScrollFrame = null;
+            return;
+        }
+
+        panView(wallAutoScrollDelta.x, wallAutoScrollDelta.y);
+        wallAutoScrollFrame = requestAnimationFrame(step);
+    };
+
+    wallAutoScrollFrame = requestAnimationFrame(step);
 }
 
 function syncCanvasScrollArea() {
