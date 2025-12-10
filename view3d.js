@@ -100,7 +100,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const typicalWallThickness = walls.length
                 ? walls.reduce((sum, wall) => sum + (wall.thicknessPx || (scale * 0.5)), 0) / walls.length
                 : (scale * 0.5);
-            const floorInset = Math.max(2, typicalWallThickness * 0.3);
+            const floorInset = Math.max(0.5, typicalWallThickness * 0.05);
 
             floors.forEach(floor => {
                 const points = (floor.nodeIds || [])
@@ -125,8 +125,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const bbox = geometry.boundingBox;
                 const size = bbox.getSize(new THREE.Vector3());
                 const center = bbox.getCenter(new THREE.Vector3());
-                const scaleX = Math.max(0.1, (size.x - (floorInset * 2)) / Math.max(size.x, 1));
-                const scaleZ = Math.max(0.1, (size.z - (floorInset * 2)) / Math.max(size.z, 1));
+                const scaleX = Math.max(0.98, (size.x - (floorInset * 2)) / Math.max(size.x, 1));
+                const scaleZ = Math.max(0.98, (size.z - (floorInset * 2)) / Math.max(size.z, 1));
                 geometry.translate(-center.x, 0, -center.z);
                 geometry.scale(scaleX, 1, scaleZ);
                 geometry.translate(center.x, 0, center.z);
@@ -190,7 +190,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 openings.forEach(opening => {
                     const topHeight = Math.max(0, wallHeightPx - doorHeightPx);
                     if (topHeight > 0) {
-                        const lintelGeometry = new THREE.BoxGeometry(opening.length, topHeight, thickness);
+                        const lintelGeometry = new THREE.BoxGeometry(opening.gapLength, topHeight, thickness);
                         const lintelMesh = new THREE.Mesh(lintelGeometry, material);
                         lintelMesh.castShadow = true;
                         lintelMesh.receiveShadow = true;
@@ -240,11 +240,17 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const perpendicular = rel.clone().sub(wallDir.clone().multiplyScalar(along));
                 if (perpendicular.length() > (wallThickness * 0.75)) return;
 
+                const { frameWidth } = this.getDoorFrameDimensions(wallThickness);
+                const clearance = Math.max(2, frameWidth * 0.4);
+                const gapLength = doorLength + (frameWidth * 2) + (clearance * 2);
+
                 openings.push({
-                    start: Math.max(0, along - (doorLength / 2)),
-                    end: Math.min(wallLength, along + (doorLength / 2)),
+                    start: Math.max(0, along - (gapLength / 2)),
+                    end: Math.min(wallLength, along + (gapLength / 2)),
                     length: doorLength,
+                    gapLength,
                     along,
+                    frameWidth,
                     thickness: doorThickness || wallThickness
                 });
             });
@@ -270,10 +276,15 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             return segments;
         }
 
-        createDoorFrame(opening, wallStart, wallDir, wallThickness, dy, dx) {
-            const frameGroup = new THREE.Group();
+        getDoorFrameDimensions(wallThickness) {
             const frameDepth = Math.max(3, Math.min(wallThickness * 0.55, wallThickness - 4));
             const frameWidth = Math.max(4, wallThickness * 0.3);
+            return { frameDepth, frameWidth };
+        }
+
+        createDoorFrame(opening, wallStart, wallDir, wallThickness, dy, dx) {
+            const frameGroup = new THREE.Group();
+            const { frameDepth, frameWidth } = this.getDoorFrameDimensions(wallThickness);
 
             const material = new THREE.MeshStandardMaterial({
                 color: new THREE.Color('#c08457'),
@@ -282,7 +293,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             });
 
             const postGeometry = new THREE.BoxGeometry(frameWidth, doorHeightPx, frameDepth);
-            const lintelGeometry = new THREE.BoxGeometry(opening.length + (frameWidth * 2), frameWidth, frameDepth);
+            const lintelWidth = opening.length + (frameWidth * 2);
+            const lintelGeometry = new THREE.BoxGeometry(lintelWidth, frameWidth, frameDepth);
 
             const leftPost = new THREE.Mesh(postGeometry, material);
             const rightPost = new THREE.Mesh(postGeometry, material);
@@ -300,7 +312,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             frameGroup.add(leftPost, rightPost, lintel);
 
             const alongOffset = wallDir.clone().multiplyScalar(opening.along);
-            const normalOffset = new THREE.Vector2(0, 0);
+            const normalOffset = new THREE.Vector2(-wallDir.y, wallDir.x).multiplyScalar(Math.max(0, (wallThickness - frameDepth) / 4));
             frameGroup.position.set(
                 wallStart.x + alongOffset.x + normalOffset.x,
                 0,
