@@ -10,6 +10,31 @@
 <div class="app-shell">
 
 <div class="toolbar">
+    <button class="tool-btn" data-tool="settings" aria-label="Settings">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_91139ebc0ad44fe38aad272fdbee8d06.svg" alt="">
+        <span class="tool-label">Settings</span>
+    </button>
+
+    <div class="project-menu">
+        <button id="uploadProject" class="tool-btn secondary-btn" type="button" aria-label="Upload Project">
+            <span class="tool-icon text-icon">⤴</span>
+            <span class="tool-label">Upload Project</span>
+        </button>
+        <button id="saveProject" class="tool-btn secondary-btn" type="button" aria-label="Save Project">
+            <span class="tool-icon text-icon">💾</span>
+            <span class="tool-label">Save Project</span>
+        </button>
+        <input id="projectFileInput" class="hidden" type="file" accept=".ipynb" aria-label="Upload .ipynb project file">
+        <button id="openXmlConverter" class="tool-btn secondary-btn" type="button" aria-label="Convert XML to project">
+            <span class="tool-icon text-icon">⬆️</span>
+            <span class="tool-label">XML Converter</span>
+        </button>
+        <button id="downloadPdf" class="tool-btn secondary-btn" type="button" aria-label="Download plan as PDF">
+            <span class="tool-icon text-icon">⬇</span>
+            <span class="tool-label">Download PDF</span>
+        </button>
+    </div>
+
     <button class="tool-btn" data-tool="select" aria-label="Select">
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_e8cd6441615c4fd39976a3812469b223.svg" alt="">
         <span class="tool-label">Select</span>
@@ -17,10 +42,6 @@
     <button class="tool-btn" data-tool="wall" aria-label="Wall">
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_38c6c46a65fd49a783dfbfd974740b0a.svg" alt="">
         <span class="tool-label">Wall</span>
-    </button>
-    <button class="tool-btn" data-tool="pan" aria-label="Pan">
-        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_7fd823218d7b425593c311435c84c9bf.svg" alt="">
-        <span class="tool-label">Pan</span>
     </button>
     <button class="tool-btn" data-tool="door" aria-label="Door">
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_735e93c7dd2a4ef9969fb3bf1094e1b7.svg" alt="">
@@ -40,37 +61,38 @@
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_0a3b507cf3fc427eaab066301a920e5c.svg" alt="">
         <span class="tool-label">Window</span>
     </button>
-    <button class="tool-btn" data-tool="staircase" aria-label="Staircase">
-        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_0f8bb41d89fe42488e1352df56340e45.svg" alt="">
-        <span class="tool-label">Staircase</span>
+    <button class="tool-btn" data-tool="floor" aria-label="Floor Fill">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_3c3ccac3849f432ab3f23ea24547af8c.svg" alt="">
+        <span class="tool-label">Floor Fill</span>
     </button>
     <button class="tool-btn" data-tool="furniture" aria-label="Furniture">
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_7ad998836ddb4a5ead990a30f61fda01.svg" alt="">
         <span class="tool-label">Furniture</span>
     </button>
-    <button class="tool-btn" data-tool="floor" aria-label="Floor Fill">
-        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_3c3ccac3849f432ab3f23ea24547af8c.svg" alt="">
-        <span class="tool-label">Floor Fill</span>
-    </button>
-    <button class="tool-btn" data-tool="erase" aria-label="Erase">
-        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_e9f15f1981cc43afbf920fdbc9bda6ba.svg" alt="">
-        <span class="tool-label">Erase</span>
-    </button>
-    <button class="tool-btn" data-tool="dimension" aria-label="Dimension">
-        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_30f8437bfae148a38aca059207dc1ce2.svg" alt="">
-        <span class="tool-label">Dimension</span>
+    <button class="tool-btn" data-tool="staircase" aria-label="Staircase">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_0f8bb41d89fe42488e1352df56340e45.svg" alt="">
+        <span class="tool-label">Staircase</span>
     </button>
     <button class="tool-btn" data-tool="directline" aria-label="Direct Line">
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_407956fc7daf45d3803b4db9869a74e2.svg" alt="">
         <span class="tool-label">Direct Line</span>
     </button>
-    <button class="tool-btn" data-tool="settings" aria-label="Settings">
-        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_91139ebc0ad44fe38aad272fdbee8d06.svg" alt="">
-        <span class="tool-label">Settings</span>
-    </button>
     <button class="tool-btn" data-tool="text" aria-label="Text">
         <span class="tool-icon text-icon">T</span>
         <span class="tool-label">Text</span>
+    </button>
+    <button class="tool-btn" data-tool="dimension" aria-label="Dimension">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_30f8437bfae148a38aca059207dc1ce2.svg" alt="">
+        <span class="tool-label">Dimension</span>
+    </button>
+
+    <button class="tool-btn" data-tool="pan" aria-label="Pan">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_7fd823218d7b425593c311435c84c9bf.svg" alt="">
+        <span class="tool-label">Pan</span>
+    </button>
+    <button class="tool-btn" data-tool="erase" aria-label="Erase">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_e9f15f1981cc43afbf920fdbc9bda6ba.svg" alt="">
+        <span class="tool-label">Erase</span>
     </button>
 
     <div class="transform-menu">
@@ -101,26 +123,6 @@
         <button id="zoomIn" class="tool-btn secondary-btn" type="button" aria-label="Zoom In">
             <span class="tool-icon text-icon">+</span>
             <span class="tool-label">Zoom In</span>
-        </button>
-    </div>
-
-    <div class="project-menu">
-        <button id="saveProject" class="tool-btn secondary-btn" type="button" aria-label="Save Project">
-            <span class="tool-icon text-icon">💾</span>
-            <span class="tool-label">Save Project</span>
-        </button>
-        <button id="uploadProject" class="tool-btn secondary-btn" type="button" aria-label="Upload Project">
-            <span class="tool-icon text-icon">⤴</span>
-            <span class="tool-label">Upload Project</span>
-        </button>
-        <input id="projectFileInput" class="hidden" type="file" accept=".ipynb" aria-label="Upload .ipynb project file">
-        <button id="openXmlConverter" class="tool-btn secondary-btn" type="button" aria-label="Convert XML to project">
-            <span class="tool-icon text-icon">⬆️</span>
-            <span class="tool-label">XML Converter</span>
-        </button>
-        <button id="downloadPdf" class="tool-btn secondary-btn" type="button" aria-label="Download plan as PDF">
-            <span class="tool-icon text-icon">⬇</span>
-            <span class="tool-label">Download PDF</span>
         </button>
     </div>
 
