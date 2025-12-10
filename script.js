@@ -9293,6 +9293,23 @@ function handleKeyDown(e) {
             return;
         }
     }
+
+    // Manual dimension flip
+    if (!e.ctrlKey && !e.metaKey && selectedDimensionIndex !== null) {
+        const key = e.key.toLowerCase();
+        if (key === 'f') {
+            const dimension = window.dimensions?.[selectedDimensionIndex];
+            if (dimension && !dimension.isAuto && typeof window.flipManualDimensionLine === 'function') {
+                const preview = window.flipManualDimensionLine(dimension, { preview: true });
+                if (preview?.success) {
+                    pushUndoState();
+                    window.flipManualDimensionLine(dimension);
+                    redrawCanvas();
+                }
+            }
+            return;
+        }
+    }
 }
 
 // ============================================================

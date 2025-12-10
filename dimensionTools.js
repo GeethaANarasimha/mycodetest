@@ -810,6 +810,90 @@ window.updateDimensionMeasurement = function(dimension) {
     dimension.text = formatMeasurementText(totalInches);
 };
 
+window.flipManualDimensionLine = function(dimension, { preview = false } = {}) {
+    if (!dimension || dimension.isAuto) return { success: false };
+
+    const anchorStart =
+        Number.isFinite(dimension.anchorStartX) && Number.isFinite(dimension.anchorStartY)
+            ? { x: dimension.anchorStartX, y: dimension.anchorStartY }
+            : { x: dimension.startX, y: dimension.startY };
+    const anchorEnd =
+        Number.isFinite(dimension.anchorEndX) && Number.isFinite(dimension.anchorEndY)
+            ? { x: dimension.anchorEndX, y: dimension.anchorEndY }
+            : { x: dimension.endX, y: dimension.endY };
+
+    let dir = { x: anchorEnd.x - anchorStart.x, y: anchorEnd.y - anchorStart.y };
+    let dirLen = Math.hypot(dir.x, dir.y);
+
+    if (dirLen === 0) {
+        dir = { x: dimension.endX - dimension.startX, y: dimension.endY - dimension.startY };
+        dirLen = Math.hypot(dir.x, dir.y);
+    }
+
+    if (dirLen === 0) return { success: false };
+
+    dir.x /= dirLen;
+    dir.y /= dirLen;
+
+    const normal = { x: -dir.y, y: dir.x };
+
+    const project = (point) => {
+        const vec = { x: point.x - anchorStart.x, y: point.y - anchorStart.y };
+        return {
+            along: vec.x * dir.x + vec.y * dir.y,
+            offset: vec.x * normal.x + vec.y * normal.y
+        };
+    };
+
+    const startProjection = project({ x: dimension.startX, y: dimension.startY });
+    const endProjection = project({ x: dimension.endX, y: dimension.endY });
+
+    const averageOffset = (startProjection.offset + endProjection.offset) / 2;
+    if (!Number.isFinite(averageOffset) || Math.abs(averageOffset) < 0.001) {
+        return { success: false };
+    }
+
+    const flippedOffset = -averageOffset;
+    const flipAlong = (projection) => ({
+        x: anchorStart.x + dir.x * projection.along + normal.x * flippedOffset,
+        y: anchorStart.y + dir.y * projection.along + normal.y * flippedOffset
+    });
+
+    const newStart = flipAlong(startProjection);
+    const newEnd = flipAlong(endProjection);
+    const newOffsetSign = -(dimension.offsetSign || Math.sign(averageOffset) || 1);
+
+    if (preview) {
+        return {
+            success: true,
+            updates: {
+                startX: newStart.x,
+                startY: newStart.y,
+                endX: newEnd.x,
+                endY: newEnd.y,
+                offsetSign: newOffsetSign,
+                wallOffset: Number.isFinite(dimension.wallOffset) ? -dimension.wallOffset : dimension.wallOffset
+            }
+        };
+    }
+
+    dimension.startX = newStart.x;
+    dimension.startY = newStart.y;
+    dimension.endX = newEnd.x;
+    dimension.endY = newEnd.y;
+    dimension.offsetSign = newOffsetSign;
+
+    if (Number.isFinite(dimension.wallOffset)) {
+        dimension.wallOffset = -dimension.wallOffset;
+    }
+
+    if (typeof window.updateDimensionMeasurement === 'function') {
+        window.updateDimensionMeasurement(dimension);
+    }
+
+    return { success: true };
+};
+
 window.createManualDimension = function(startX, startY, endX, endY, options = {}) {
     const dimension = {
         id: nextDimensionId++,
