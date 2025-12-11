@@ -859,6 +859,9 @@ input[type="number"] {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 12px;
     margin: 16px 0;
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 .furniture-card {
@@ -912,4 +915,19 @@ input[type="number"] {
 .furniture-size {
     color: #6b7280;
     font-size: 12px;
+}
+
+.furniture-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.furniture-filter-row input {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
 }

@@ -61,11 +61,15 @@ function highlightActiveFurniture(listEl) {
     });
 }
 
-function renderFurnitureList(listEl, onSelect) {
+function renderFurnitureList(listEl, onSelect, filterText = '') {
     if (!listEl) return;
     listEl.innerHTML = '';
 
-    furnitureAssets.forEach(asset => {
+    const filter = filterText.trim().toLowerCase();
+
+    furnitureAssets
+        .filter(asset => asset.label.toLowerCase().includes(filter))
+        .forEach(asset => {
         const card = document.createElement('button');
         card.type = 'button';
         card.className = 'furniture-card';
@@ -76,7 +80,6 @@ function renderFurnitureList(listEl, onSelect) {
             </span>
             <span class="furniture-meta">
                 <span class="furniture-name">${asset.label}</span>
-                <span class="furniture-size">Default ${Math.round(asset.defaultWidth)}×${Math.round(asset.defaultHeight)} px</span>
             </span>
         `;
 
@@ -89,25 +92,27 @@ function renderFurnitureList(listEl, onSelect) {
         });
 
         listEl.appendChild(card);
-    });
+        });
 
     highlightActiveFurniture(listEl);
 }
 
-function initFurniturePalette({ modal, listElement, closeButton, triggerButton, onSelect }) {
+function initFurniturePalette({ modal, listElement, closeButton, triggerButton, searchInput, addButton, onSelect, onAdd }) {
     if (!modal || !listElement) return;
 
     const closeModal = () => modal.classList.add('hidden');
     const openModal = () => {
         modal.classList.remove('hidden');
-        highlightActiveFurniture(listElement);
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        renderFurnitureList(listElement, onSelect, '');
     };
 
     renderFurnitureList(listElement, (asset) => {
         if (typeof onSelect === 'function') {
             onSelect(asset);
         }
-        closeModal();
     });
 
     if (closeButton) {
@@ -117,6 +122,22 @@ function initFurniturePalette({ modal, listElement, closeButton, triggerButton, 
     if (triggerButton) {
         triggerButton.addEventListener('click', () => {
             openModal();
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+            renderFurnitureList(listElement, onSelect, event.target.value || '');
+        });
+    }
+
+    if (addButton) {
+        addButton.addEventListener('click', () => {
+            const asset = getActiveFurnitureAsset();
+            if (typeof onAdd === 'function' && asset) {
+                onAdd(asset);
+            }
+            closeModal();
         });
     }
 

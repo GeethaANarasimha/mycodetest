@@ -67,6 +67,8 @@ const toggleBackgroundImageButton = document.getElementById('toggleBackgroundIma
 const furnitureModal = document.getElementById('furnitureModal');
 const furnitureList = document.getElementById('furnitureList');
 const closeFurnitureModalButton = document.getElementById('closeFurnitureModal');
+const furnitureSearchInput = document.getElementById('furnitureSearch');
+const autoAddFurnitureButton = document.getElementById('autoAddFurniture');
 const furnitureToolButton = document.querySelector('.tool-btn[data-tool="furniture"]');
  
 const textModal = document.getElementById('textModal');
@@ -5045,9 +5047,18 @@ function init() {
             listElement: furnitureList,
             closeButton: closeFurnitureModalButton,
             triggerButton: furnitureToolButton,
+            searchInput: furnitureSearchInput,
+            addButton: autoAddFurnitureButton,
             onSelect: () => {
                 currentTool = 'furniture';
                 toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'furniture'));
+                updateToolInfo();
+            },
+            onAdd: (asset) => {
+                currentTool = 'furniture';
+                toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'furniture'));
+                addFurnitureToGrid(asset);
+                updateToolInfo();
             }
         });
     }
@@ -6823,6 +6834,73 @@ function getDefaultStyleForType(type) {
     }
 
     return { lineColor: baseLine, fillColor: baseFill };
+}
+
+const DEFAULT_FURNITURE_WIDTH_PX = 150;
+
+function getFurnitureAspectRatio(asset) {
+    const img = typeof ensureFurnitureAssetImage === 'function' ? ensureFurnitureAssetImage(asset) : null;
+    if (img && img.naturalWidth && img.naturalHeight) {
+        return img.naturalHeight / img.naturalWidth;
+    }
+    if (asset?.defaultWidth && asset?.defaultHeight) {
+        return asset.defaultHeight / asset.defaultWidth;
+    }
+    return 1;
+}
+
+function getDefaultFurnitureSize(asset) {
+    const ratio = getFurnitureAspectRatio(asset);
+    const width = DEFAULT_FURNITURE_WIDTH_PX;
+    const height = width * ratio;
+    return { width, height };
+}
+
+function getFurniturePlacementPoint() {
+    const rect = canvasContainer?.getBoundingClientRect?.() || canvas.getBoundingClientRect();
+    const screenX = rect.left + rect.width / 2;
+    const screenY = rect.top + rect.height / 2;
+    return screenToWorld(screenX, screenY);
+}
+
+function addFurnitureToGrid(asset) {
+    const targetAsset = asset || (typeof getActiveFurnitureAsset === 'function' ? getActiveFurnitureAsset() : null);
+    if (!targetAsset) return;
+
+    const styles = getDefaultStyleForType('furniture');
+    const { width, height } = getDefaultFurnitureSize(targetAsset);
+    const placementCenter = getFurniturePlacementPoint();
+    const snappedCenter = snapPointToInch(placementCenter.x, placementCenter.y);
+    const x = snappedCenter.x - width / 2;
+    const y = snappedCenter.y - height / 2;
+
+    pushUndoState();
+
+    const newObj = {
+        type: 'furniture',
+        x,
+        y,
+        width,
+        height,
+        lineWidth: parseInt(lineWidthInput.value, 10) || 2,
+        lineColor: styles.lineColor,
+        fillColor: styles.fillColor,
+        rotation: 0,
+        flipH: false,
+        flipV: false,
+        orientation: width >= height ? 'horizontal' : 'vertical',
+        assetId: targetAsset.id,
+        imageUrl: targetAsset.url,
+        assetName: targetAsset.label
+    };
+
+    if (typeof ensureFurnitureAssetImage === 'function') {
+        newObj.imageElement = ensureFurnitureAssetImage(targetAsset);
+    }
+
+    objects.push(newObj);
+    selectedObjectIndices = new Set([objects.length - 1]);
+    redrawCanvas();
 }
 
 function getStairSettings(obj = {}) {
