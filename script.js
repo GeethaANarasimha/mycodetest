@@ -64,6 +64,12 @@ const finishBackgroundMeasurementButton = document.getElementById('finishBackgro
 const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
 const backgroundStartPointStatus = document.getElementById('backgroundStartPointStatus');
 const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
+const furnitureModal = document.getElementById('furnitureModal');
+const furnitureList = document.getElementById('furnitureList');
+const closeFurnitureModalButton = document.getElementById('closeFurnitureModal');
+const furnitureSearchInput = document.getElementById('furnitureSearch');
+const autoAddFurnitureButton = document.getElementById('autoAddFurniture');
+const furnitureToolButton = document.querySelector('.tool-btn[data-tool="furniture"]');
  
 const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
@@ -194,6 +200,7 @@ let measurementFontSize = 12;
 
 let selectionNudgePreviewUntil = 0;
 let keyboardHoverPreviewLocked = false;
+let furnitureHandleDrag = null;
 
 let nodes = [];
 let walls = [];
@@ -4875,6 +4882,7 @@ function init() {
             closeTextModal();
             closeStaircaseModal();
             closeSettingsModal();
+            if (furnitureModal) furnitureModal.classList.add('hidden');
             resetDirectLineDrawing();
         }
     });
@@ -5031,6 +5039,28 @@ function init() {
     }
     if (exitStayButton) {
         exitStayButton.addEventListener('click', hideExitWarning);
+    }
+
+    if (typeof initFurniturePalette === 'function' && furnitureModal && furnitureList) {
+        initFurniturePalette({
+            modal: furnitureModal,
+            listElement: furnitureList,
+            closeButton: closeFurnitureModalButton,
+            triggerButton: furnitureToolButton,
+            searchInput: furnitureSearchInput,
+            addButton: autoAddFurnitureButton,
+            onSelect: () => {
+                currentTool = 'furniture';
+                toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'furniture'));
+                updateToolInfo();
+            },
+            onAdd: (asset) => {
+                currentTool = 'furniture';
+                toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'furniture'));
+                addFurnitureToGrid(asset);
+                updateToolInfo();
+            }
+        });
     }
 
     [
@@ -6537,6 +6567,32 @@ function handleMouseDown(e) {
             return;
         }
 
+        const furnitureHandle = getFurnitureHandleHit(x, y);
+        if (furnitureHandle) {
+            const obj = objects[furnitureHandle.index];
+            if (obj) {
+                pushUndoState();
+                const transform = getObjectTransformInfo(obj);
+                furnitureHandleDrag = {
+                    index: furnitureHandle.index,
+                    handle: furnitureHandle.handle,
+                    anchorLocal: getFurnitureAnchorForHandle(furnitureHandle.handle, obj),
+                    startPointerAngle: Math.atan2(y - transform.cy, x - transform.cx),
+                    initial: {
+                        width: obj.width,
+                        height: obj.height,
+                        rotation: obj.rotation || 0,
+                        center: { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 },
+                        transform
+                    }
+                };
+                selectAllMode = false;
+                selectedObjectIndices = new Set([furnitureHandle.index]);
+                redrawCanvas();
+            }
+            return;
+        }
+
         const dimensionHit = getDimensionHandleHit(x, y);
         if (dimensionHit) {
             selectAllMode = false;
@@ -6778,6 +6834,73 @@ function getDefaultStyleForType(type) {
     }
 
     return { lineColor: baseLine, fillColor: baseFill };
+}
+
+const DEFAULT_FURNITURE_WIDTH_PX = 150;
+
+function getFurnitureAspectRatio(asset) {
+    const img = typeof ensureFurnitureAssetImage === 'function' ? ensureFurnitureAssetImage(asset) : null;
+    if (img && img.naturalWidth && img.naturalHeight) {
+        return img.naturalHeight / img.naturalWidth;
+    }
+    if (asset?.defaultWidth && asset?.defaultHeight) {
+        return asset.defaultHeight / asset.defaultWidth;
+    }
+    return 1;
+}
+
+function getDefaultFurnitureSize(asset) {
+    const ratio = getFurnitureAspectRatio(asset);
+    const width = DEFAULT_FURNITURE_WIDTH_PX;
+    const height = width * ratio;
+    return { width, height };
+}
+
+function getFurniturePlacementPoint() {
+    const rect = canvasContainer?.getBoundingClientRect?.() || canvas.getBoundingClientRect();
+    const screenX = rect.left + rect.width / 2;
+    const screenY = rect.top + rect.height / 2;
+    return screenToWorld(screenX, screenY);
+}
+
+function addFurnitureToGrid(asset) {
+    const targetAsset = asset || (typeof getActiveFurnitureAsset === 'function' ? getActiveFurnitureAsset() : null);
+    if (!targetAsset) return;
+
+    const styles = getDefaultStyleForType('furniture');
+    const { width, height } = getDefaultFurnitureSize(targetAsset);
+    const placementCenter = getFurniturePlacementPoint();
+    const snappedCenter = snapPointToInch(placementCenter.x, placementCenter.y);
+    const x = snappedCenter.x - width / 2;
+    const y = snappedCenter.y - height / 2;
+
+    pushUndoState();
+
+    const newObj = {
+        type: 'furniture',
+        x,
+        y,
+        width,
+        height,
+        lineWidth: parseInt(lineWidthInput.value, 10) || 2,
+        lineColor: styles.lineColor,
+        fillColor: styles.fillColor,
+        rotation: 0,
+        flipH: false,
+        flipV: false,
+        orientation: width >= height ? 'horizontal' : 'vertical',
+        assetId: targetAsset.id,
+        imageUrl: targetAsset.url,
+        assetName: targetAsset.label
+    };
+
+    if (typeof ensureFurnitureAssetImage === 'function') {
+        newObj.imageElement = ensureFurnitureAssetImage(targetAsset);
+    }
+
+    objects.push(newObj);
+    selectedObjectIndices = new Set([objects.length - 1]);
+    redrawCanvas();
 }
 
 function getStairSettings(obj = {}) {
@@ -7047,6 +7170,79 @@ function handleMouseMove(e) {
             }
 
             coordinatesDisplay.textContent = `X: ${obj.x.toFixed(1)}, Y: ${obj.y.toFixed(1)}`;
+            redrawCanvas();
+        }
+        return;
+    }
+
+    if (furnitureHandleDrag) {
+        const data = furnitureHandleDrag;
+        const obj = objects[data.index];
+        if (obj) {
+            ({ x, y } = snapToGridPoint(x, y));
+            const reference = data.initial.transform;
+            const pointerLocal = worldToObjectLocalPoint({ x, y }, reference);
+            const minSize = scale * 0.5;
+
+            if (data.handle === 'rotate-top-left' || data.handle === 'rotate-top-right') {
+                const angle = Math.atan2(y - reference.cy, x - reference.cx);
+                let newRotation = data.initial.rotation + ((angle - data.startPointerAngle) * 180) / Math.PI;
+                obj.rotation = snapRotation(newRotation);
+                redrawCanvas();
+                return;
+            }
+
+            let width = data.initial.width;
+            let height = data.initial.height;
+            let centerLocal = { x: 0, y: 0 };
+
+            const anchor = data.anchorLocal;
+
+            switch (data.handle) {
+                case 'top':
+                    height = Math.max(minSize, anchor.y - pointerLocal.y);
+                    centerLocal = { x: 0, y: anchor.y - height / 2 };
+                    break;
+                case 'bottom':
+                    height = Math.max(minSize, pointerLocal.y - anchor.y);
+                    centerLocal = { x: 0, y: anchor.y + height / 2 };
+                    break;
+                case 'left':
+                    width = Math.max(minSize, anchor.x - pointerLocal.x);
+                    centerLocal = { x: anchor.x - width / 2, y: 0 };
+                    break;
+                case 'right':
+                    width = Math.max(minSize, pointerLocal.x - anchor.x);
+                    centerLocal = { x: anchor.x + width / 2, y: 0 };
+                    break;
+                case 'top-right':
+                    width = Math.max(minSize, pointerLocal.x - anchor.x);
+                    height = Math.max(minSize, anchor.y - pointerLocal.y);
+                    centerLocal = { x: anchor.x + width / 2, y: anchor.y - height / 2 };
+                    break;
+                case 'bottom-right':
+                    width = Math.max(minSize, pointerLocal.x - anchor.x);
+                    height = Math.max(minSize, pointerLocal.y - anchor.y);
+                    centerLocal = { x: anchor.x + width / 2, y: anchor.y + height / 2 };
+                    break;
+                case 'bottom-left':
+                    width = Math.max(minSize, anchor.x - pointerLocal.x);
+                    height = Math.max(minSize, pointerLocal.y - anchor.y);
+                    centerLocal = { x: anchor.x - width / 2, y: anchor.y + height / 2 };
+                    break;
+                case 'rotate-top-left':
+                case 'rotate-top-right':
+                default:
+                    break;
+            }
+
+            const newCenterWorld = objectLocalToWorldPoint(centerLocal, reference);
+            obj.width = width;
+            obj.height = height;
+            obj.x = newCenterWorld.x - obj.width / 2;
+            obj.y = newCenterWorld.y - obj.height / 2;
+
+            coordinatesDisplay.textContent = `Resize: ${width.toFixed(1)} x ${height.toFixed(1)}`;
             redrawCanvas();
         }
         return;
@@ -7409,6 +7605,12 @@ function handleMouseUp() {
         return;
     }
 
+    if (furnitureHandleDrag) {
+        furnitureHandleDrag = null;
+        redrawCanvas();
+        return;
+    }
+
     if (trackDoorHandleDrag) {
         trackDoorHandleDrag = null;
         trackDoorDistancePreview = null;
@@ -7508,6 +7710,16 @@ function handleMouseUp() {
         }
     } else if (currentTool === 'staircase') {
         newObj.staircase = { ...staircaseSettings };
+    } else if (currentTool === 'furniture') {
+        const activeAsset = typeof getActiveFurnitureAsset === 'function' ? getActiveFurnitureAsset() : null;
+        if (activeAsset) {
+            newObj.assetId = activeAsset.id;
+            newObj.imageUrl = activeAsset.url;
+            newObj.assetName = activeAsset.label;
+            if (typeof ensureFurnitureAssetImage === 'function') {
+                newObj.imageElement = ensureFurnitureAssetImage(activeAsset);
+            }
+        }
     }
 
     objects.push(newObj);
@@ -8747,6 +8959,105 @@ function getObjectHandlePoints(corners) {
     ];
 }
 
+function drawFurnitureGraphic(obj, localX, localY, width, height) {
+    const asset = obj.assetId && typeof getFurnitureAssetById === 'function'
+        ? getFurnitureAssetById(obj.assetId)
+        : null;
+    const img = obj.imageElement
+        || (asset && typeof ensureFurnitureAssetImage === 'function'
+            ? ensureFurnitureAssetImage(asset)
+            : null)
+        || (() => {
+            if (!obj.imageUrl) return null;
+            const element = new Image();
+            element.src = obj.imageUrl;
+            obj.imageElement = element;
+            return element;
+        })();
+
+    if (img && img.complete) {
+        ctx.drawImage(img, localX, localY, width, height);
+        return;
+    }
+
+    if (img && !img.complete) {
+        img.onload = () => redrawCanvas();
+    }
+
+    ctx.fillRect(localX, localY, width, height);
+    ctx.strokeRect(localX, localY, width, height);
+}
+
+function objectLocalToWorldPoint(local, reference) {
+    const { cx, cy, angle, sx = 1, sy = 1 } = reference;
+    const rx = local.x * sx;
+    const ry = local.y * sy;
+    return {
+        x: cx + rx * Math.cos(angle) - ry * Math.sin(angle),
+        y: cy + rx * Math.sin(angle) + ry * Math.cos(angle)
+    };
+}
+
+function worldToObjectLocalPoint(world, reference) {
+    const { cx, cy, angle, sx = 1, sy = 1 } = reference;
+    const dx = world.x - cx;
+    const dy = world.y - cy;
+    const cos = Math.cos(-angle);
+    const sin = Math.sin(-angle);
+    return {
+        x: (dx * cos - dy * sin) / sx,
+        y: (dx * sin + dy * cos) / sy
+    };
+}
+
+function getFurnitureHandles(obj, cachedCorners = null) {
+    const handleSize = 10;
+    const corners = cachedCorners || getObjectTransformedCorners(obj);
+    if (!corners || corners.length !== 4) return { handleSize, handles: [] };
+    const [c0, c1, c2, c3] = corners;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+    return {
+        handleSize,
+        handles: [
+            { type: 'rotate-top-left', hx: c0.x, hy: c0.y },
+            { type: 'top', hx: mid(c0, c1).x, hy: mid(c0, c1).y },
+            { type: 'rotate-top-right', hx: c1.x, hy: c1.y },
+            { type: 'right', hx: mid(c1, c2).x, hy: mid(c1, c2).y },
+            { type: 'bottom-right', hx: c2.x, hy: c2.y },
+            { type: 'bottom', hx: mid(c2, c3).x, hy: mid(c2, c3).y },
+            { type: 'bottom-left', hx: c3.x, hy: c3.y },
+            { type: 'left', hx: mid(c3, c0).x, hy: mid(c3, c0).y }
+        ]
+    };
+}
+
+function getFurnitureAnchorForHandle(handle, obj) {
+    const halfW = obj.width / 2;
+    const halfH = obj.height / 2;
+
+    switch (handle) {
+        case 'top':
+            return { x: 0, y: halfH };
+        case 'bottom':
+            return { x: 0, y: -halfH };
+        case 'left':
+            return { x: halfW, y: 0 };
+        case 'right':
+            return { x: -halfW, y: 0 };
+        case 'top-right':
+        case 'rotate-top-right':
+            return { x: -halfW, y: halfH };
+        case 'bottom-right':
+            return { x: -halfW, y: -halfH };
+        case 'bottom-left':
+            return { x: halfW, y: -halfH };
+        case 'rotate-top-left':
+        default:
+            return { x: halfW, y: halfH };
+    }
+}
+
 function drawObjects() {
     for (let i = 0; i < objects.length; i++) {
         const obj = objects[i];
@@ -8804,8 +9115,7 @@ function drawObjects() {
         } else if (obj.type === 'staircase') {
             drawStaircaseGraphic(obj, localX, localY, width, height);
         } else if (obj.type === 'furniture') {
-            ctx.fillRect(localX, localY, width, height);
-            ctx.strokeRect(localX, localY, width, height);
+            drawFurnitureGraphic(obj, localX, localY, drawWidth, drawHeight);
         }
 
         ctx.restore();
@@ -8856,29 +9166,44 @@ function drawObjects() {
                     ctx.strokeRect(pt.x - half, pt.y - half, handleSize, handleSize);
                 });
             } else {
-                const handleSize = 8;
-                const handles = getObjectHandlePoints(corners);
+                if (obj.type === 'furniture') {
+                    const { handleSize, handles } = getFurnitureHandles(obj, corners);
+                    const half = handleSize / 2;
 
-                ctx.fillStyle = '#ffffff';
-                ctx.strokeStyle = '#2980b9';
-                ctx.lineWidth = 1;
-                handles.forEach(({ x: hx, y: hy }) => {
-                    ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
-                    ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
-                });
+                    handles.forEach(handle => {
+                        const isRotate = handle.type === 'rotate-top-left' || handle.type === 'rotate-top-right';
+                        ctx.fillStyle = '#ffffff';
+                        ctx.strokeStyle = isRotate ? '#f39c12' : '#2980b9';
+                        ctx.lineWidth = 1.5;
 
-                if (isTrackDoor(obj)) {
-                    const { handleSize: shutterHandleSize, start, end } = getTrackDoorHandles(obj);
-                    const shutterHalf = shutterHandleSize / 2;
+                        ctx.fillRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
+                        ctx.strokeRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
+                    });
+                } else {
+                    const handleSize = 8;
+                    const handles = getObjectHandlePoints(corners);
 
                     ctx.fillStyle = '#ffffff';
-                    ctx.strokeStyle = '#d35400';
-                    ctx.lineWidth = 1.5;
-
-                    [start, end].forEach(pt => {
-                        ctx.fillRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
-                        ctx.strokeRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
+                    ctx.strokeStyle = '#2980b9';
+                    ctx.lineWidth = 1;
+                    handles.forEach(({ x: hx, y: hy }) => {
+                        ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
+                        ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
                     });
+
+                    if (isTrackDoor(obj)) {
+                        const { handleSize: shutterHandleSize, start, end } = getTrackDoorHandles(obj);
+                        const shutterHalf = shutterHandleSize / 2;
+
+                        ctx.fillStyle = '#ffffff';
+                        ctx.strokeStyle = '#d35400';
+                        ctx.lineWidth = 1.5;
+
+                        [start, end].forEach(pt => {
+                            ctx.fillRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
+                            ctx.strokeRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
+                        });
+                    }
                 }
             }
             ctx.restore();
@@ -9058,6 +9383,23 @@ function drawFloorVertices(points, isSelected) {
         ctx.stroke();
     });
     ctx.restore();
+}
+
+function getFurnitureHandleHit(x, y) {
+    for (const index of selectedObjectIndices) {
+        const obj = objects[index];
+        if (!obj || obj.type !== 'furniture') continue;
+
+        const { handleSize, handles } = getFurnitureHandles(obj);
+        const half = handleSize / 2;
+
+        for (const handle of handles) {
+            if (x >= handle.hx - half && x <= handle.hx + half && y >= handle.hy - half && y <= handle.hy + half) {
+                return { index, handle: handle.type };
+            }
+        }
+    }
+    return null;
 }
 
 function getWindowHandles(obj) {
