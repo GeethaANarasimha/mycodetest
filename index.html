@@ -506,6 +506,25 @@
     </div>
 </div>
 
+<div id="furnitureModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="furnitureModalTitle">
+    <div class="modal-content furniture-modal">
+        <div class="modal-header">
+            <div>
+                <h3 id="furnitureModalTitle">Furniture Library</h3>
+                <p class="modal-subtitle">Click a piece to add it to the 2D plan.</p>
+            </div>
+        </div>
+        <div class="furniture-filter-row">
+            <label class="modal-label" for="furnitureSearch">Search</label>
+            <input id="furnitureSearch" type="search" placeholder="Find furniture..." />
+        </div>
+        <div id="furnitureList" class="furniture-list" aria-live="polite"></div>
+        <div class="modal-actions">
+            <button id="closeFurnitureModal" class="tool-btn secondary-btn" type="button">Close</button>
+        </div>
+    </div>
+</div>
+
 <div id="floorTextureModal" class="modal hidden">
     <div class="modal-content">
         <h3>Floor Texture</h3>
@@ -601,6 +620,7 @@
     }
 }
 </script>
+<script src="furnitureTools.js"></script>
 <script src="transformTools.js"></script>
 <script src="userGuide.js"></script>
 <script src="script.js"></script>
