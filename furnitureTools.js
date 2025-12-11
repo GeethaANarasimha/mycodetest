@@ -61,7 +61,7 @@ function highlightActiveFurniture(listEl) {
     });
 }
 
-function renderFurnitureList(listEl, onSelect, filterText = '') {
+function renderFurnitureList(listEl, onSelect, onAdd, closeModal, filterText = '') {
     if (!listEl) return;
     listEl.innerHTML = '';
 
@@ -89,6 +89,12 @@ function renderFurnitureList(listEl, onSelect, filterText = '') {
             if (typeof onSelect === 'function') {
                 onSelect(asset);
             }
+            if (typeof onAdd === 'function') {
+                onAdd(asset);
+            }
+            if (typeof closeModal === 'function') {
+                closeModal();
+            }
         });
 
         listEl.appendChild(card);
@@ -97,7 +103,7 @@ function renderFurnitureList(listEl, onSelect, filterText = '') {
     highlightActiveFurniture(listEl);
 }
 
-function initFurniturePalette({ modal, listElement, closeButton, triggerButton, searchInput, addButton, onSelect, onAdd }) {
+function initFurniturePalette({ modal, listElement, closeButton, triggerButton, searchInput, onSelect, onAdd }) {
     if (!modal || !listElement) return;
 
     const closeModal = () => modal.classList.add('hidden');
@@ -106,14 +112,14 @@ function initFurniturePalette({ modal, listElement, closeButton, triggerButton, 
         if (searchInput) {
             searchInput.value = '';
         }
-        renderFurnitureList(listElement, onSelect, '');
+        renderFurnitureList(listElement, onSelect, onAdd, closeModal, '');
     };
 
     renderFurnitureList(listElement, (asset) => {
         if (typeof onSelect === 'function') {
             onSelect(asset);
         }
-    });
+    }, onAdd, closeModal);
 
     if (closeButton) {
         closeButton.addEventListener('click', closeModal);
@@ -127,17 +133,7 @@ function initFurniturePalette({ modal, listElement, closeButton, triggerButton, 
 
     if (searchInput) {
         searchInput.addEventListener('input', (event) => {
-            renderFurnitureList(listElement, onSelect, event.target.value || '');
-        });
-    }
-
-    if (addButton) {
-        addButton.addEventListener('click', () => {
-            const asset = getActiveFurnitureAsset();
-            if (typeof onAdd === 'function' && asset) {
-                onAdd(asset);
-            }
-            closeModal();
+            renderFurnitureList(listElement, onSelect, onAdd, closeModal, event.target.value || '');
         });
     }
 

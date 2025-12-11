@@ -68,7 +68,6 @@ const furnitureModal = document.getElementById('furnitureModal');
 const furnitureList = document.getElementById('furnitureList');
 const closeFurnitureModalButton = document.getElementById('closeFurnitureModal');
 const furnitureSearchInput = document.getElementById('furnitureSearch');
-const autoAddFurnitureButton = document.getElementById('autoAddFurniture');
 const furnitureToolButton = document.querySelector('.tool-btn[data-tool="furniture"]');
  
 const textModal = document.getElementById('textModal');
@@ -5048,7 +5047,6 @@ function init() {
             closeButton: closeFurnitureModalButton,
             triggerButton: furnitureToolButton,
             searchInput: furnitureSearchInput,
-            addButton: autoAddFurnitureButton,
             onSelect: () => {
                 currentTool = 'furniture';
                 toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'furniture'));
@@ -7183,6 +7181,9 @@ function handleMouseMove(e) {
             const reference = data.initial.transform;
             const pointerLocal = worldToObjectLocalPoint({ x, y }, reference);
             const minSize = scale * 0.5;
+            const aspectRatio = data.initial.height && data.initial.width
+                ? data.initial.height / data.initial.width
+                : 1;
 
             if (data.handle === 'rotate-top-left' || data.handle === 'rotate-top-right') {
                 const angle = Math.atan2(y - reference.cy, x - reference.cx);
@@ -7215,19 +7216,26 @@ function handleMouseMove(e) {
                     width = Math.max(minSize, pointerLocal.x - anchor.x);
                     centerLocal = { x: anchor.x + width / 2, y: 0 };
                     break;
-                case 'top-right':
-                    width = Math.max(minSize, pointerLocal.x - anchor.x);
-                    height = Math.max(minSize, anchor.y - pointerLocal.y);
-                    centerLocal = { x: anchor.x + width / 2, y: anchor.y - height / 2 };
-                    break;
                 case 'bottom-right':
-                    width = Math.max(minSize, pointerLocal.x - anchor.x);
-                    height = Math.max(minSize, pointerLocal.y - anchor.y);
+                    {
+                        const dx = pointerLocal.x - anchor.x;
+                        const dy = pointerLocal.y - anchor.y;
+                        const widthCandidate = Math.max(minSize, dx);
+                        const widthFromHeight = Math.max(minSize, dy) / aspectRatio;
+                        width = Math.max(minSize, Math.max(widthCandidate, widthFromHeight));
+                        height = Math.max(minSize, width * aspectRatio);
+                    }
                     centerLocal = { x: anchor.x + width / 2, y: anchor.y + height / 2 };
                     break;
                 case 'bottom-left':
-                    width = Math.max(minSize, anchor.x - pointerLocal.x);
-                    height = Math.max(minSize, pointerLocal.y - anchor.y);
+                    {
+                        const dx = anchor.x - pointerLocal.x;
+                        const dy = pointerLocal.y - anchor.y;
+                        const widthCandidate = Math.max(minSize, dx);
+                        const widthFromHeight = Math.max(minSize, dy) / aspectRatio;
+                        width = Math.max(minSize, Math.max(widthCandidate, widthFromHeight));
+                        height = Math.max(minSize, width * aspectRatio);
+                    }
                     centerLocal = { x: anchor.x - width / 2, y: anchor.y + height / 2 };
                     break;
                 case 'rotate-top-left':
