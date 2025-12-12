@@ -4035,13 +4035,19 @@ function getContentBounds() {
         };
     }
 
+    const strokeAllowance = 4;
+    const minX = bounds.minX - strokeAllowance;
+    const minY = bounds.minY - strokeAllowance;
+    const maxX = bounds.maxX + strokeAllowance;
+    const maxY = bounds.maxY + strokeAllowance;
+
     return {
-        minX: bounds.minX,
-        minY: bounds.minY,
-        maxX: bounds.maxX,
-        maxY: bounds.maxY,
-        width: bounds.maxX - bounds.minX,
-        height: bounds.maxY - bounds.minY
+        minX,
+        minY,
+        maxX,
+        maxY,
+        width: maxX - minX,
+        height: maxY - minY
     };
 }
 
@@ -9028,6 +9034,16 @@ function getObjectTransformedCorners(obj) {
         { x: halfW, y: halfH },
         { x: -halfW, y: halfH }
     ];
+
+    // Doors have an arc that extends beyond their rectangular body.
+    // Add swing-extreme points so the computed bounds include the arc for export.
+    if (obj.type === 'door' && obj.doorType !== 'rollingShutter' && obj.doorType !== 'slidingDoor') {
+        const swingRadius = Math.abs(drawWidth);
+        locals.push(
+            { x: halfW, y: -swingRadius },
+            { x: halfW, y: swingRadius }
+        );
+    }
 
     return locals.map(({ x, y }) => {
         const lx = x * sx;
