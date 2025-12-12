@@ -228,11 +228,20 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
                 const dx = end.x - start.x;
                 const dy = end.y - start.y;
-                const length = Math.hypot(dx, dy) || 1;
+                const start3D = this.planTo3DCoords(start);
+                const end3D = this.planTo3DCoords(end);
+
+                // Use the transformed 3D direction so rotations match the rendered layout
+                // even when the 2D plan axes are mirrored in 3D space.
+                const wallDirWorld = new THREE.Vector2(
+                    end3D.x - start3D.x,
+                    end3D.z - start3D.z
+                ).normalize();
+
+                const length = Math.hypot(end3D.x - start3D.x, end3D.z - start3D.z) || 1;
                 const thickness = wall.thicknessPx || (scale * 0.5);
 
                 const wallDirPlan = new THREE.Vector2(dx, dy).normalize();
-                const wallDirWorld = new THREE.Vector2(dx, -dy).normalize();
                 const doorOpenings = this.getDoorOpeningsForWall(start, wallDirPlan, length, thickness, doorObjects);
                 const windowOpenings = this.getWindowOpeningsForWall(start, wallDirPlan, length, thickness, windowObjects);
                 const allOpenings = [...doorOpenings, ...windowOpenings];
@@ -276,7 +285,6 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                         const centerOffset = wallDirWorld.clone().multiplyScalar(
                             segment.start + (segment.length / 2) + ((endPad - startPad) / 2)
                         );
-                        const start3D = this.planTo3DCoords(start);
                         mesh.position.set(
                             start3D.x + centerOffset.x,
                             band.start + (height / 2),
