@@ -352,6 +352,84 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             return { frameDepth, frameWidth };
         }
 
+        getWindowPanelCount(lengthPx) {
+            const pxPerFoot = typeof scale === 'number' ? scale : 20;
+            const totalInches = (lengthPx / pxPerFoot) * 12;
+            if (totalInches >= 50) {
+                return 3; // e.g., 4'6" French window
+            }
+            return 2; // 3' window defaults to a two-part style
+        }
+
+        createFrenchWindow(length, thickness, panelCount = 2) {
+            const frameWidth = Math.max(3, (typeof scale === 'number' ? scale : 20) * 0.15);
+            const mullionWidth = Math.max(2, frameWidth * 0.8);
+            const glassThickness = Math.max(thickness * 0.4, 6);
+            const frameDepth = Math.max(thickness, 8);
+            const height = windowHeightPx;
+            const usableWidth = Math.max(1, length - (frameWidth * 2) - (mullionWidth * (panelCount - 1)));
+            const glassHeight = Math.max(2, height - (frameWidth * 2));
+            const panelWidth = usableWidth / panelCount;
+
+            const frameMaterial = new THREE.MeshStandardMaterial({
+                color: new THREE.Color('#dfe7fd'),
+                metalness: 0.1,
+                roughness: 0.4
+            });
+
+            const glassMaterial = new THREE.MeshStandardMaterial({
+                color: new THREE.Color('#8fb8ff'),
+                opacity: 0.65,
+                transparent: true,
+                metalness: 0.05,
+                roughness: 0.2
+            });
+
+            const group = new THREE.Group();
+
+            const verticalFrameGeometry = new THREE.BoxGeometry(frameWidth, height, frameDepth);
+            const horizontalFrameGeometry = new THREE.BoxGeometry(length, frameWidth, frameDepth);
+
+            const leftFrame = new THREE.Mesh(verticalFrameGeometry, frameMaterial);
+            const rightFrame = new THREE.Mesh(verticalFrameGeometry, frameMaterial);
+            const topFrame = new THREE.Mesh(horizontalFrameGeometry, frameMaterial);
+            const bottomFrame = new THREE.Mesh(horizontalFrameGeometry, frameMaterial);
+
+            leftFrame.position.set(-(length / 2) + (frameWidth / 2), 0, 0);
+            rightFrame.position.set((length / 2) - (frameWidth / 2), 0, 0);
+            topFrame.position.set(0, (height / 2) - (frameWidth / 2), 0);
+            bottomFrame.position.set(0, -(height / 2) + (frameWidth / 2), 0);
+
+            [leftFrame, rightFrame, topFrame, bottomFrame].forEach(mesh => {
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                group.add(mesh);
+            });
+
+            const glassGeometry = new THREE.BoxGeometry(panelWidth, glassHeight, glassThickness);
+            const mullionGeometry = new THREE.BoxGeometry(mullionWidth, glassHeight, frameDepth);
+            const startX = -(length / 2) + frameWidth + (panelWidth / 2);
+
+            for (let i = 0; i < panelCount; i++) {
+                const x = startX + i * (panelWidth + mullionWidth);
+                const glassPanel = new THREE.Mesh(glassGeometry, glassMaterial);
+                glassPanel.position.set(x, 0, 0);
+                glassPanel.castShadow = true;
+                glassPanel.receiveShadow = true;
+                group.add(glassPanel);
+
+                if (i < panelCount - 1) {
+                    const mullion = new THREE.Mesh(mullionGeometry, frameMaterial);
+                    mullion.position.set(x + (panelWidth / 2) + (mullionWidth / 2), 0, 0);
+                    mullion.castShadow = true;
+                    mullion.receiveShadow = true;
+                    group.add(mullion);
+                }
+            }
+
+            return group;
+        }
+
         createDoorFrame(opening, wallStart, wallDir, wallThickness, dy, dx) {
             const frameGroup = new THREE.Group();
             const { frameDepth, frameWidth } = this.getDoorFrameDimensions(wallThickness);
@@ -399,20 +477,11 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 .filter(obj => obj.type === 'window')
                 .forEach(obj => {
                     const { length, thickness, center } = this.getLinearSize(obj);
-                    const geometry = new THREE.BoxGeometry(length, windowHeightPx, Math.max(thickness, 8));
-                    const material = new THREE.MeshStandardMaterial({
-                        color: new THREE.Color('#8fb8ff'),
-                        opacity: 0.7,
-                        transparent: true,
-                        metalness: 0.05,
-                        roughness: 0.2
-                    });
-                    const mesh = new THREE.Mesh(geometry, material);
-                    mesh.castShadow = true;
-                    mesh.receiveShadow = true;
-                    mesh.position.set(center.x, windowSillPx + (windowHeightPx / 2), center.z);
-                    mesh.rotation.y = obj.rotation || (obj.orientation === 'vertical' ? Math.PI / 2 : 0);
-                    group.add(mesh);
+                    const panelCount = this.getWindowPanelCount(length);
+                    const windowAssembly = this.createFrenchWindow(length, Math.max(thickness, 8), panelCount);
+                    windowAssembly.position.set(center.x, windowSillPx + (windowHeightPx / 2), center.z);
+                    windowAssembly.rotation.y = obj.rotation || (obj.orientation === 'vertical' ? Math.PI / 2 : 0);
+                    group.add(windowAssembly);
                 });
             return group;
         }
