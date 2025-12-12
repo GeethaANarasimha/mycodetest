@@ -513,6 +513,8 @@ function loadLayerSnapshot(layerId = currentLayerId()) {
     objects = JSON.parse(JSON.stringify(snapshot.objects));
     floors = JSON.parse(JSON.stringify(snapshot.floors));
 
+    hydrateFurnitureObjects(objects);
+
     if (snapshot.dimensions) {
         window.dimensions = JSON.parse(JSON.stringify(snapshot.dimensions));
         window.nextDimensionId = snapshot.dimensions.length > 0 ? Math.max(...snapshot.dimensions.map(d => d.id)) + 1 : 1;
@@ -3303,6 +3305,30 @@ function cloneState() {
     };
 }
 
+function hydrateFurnitureObjects(list = objects) {
+    if (!Array.isArray(list)) return;
+
+    list.forEach(obj => {
+        if (!obj || obj.type !== 'furniture') return;
+
+        const asset = obj.assetId && typeof getFurnitureAssetById === 'function'
+            ? getFurnitureAssetById(obj.assetId)
+            : null;
+
+        if (asset && typeof ensureFurnitureAssetImage === 'function') {
+            obj.imageElement = ensureFurnitureAssetImage(asset);
+            obj.imageUrl = obj.imageUrl || asset.url;
+            return;
+        }
+
+        if (!obj.imageElement && obj.imageUrl) {
+            const img = new Image();
+            img.src = obj.imageUrl;
+            obj.imageElement = img;
+        }
+    });
+}
+
 function restoreState(state) {
     nodes = JSON.parse(JSON.stringify(state.nodes));
     walls = JSON.parse(JSON.stringify(state.walls));
@@ -3310,6 +3336,8 @@ function restoreState(state) {
     directLines = JSON.parse(JSON.stringify(state.directLines || []));
     floors = JSON.parse(JSON.stringify(state.floors || []));
     nextFloorId = floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1;
+
+    hydrateFurnitureObjects(objects);
 
     if (state.dimensions) {
         window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
@@ -3786,6 +3814,8 @@ function applyProjectState(state) {
          walls = JSON.parse(JSON.stringify(state.walls || []));
          objects = JSON.parse(JSON.stringify(state.objects || []));
          floors = (state.floors || []).map(stripFloorPattern);
+
+         hydrateFurnitureObjects(objects);
 
          if (state.dimensions) {
              window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
@@ -5053,10 +5083,7 @@ function init() {
                 updateToolInfo();
             },
             onAdd: (asset) => {
-                currentTool = 'furniture';
-                toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'furniture'));
-                addFurnitureToGrid(asset);
-                updateToolInfo();
+                addFurnitureToGrid(asset, { switchToSelectTool: true });
             }
         });
     }
@@ -6861,7 +6888,8 @@ function getFurniturePlacementPoint() {
     return screenToWorld(screenX, screenY);
 }
 
-function addFurnitureToGrid(asset) {
+function addFurnitureToGrid(asset, options = {}) {
+    const { switchToSelectTool = false } = options;
     const targetAsset = asset || (typeof getActiveFurnitureAsset === 'function' ? getActiveFurnitureAsset() : null);
     if (!targetAsset) return;
 
@@ -6898,7 +6926,14 @@ function addFurnitureToGrid(asset) {
 
     objects.push(newObj);
     selectedObjectIndices = new Set([objects.length - 1]);
+
+    if (switchToSelectTool) {
+        currentTool = 'select';
+        toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'select'));
+    }
+
     redrawCanvas();
+    updateToolInfo();
 }
 
 function getStairSettings(obj = {}) {
