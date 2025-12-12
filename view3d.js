@@ -120,7 +120,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 shape.closePath();
 
                 const geometry = new THREE.ShapeGeometry(shape);
-                geometry.rotateX(-Math.PI / 2);
+                // Keep floor geometry aligned with 2D coordinates so it lines up with walls
+                geometry.rotateX(Math.PI / 2);
                 if (floorInset > 0) {
                     geometry.computeBoundingBox();
                     const bbox = geometry.boundingBox;
