@@ -81,6 +81,7 @@ const pdfMobileNumberInput = document.getElementById('pdfMobileNumber');
 const pdfClientNameInput = document.getElementById('pdfClientName');
 const pdfClientAddressInput = document.getElementById('pdfClientAddress');
 const pdfClientMobileInput = document.getElementById('pdfClientMobile');
+const pdfTitleLineInput = document.getElementById('pdfTitleLine');
 const pdfHeaderInput = document.getElementById('pdfHeader');
 const pdfFooterInput = document.getElementById('pdfFooter');
 const pdfFormatSelect = document.getElementById('pdfFormat');
@@ -181,6 +182,40 @@ const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
+
+// ---------------- IMAGE HELPERS ----------------
+const LOCAL_IMAGE_PREFIX = /^(data:|blob:)/i;
+
+function toAbsoluteUrl(url) {
+    if (!url) return '';
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    return anchor.href;
+}
+
+function shouldRequestCors(url) {
+    if (!url) return false;
+    if (LOCAL_IMAGE_PREFIX.test(url)) return false;
+    return !toAbsoluteUrl(url).startsWith(window.location.origin);
+}
+
+function createSafeImageElement(src) {
+    const image = new Image();
+    if (shouldRequestCors(src)) {
+        image.crossOrigin = 'anonymous';
+        image.referrerPolicy = 'no-referrer';
+    }
+    if (src) image.src = src;
+    return image;
+}
+
+function ensureSafeImageElement(existing, src) {
+    const needsReload = !existing
+        || toAbsoluteUrl(existing.src) !== toAbsoluteUrl(src)
+        || (shouldRequestCors(src) && existing.crossOrigin !== 'anonymous');
+
+    return needsReload ? createSafeImageElement(src) : existing;
+}
 // ---------------- STATE ----------------
 let currentTool = 'select';
 let isDrawing = false;
@@ -3174,6 +3209,8 @@ function findRoomPolygonAtPoint(x, y) {
 function ensureFloorPattern(floor) {
     if (!floor?.texture?.imageSrc) return Promise.resolve();
 
+    const source = floor.texture.imageSrc;
+
     const applyPatternFromImage = (image) => {
         const widthPx = floor.texture.widthPx || image.width;
         const heightPx = floor.texture.heightPx || image.height;
@@ -3189,21 +3226,26 @@ function ensureFloorPattern(floor) {
         floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
     };
 
-    if (floor.texture.patternImage?.complete) {
-        applyPatternFromImage(floor.texture.patternImage);
+    const safeImage = ensureSafeImageElement(floor.texture.patternImage, source);
+    floor.texture.patternImage = safeImage;
+
+    if (safeImage.complete && safeImage.naturalWidth > 0 && safeImage.naturalHeight > 0) {
+        applyPatternFromImage(safeImage);
         return Promise.resolve();
     }
 
     return new Promise(resolve => {
-        const image = new Image();
+        const image = ensureSafeImageElement(floor.texture.patternImage, source);
+        floor.texture.patternImage = image;
         image.onload = () => {
-            floor.texture.patternImage = image;
             applyPatternFromImage(image);
             redrawCanvas();
             resolve();
         };
-        image.onerror = () => resolve();
-        image.src = floor.texture.imageSrc;
+        image.onerror = () => {
+            floor.texture.pattern = null;
+            resolve();
+        };
     });
 }
 
@@ -3323,9 +3365,7 @@ function hydrateFurnitureObjects(list = objects) {
         }
 
         if (!obj.imageElement && obj.imageUrl) {
-            const img = new Image();
-            img.src = obj.imageUrl;
-            obj.imageElement = img;
+            obj.imageElement = ensureSafeImageElement(obj.imageElement, obj.imageUrl);
         }
     });
 }
@@ -3756,8 +3796,8 @@ function hydrateBackgroundLayerState(layerId, payload = {}) {
     state.backgroundImageData = null;
 
     if (payload.background?.src) {
-        const img = new Image();
-        img.onload = () => {
+        const img = ensureSafeImageElement(null, payload.background.src);
+        const finalizeBackground = () => {
             state.backgroundImageData = {
                 image: img,
                 x: payload.background.x,
@@ -3772,7 +3812,12 @@ function hydrateBackgroundLayerState(layerId, payload = {}) {
                 redrawCanvas();
             }
         };
-        img.src = payload.background.src;
+
+        if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+            finalizeBackground();
+        } else {
+            img.onload = finalizeBackground;
+        }
     }
 }
 
@@ -3991,13 +4036,19 @@ function getContentBounds() {
         };
     }
 
+    const strokeAllowance = 4;
+    const minX = bounds.minX - strokeAllowance;
+    const minY = bounds.minY - strokeAllowance;
+    const maxX = bounds.maxX + strokeAllowance;
+    const maxY = bounds.maxY + strokeAllowance;
+
     return {
-        minX: bounds.minX,
-        minY: bounds.minY,
-        maxX: bounds.maxX,
-        maxY: bounds.maxY,
-        width: bounds.maxX - bounds.minX,
-        height: bounds.maxY - bounds.minY
+        minX,
+        minY,
+        maxX,
+        maxY,
+        width: maxX - minX,
+        height: maxY - minY
     };
 }
 
@@ -4009,6 +4060,7 @@ async function downloadPlanAsPDF(options = {}) {
         clientName = '',
         clientAddress = '',
         clientMobile = '',
+        presentationTitle = '',
         headerText = '',
         footerText = '',
         pageFormat = 'a4',
@@ -4045,6 +4097,10 @@ async function downloadPlanAsPDF(options = {}) {
     const textFontSize = 10;
     const infoLineHeight = 12;
     const padding = 20;
+    const exportScale = 2;
+    const titleFontSize = 14;
+    const titleBarHeight = presentationTitle ? 28 : 0;
+    const titleSpacing = presentationTitle ? 6 : 0;
 
     try {
         captureLayerSnapshot(activeLayerBeforeExport);
@@ -4060,15 +4116,17 @@ async function downloadPlanAsPDF(options = {}) {
             const bounds = getContentBounds();
             const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
             const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
+            const scaledExportWidth = exportWidth * exportScale;
+            const scaledExportHeight = exportHeight * exportScale;
 
-            canvas.width = exportWidth;
-            canvas.height = exportHeight;
-            canvas.style.width = `${exportWidth}px`;
-            canvas.style.height = `${exportHeight}px`;
+            canvas.width = scaledExportWidth;
+            canvas.height = scaledExportHeight;
+            canvas.style.width = `${scaledExportWidth}px`;
+            canvas.style.height = `${scaledExportHeight}px`;
 
-            viewScale = 1;
-            viewOffsetX = padding - bounds.minX;
-            viewOffsetY = padding - bounds.minY;
+            viewScale = exportScale;
+            viewOffsetX = (padding - bounds.minX) * exportScale;
+            viewOffsetY = (padding - bounds.minY) * exportScale;
 
             redrawCanvas();
 
@@ -4092,17 +4150,33 @@ async function downloadPlanAsPDF(options = {}) {
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
             const availableWidth = pageWidth - margins.left - margins.right;
-            const availableHeight = pageHeight - margins.top - margins.bottom;
+            const availableHeight = Math.max(1, pageHeight - margins.top - margins.bottom - titleBarHeight - titleSpacing);
             const scaleFactor = Math.min(availableWidth / exportWidth, availableHeight / exportHeight, 1);
             const renderWidth = exportWidth * scaleFactor;
             const renderHeight = exportHeight * scaleFactor;
             const imageX = margins.left + (availableWidth - renderWidth) / 2;
-            const imageY = margins.top;
+            const imageY = margins.top + titleBarHeight + titleSpacing;
 
             // Use lossless compression to preserve maximum quality in the generated PDF.
             pdf.addImage(dataUrl, 'PNG', imageX, imageY, renderWidth, renderHeight, undefined, 'NONE');
 
             pdf.setFontSize(textFontSize);
+
+            if (presentationTitle) {
+                const barX = margins.left;
+                const barWidth = pageWidth - margins.left - margins.right;
+                const barY = margins.top;
+
+                pdf.setFillColor(244, 248, 255);
+                pdf.rect(barX, barY, barWidth, titleBarHeight, 'F');
+                pdf.setTextColor(33, 37, 41);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(titleFontSize);
+                pdf.text(presentationTitle, pageWidth / 2, barY + titleBarHeight / 2 + titleFontSize / 3, { align: 'center' });
+                pdf.setTextColor(0, 0, 0);
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(textFontSize);
+            }
 
             if (headerText) {
                 pdf.text(headerText, pageWidth / 2, margins.top / 2, { align: 'center' });
@@ -8985,6 +9059,16 @@ function getObjectTransformedCorners(obj) {
         { x: -halfW, y: halfH }
     ];
 
+    // Doors have an arc that extends beyond their rectangular body.
+    // Add swing-extreme points so the computed bounds include the arc for export.
+    if (obj.type === 'door' && obj.doorType !== 'rollingShutter' && obj.doorType !== 'slidingDoor') {
+        const swingRadius = Math.abs(drawWidth);
+        locals.push(
+            { x: halfW, y: -swingRadius },
+            { x: halfW, y: swingRadius }
+        );
+    }
+
     return locals.map(({ x, y }) => {
         const lx = x * sx;
         const ly = y * sy;
@@ -9015,25 +9099,31 @@ function drawFurnitureGraphic(obj, localX, localY, width, height) {
     const asset = obj.assetId && typeof getFurnitureAssetById === 'function'
         ? getFurnitureAssetById(obj.assetId)
         : null;
-    const img = obj.imageElement
-        || (asset && typeof ensureFurnitureAssetImage === 'function'
-            ? ensureFurnitureAssetImage(asset)
-            : null)
-        || (() => {
-            if (!obj.imageUrl) return null;
-            const element = new Image();
-            element.src = obj.imageUrl;
-            obj.imageElement = element;
-            return element;
-        })();
+    const sourceUrl = obj.imageUrl || asset?.url || obj.imageElement?.src || null;
+    let img = sourceUrl ? ensureSafeImageElement(obj.imageElement, sourceUrl) : obj.imageElement;
 
-    if (img && img.complete) {
+    if (!img && asset && typeof ensureFurnitureAssetImage === 'function') {
+        img = ensureFurnitureAssetImage(asset);
+        obj.imageElement = img;
+        obj.imageUrl = obj.imageUrl || asset.url;
+    }
+
+    if (!img && obj.imageUrl) {
+        img = ensureSafeImageElement(null, obj.imageUrl);
+        obj.imageElement = img;
+    }
+
+    if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
         ctx.drawImage(img, localX, localY, width, height);
         return;
     }
 
     if (img && !img.complete) {
         img.onload = () => redrawCanvas();
+        img.onerror = () => {
+            obj.imageElement = null;
+            redrawCanvas();
+        };
     }
 
     ctx.fillRect(localX, localY, width, height);
@@ -10589,6 +10679,7 @@ function submitPdfOptions() {
         clientName: pdfClientNameInput?.value?.trim() || '',
         clientAddress: pdfClientAddressInput?.value?.trim() || '',
         clientMobile: pdfClientMobileInput?.value?.trim() || '',
+        presentationTitle: pdfTitleLineInput?.value?.trim() || '',
         headerText: pdfHeaderInput?.value?.trim() || '',
         footerText: pdfFooterInput?.value?.trim() || '',
         pageFormat: pdfFormatSelect?.value || 'a4',
