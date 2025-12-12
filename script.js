@@ -181,6 +181,40 @@ const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
+
+// ---------------- IMAGE HELPERS ----------------
+const LOCAL_IMAGE_PREFIX = /^(data:|blob:)/i;
+
+function toAbsoluteUrl(url) {
+    if (!url) return '';
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    return anchor.href;
+}
+
+function shouldRequestCors(url) {
+    if (!url) return false;
+    if (LOCAL_IMAGE_PREFIX.test(url)) return false;
+    return !toAbsoluteUrl(url).startsWith(window.location.origin);
+}
+
+function createSafeImageElement(src) {
+    const image = new Image();
+    if (shouldRequestCors(src)) {
+        image.crossOrigin = 'anonymous';
+        image.referrerPolicy = 'no-referrer';
+    }
+    if (src) image.src = src;
+    return image;
+}
+
+function ensureSafeImageElement(existing, src) {
+    const needsReload = !existing
+        || toAbsoluteUrl(existing.src) !== toAbsoluteUrl(src)
+        || (shouldRequestCors(src) && existing.crossOrigin !== 'anonymous');
+
+    return needsReload ? createSafeImageElement(src) : existing;
+}
 // ---------------- STATE ----------------
 let currentTool = 'select';
 let isDrawing = false;
@@ -3174,6 +3208,8 @@ function findRoomPolygonAtPoint(x, y) {
 function ensureFloorPattern(floor) {
     if (!floor?.texture?.imageSrc) return Promise.resolve();
 
+    const source = floor.texture.imageSrc;
+
     const applyPatternFromImage = (image) => {
         const widthPx = floor.texture.widthPx || image.width;
         const heightPx = floor.texture.heightPx || image.height;
@@ -3189,21 +3225,26 @@ function ensureFloorPattern(floor) {
         floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
     };
 
-    if (floor.texture.patternImage?.complete) {
-        applyPatternFromImage(floor.texture.patternImage);
+    const safeImage = ensureSafeImageElement(floor.texture.patternImage, source);
+    floor.texture.patternImage = safeImage;
+
+    if (safeImage.complete && safeImage.naturalWidth > 0 && safeImage.naturalHeight > 0) {
+        applyPatternFromImage(safeImage);
         return Promise.resolve();
     }
 
     return new Promise(resolve => {
-        const image = new Image();
+        const image = ensureSafeImageElement(floor.texture.patternImage, source);
+        floor.texture.patternImage = image;
         image.onload = () => {
-            floor.texture.patternImage = image;
             applyPatternFromImage(image);
             redrawCanvas();
             resolve();
         };
-        image.onerror = () => resolve();
-        image.src = floor.texture.imageSrc;
+        image.onerror = () => {
+            floor.texture.pattern = null;
+            resolve();
+        };
     });
 }
 
@@ -3323,9 +3364,7 @@ function hydrateFurnitureObjects(list = objects) {
         }
 
         if (!obj.imageElement && obj.imageUrl) {
-            const img = new Image();
-            img.src = obj.imageUrl;
-            obj.imageElement = img;
+            obj.imageElement = ensureSafeImageElement(obj.imageElement, obj.imageUrl);
         }
     });
 }
@@ -3756,8 +3795,8 @@ function hydrateBackgroundLayerState(layerId, payload = {}) {
     state.backgroundImageData = null;
 
     if (payload.background?.src) {
-        const img = new Image();
-        img.onload = () => {
+        const img = ensureSafeImageElement(null, payload.background.src);
+        const finalizeBackground = () => {
             state.backgroundImageData = {
                 image: img,
                 x: payload.background.x,
@@ -3772,7 +3811,12 @@ function hydrateBackgroundLayerState(layerId, payload = {}) {
                 redrawCanvas();
             }
         };
-        img.src = payload.background.src;
+
+        if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+            finalizeBackground();
+        } else {
+            img.onload = finalizeBackground;
+        }
     }
 }
 
@@ -9015,25 +9059,31 @@ function drawFurnitureGraphic(obj, localX, localY, width, height) {
     const asset = obj.assetId && typeof getFurnitureAssetById === 'function'
         ? getFurnitureAssetById(obj.assetId)
         : null;
-    const img = obj.imageElement
-        || (asset && typeof ensureFurnitureAssetImage === 'function'
-            ? ensureFurnitureAssetImage(asset)
-            : null)
-        || (() => {
-            if (!obj.imageUrl) return null;
-            const element = new Image();
-            element.src = obj.imageUrl;
-            obj.imageElement = element;
-            return element;
-        })();
+    const sourceUrl = obj.imageUrl || asset?.url || obj.imageElement?.src || null;
+    let img = sourceUrl ? ensureSafeImageElement(obj.imageElement, sourceUrl) : obj.imageElement;
 
-    if (img && img.complete) {
+    if (!img && asset && typeof ensureFurnitureAssetImage === 'function') {
+        img = ensureFurnitureAssetImage(asset);
+        obj.imageElement = img;
+        obj.imageUrl = obj.imageUrl || asset.url;
+    }
+
+    if (!img && obj.imageUrl) {
+        img = ensureSafeImageElement(null, obj.imageUrl);
+        obj.imageElement = img;
+    }
+
+    if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
         ctx.drawImage(img, localX, localY, width, height);
         return;
     }
 
     if (img && !img.complete) {
         img.onload = () => redrawCanvas();
+        img.onerror = () => {
+            obj.imageElement = null;
+            redrawCanvas();
+        };
     }
 
     ctx.fillRect(localX, localY, width, height);
