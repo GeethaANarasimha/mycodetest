@@ -95,7 +95,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
         }
 
         planTo3DCoords(point) {
-            return { x: point.x, z: -point.y };
+            return { x: point.x, z: point.y };
         }
 
         createNodeClusters(walls, nodes) {
