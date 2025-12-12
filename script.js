@@ -5083,10 +5083,7 @@ function init() {
                 updateToolInfo();
             },
             onAdd: (asset) => {
-                currentTool = 'furniture';
-                toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'furniture'));
-                addFurnitureToGrid(asset);
-                updateToolInfo();
+                addFurnitureToGrid(asset, { switchToSelectTool: true });
             }
         });
     }
@@ -6891,7 +6888,8 @@ function getFurniturePlacementPoint() {
     return screenToWorld(screenX, screenY);
 }
 
-function addFurnitureToGrid(asset) {
+function addFurnitureToGrid(asset, options = {}) {
+    const { switchToSelectTool = false } = options;
     const targetAsset = asset || (typeof getActiveFurnitureAsset === 'function' ? getActiveFurnitureAsset() : null);
     if (!targetAsset) return;
 
@@ -6928,7 +6926,14 @@ function addFurnitureToGrid(asset) {
 
     objects.push(newObj);
     selectedObjectIndices = new Set([objects.length - 1]);
+
+    if (switchToSelectTool) {
+        currentTool = 'select';
+        toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'select'));
+    }
+
     redrawCanvas();
+    updateToolInfo();
 }
 
 function getStairSettings(obj = {}) {
