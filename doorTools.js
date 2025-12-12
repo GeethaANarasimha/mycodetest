@@ -89,20 +89,36 @@ function sizeDoorToWall(door, snapTarget, defaultScale = 20) {
     const thickness = getWallThicknessForDoor(snapTarget.wall, defaultScale);
     const lengthPx = getDoorLengthPx(door, defaultScale);
 
+    const { n1, n2, projection } = snapTarget;
+
     door.orientation = snapTarget.orientation;
     door.attachedWallId = snapTarget.wall.id;
     door.lengthPx = lengthPx;
 
+    // Keep the door centered on the wall segment so it doesn't hang past the ends,
+    // especially when the frame is vertical and close to a corner.
+    let centerX = projection?.x ?? (door.x + door.width / 2);
+    let centerY = projection?.y ?? (door.y + door.height / 2);
+
+    if (n1 && n2 && projection && typeof projection.t === 'number') {
+        const wallLength = Math.hypot(n2.x - n1.x, n2.y - n1.y) || 1;
+        const halfDoorLength = lengthPx / 2;
+        const normalizedHalf = Math.min(0.5, halfDoorLength / wallLength);
+        const clampedT = Math.min(1 - normalizedHalf, Math.max(normalizedHalf, projection.t));
+        centerX = n1.x + (n2.x - n1.x) * clampedT;
+        centerY = n1.y + (n2.y - n1.y) * clampedT;
+    }
+
     if (door.orientation === 'horizontal') {
         door.width = lengthPx;
         door.height = thickness;
-        door.x = snapTarget.projection.x - door.width / 2;
-        door.y = snapTarget.projection.y - door.height / 2;
+        door.x = centerX - door.width / 2;
+        door.y = centerY - door.height / 2;
     } else {
         door.width = thickness;
         door.height = lengthPx;
-        door.x = snapTarget.projection.x - door.width / 2;
-        door.y = snapTarget.projection.y - door.height / 2;
+        door.x = centerX - door.width / 2;
+        door.y = centerY - door.height / 2;
     }
 }
 
