@@ -153,6 +153,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
         buildWalls(walls, nodes, objects = []) {
             const group = new THREE.Group();
             const doorObjects = objects.filter(obj => obj.type === 'door');
+            const windowObjects = objects.filter(obj => obj.type === 'window');
             walls.forEach(wall => {
                 const start = nodes.find(n => n.id === wall.startNodeId);
                 const end = nodes.find(n => n.id === wall.endNodeId);
@@ -164,8 +165,10 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const thickness = wall.thicknessPx || (scale * 0.5);
 
                 const wallDir = new THREE.Vector2(dx, dy).normalize();
-                const openings = this.getDoorOpeningsForWall(start, wallDir, length, thickness, doorObjects);
-                const segments = this.buildWallSegments(openings, length);
+                const doorOpenings = this.getDoorOpeningsForWall(start, wallDir, length, thickness, doorObjects);
+                const windowOpenings = this.getWindowOpeningsForWall(start, wallDir, length, thickness, windowObjects);
+                const allOpenings = [...doorOpenings, ...windowOpenings];
+                const bands = this.buildWallBands(allOpenings, length, wallHeightPx);
 
                 const material = new THREE.MeshStandardMaterial({
                     color: new THREE.Color(wall.lineColor || '#1f2937'),
@@ -173,40 +176,28 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     roughness: 0.65
                 });
 
-                segments.forEach(segment => {
-                    const geometry = new THREE.BoxGeometry(segment.length, wallHeightPx, thickness);
-                    const mesh = new THREE.Mesh(geometry, material);
-                    mesh.castShadow = true;
-                    mesh.receiveShadow = true;
+                bands.forEach(band => {
+                    band.segments.forEach(segment => {
+                        const height = band.height;
+                        if (height <= 0) return;
 
-                    const centerOffset = wallDir.clone().multiplyScalar(segment.start + (segment.length / 2));
-                    mesh.position.set(
-                        start.x + centerOffset.x,
-                        wallHeightPx / 2,
-                        start.y + centerOffset.y
-                    );
-                    mesh.rotation.y = Math.atan2(dy, dx);
-                    group.add(mesh);
-                });
+                        const geometry = new THREE.BoxGeometry(segment.length, height, thickness);
+                        const mesh = new THREE.Mesh(geometry, material);
+                        mesh.castShadow = true;
+                        mesh.receiveShadow = true;
 
-                openings.forEach(opening => {
-                    const topHeight = Math.max(0, wallHeightPx - doorHeightPx);
-                    if (topHeight > 0) {
-                        const lintelGeometry = new THREE.BoxGeometry(opening.gapLength, topHeight, thickness);
-                        const lintelMesh = new THREE.Mesh(lintelGeometry, material);
-                        lintelMesh.castShadow = true;
-                        lintelMesh.receiveShadow = true;
-
-                        const centerOffset = wallDir.clone().multiplyScalar(opening.along);
-                        lintelMesh.position.set(
+                        const centerOffset = wallDir.clone().multiplyScalar(segment.start + (segment.length / 2));
+                        mesh.position.set(
                             start.x + centerOffset.x,
-                            doorHeightPx + (topHeight / 2),
+                            band.start + (height / 2),
                             start.y + centerOffset.y
                         );
-                        lintelMesh.rotation.y = Math.atan2(dy, dx);
-                        group.add(lintelMesh);
-                    }
+                        mesh.rotation.y = Math.atan2(dy, dx);
+                        group.add(mesh);
+                    });
+                });
 
+                doorOpenings.forEach(opening => {
                     const frame = this.createDoorFrame(opening, start, wallDir, thickness, dy, dx);
                     if (frame) {
                         group.add(frame);
@@ -253,7 +244,9 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     gapLength,
                     along,
                     frameWidth,
-                    thickness: doorThickness || wallThickness
+                    thickness: doorThickness || wallThickness,
+                    heightStart: 0,
+                    heightEnd: doorHeightPx
                 });
             });
             return openings;
@@ -276,6 +269,81 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 segments.push({ start: cursor, length: totalLength - cursor });
             }
             return segments;
+        }
+
+        buildWallBands(openings, totalLength, wallHeight) {
+            const normalized = openings
+                .map(opening => ({
+                    ...opening,
+                    heightStart: Math.max(0, Math.min(opening.heightStart ?? 0, wallHeight)),
+                    heightEnd: Math.max(0, Math.min(opening.heightEnd ?? wallHeight, wallHeight))
+                }))
+                .filter(opening => opening.heightEnd > opening.heightStart);
+
+            const breakpoints = new Set([0, wallHeight]);
+            normalized.forEach(opening => {
+                breakpoints.add(opening.heightStart);
+                breakpoints.add(opening.heightEnd);
+            });
+
+            const sortedHeights = Array.from(breakpoints).sort((a, b) => a - b);
+            const bands = [];
+            for (let i = 0; i < sortedHeights.length - 1; i++) {
+                const bandStart = sortedHeights[i];
+                const bandEnd = sortedHeights[i + 1];
+                const bandHeight = bandEnd - bandStart;
+                if (bandHeight <= 0) continue;
+
+                const applicableOpenings = normalized.filter(opening =>
+                    opening.heightStart < bandEnd && opening.heightEnd > bandStart
+                );
+
+                const segments = this.buildWallSegments(applicableOpenings, totalLength);
+                if (segments.length) {
+                    bands.push({ start: bandStart, end: bandEnd, height: bandHeight, segments });
+                }
+            }
+
+            return bands;
+        }
+
+        getWindowOpeningsForWall(start, wallDir, wallLength, wallThickness, windowObjects) {
+            const openings = [];
+            windowObjects.forEach(obj => {
+                const { length: windowLength, thickness: windowThickness, center } = this.getLinearSize(obj);
+                const windowOrientation = (obj.orientation === 'vertical')
+                    ? new THREE.Vector2(0, 1)
+                    : new THREE.Vector2(1, 0);
+                const alignment = Math.abs(wallDir.dot(windowOrientation));
+                if (alignment < 0.9) return;
+
+                const windowCenter = new THREE.Vector2(center.x, center.z);
+                const startVec = new THREE.Vector2(start.x, start.y);
+                const rel = windowCenter.clone().sub(startVec);
+                const along = rel.dot(wallDir);
+
+                if (along + (windowLength / 2) < 0 || along - (windowLength / 2) > wallLength) return;
+
+                const perpendicular = rel.clone().sub(wallDir.clone().multiplyScalar(along));
+                if (perpendicular.length() > (wallThickness * 0.75)) return;
+
+                const frameWidth = Math.max(2, wallThickness * 0.2);
+                const clearance = Math.max(1, frameWidth * 0.15);
+                const gapLength = windowLength + (frameWidth * 2) + (clearance * 2);
+
+                openings.push({
+                    start: Math.max(0, along - (gapLength / 2)),
+                    end: Math.min(wallLength, along + (gapLength / 2)),
+                    length: windowLength,
+                    gapLength,
+                    along,
+                    frameWidth,
+                    thickness: windowThickness || wallThickness,
+                    heightStart: windowSillPx,
+                    heightEnd: windowSillPx + windowHeightPx
+                });
+            });
+            return openings;
         }
 
         getDoorFrameDimensions(wallThickness) {
