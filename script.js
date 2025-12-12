@@ -6013,30 +6013,9 @@ function startNodeDrag(node, mouseX, mouseY) {
 
     if (attachedWalls.length === 0 && !belongsToFloor) return;
 
-    // Prefer a wall that is currently selected so dragging honours the intended segment
-    const wall = attachedWalls.find(w => selectedWalls.has(w)) || attachedWalls[0];
-
-    // When a node is part of multiple walls (a joint), allow free movement so every
-    // connected wall follows the node. Restrict direction only when it belongs to a
-    // single segment to keep length adjustments easy for isolated walls.
-    const shouldRestrictDirection = attachedWalls.length === 1;
-
-    if (wall && shouldRestrictDirection) {
-        const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
-        const other = getNodeById(otherNodeId);
-
-        if (other) {
-            const dx = node.x - other.x;
-            const dy = node.y - other.y;
-            const len = Math.hypot(dx, dy) || 1;
-
-            dragDir = { x: dx / len, y: dy / len };
-        } else {
-            dragDir = null;
-        }
-    } else {
-        dragDir = null;
-    }
+    // Allow endpoints and jointed nodes to move freely so connected walls follow the drag
+    // in any direction instead of being locked to the current wall direction.
+    dragDir = null;
     dragOriginNodePos = { x: node.x, y: node.y };
     dragOriginMousePos = { x: mouseX, y: mouseY };
     selectedNode = node;
