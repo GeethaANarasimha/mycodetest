@@ -341,8 +341,15 @@ function ensureFurnitureAssetImage(asset) {
     if (!asset || !asset.url) return null;
     if (furnitureImages.has(asset.id)) return furnitureImages.get(asset.id);
 
-    const img = new Image();
-    img.src = asset.url;
+    const img = typeof createSafeImageElement === 'function'
+        ? createSafeImageElement(asset.url)
+        : (() => {
+            const image = new Image();
+            image.crossOrigin = 'anonymous';
+            image.referrerPolicy = 'no-referrer';
+            image.src = asset.url;
+            return image;
+        })();
     furnitureImages.set(asset.id, img);
     return img;
 }
