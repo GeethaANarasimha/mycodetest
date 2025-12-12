@@ -6001,7 +6001,7 @@ function getObjectAt(x, y, includeSelectionPadding = false) {
 // ============================================================
 // NODE DRAG
 // ============================================================
-function startNodeDrag(node, mouseX, mouseY) {
+function startNodeDrag(node, mouseX, mouseY, wallContext = null) {
     pushUndoState();
 
     // Find a wall that contains this node
@@ -6013,8 +6013,24 @@ function startNodeDrag(node, mouseX, mouseY) {
 
     if (attachedWalls.length === 0 && !belongsToFloor) return;
 
-    // Allow node dragging to follow the user's cursor so walls can rotate to any angle.
+    // Constrain dragging along the axis of the selected wall when it's axis-aligned (e.g., vertical only).
     dragDir = null;
+    const constrainWall = wallContext || Array.from(selectedWalls).find(w =>
+        (w.startNodeId === node.id || w.endNodeId === node.id)
+    );
+
+    if (constrainWall) {
+        const dir = getWallDirectionFromNode(constrainWall, node.id);
+        if (dir) {
+            // Snap purely vertical or horizontal directions so wall endpoints don't drift off-axis.
+            if (Math.abs(dir.x) <= 0.01 && Math.abs(dir.y) > Math.abs(dir.x)) {
+                dragDir = { x: 0, y: Math.sign(dir.y) || 1 };
+            } else if (Math.abs(dir.y) <= 0.01 && Math.abs(dir.x) > Math.abs(dir.y)) {
+                dragDir = { x: Math.sign(dir.x) || 1, y: 0 };
+            }
+        }
+    }
+
     dragOriginNodePos = { x: node.x, y: node.y };
     dragOriginMousePos = { x: mouseX, y: mouseY };
     selectedNode = node;
@@ -6715,7 +6731,7 @@ function handleMouseDown(e) {
             selectedFloorIds.clear();
             selectAllMode = false;
 
-            startNodeDrag(cornerHandle.node, x, y);
+            startNodeDrag(cornerHandle.node, x, y, cornerHandle.wall);
             selectedWalls.add(cornerHandle.wall);
             redrawCanvas();
             return;
@@ -6727,11 +6743,11 @@ function handleMouseDown(e) {
             const n2 = getNodeById(wall.endNodeId);
             
             if (n1 && Math.hypot(x - n1.x, y - n1.y) <= NODE_HIT_RADIUS) {
-                startNodeDrag(n1, x, y);
+                startNodeDrag(n1, x, y, wall);
                 return;
             }
             if (n2 && Math.hypot(x - n2.x, y - n2.y) <= NODE_HIT_RADIUS) {
-                startNodeDrag(n2, x, y);
+                startNodeDrag(n2, x, y, wall);
                 return;
             }
         }
