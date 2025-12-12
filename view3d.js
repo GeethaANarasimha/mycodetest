@@ -120,7 +120,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 shape.closePath();
 
                 const geometry = new THREE.ShapeGeometry(shape);
-                geometry.rotateX(-Math.PI / 2);
+                // Keep floor geometry aligned with 2D coordinates so it lines up with walls
+                geometry.rotateX(Math.PI / 2);
                 if (floorInset > 0) {
                     geometry.computeBoundingBox();
                     const bbox = geometry.boundingBox;
@@ -181,12 +182,21 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                         const height = band.height;
                         if (height <= 0) return;
 
-                        const geometry = new THREE.BoxGeometry(segment.length, height, thickness);
+                        const overlap = thickness * 0.5;
+                        const isAtWallStart = Math.abs(segment.start) < 1e-4;
+                        const isAtWallEnd = Math.abs((segment.start + segment.length) - length) < 1e-4;
+                        const startPad = isAtWallStart ? Math.min(overlap, segment.length * 0.5) : 0;
+                        const endPad = isAtWallEnd ? Math.min(overlap, segment.length * 0.5) : 0;
+                        const adjustedLength = segment.length + startPad + endPad;
+
+                        const geometry = new THREE.BoxGeometry(adjustedLength, height, thickness);
                         const mesh = new THREE.Mesh(geometry, material);
                         mesh.castShadow = true;
                         mesh.receiveShadow = true;
 
-                        const centerOffset = wallDir.clone().multiplyScalar(segment.start + (segment.length / 2));
+                        const centerOffset = wallDir.clone().multiplyScalar(
+                            segment.start + (segment.length / 2) + ((endPad - startPad) / 2)
+                        );
                         mesh.position.set(
                             start.x + centerOffset.x,
                             band.start + (height / 2),
