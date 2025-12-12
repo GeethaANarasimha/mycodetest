@@ -95,8 +95,9 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
         }
 
         planTo3DCoords(point) {
-            // Mirror the Y axis from the 2D plan into the 3D Z axis so angled walls
-            // keep the same orientation when viewed in 3D.
+            // Flip the plan's Y axis so screen coordinates (Y grows downward) map
+            // to 3D space without mirroring angled walls. This keeps ">" shaped
+            // runs in 2D appearing the same way in 3D rather than as "<".
             return { x: point.x, z: -point.y };
         }
 
