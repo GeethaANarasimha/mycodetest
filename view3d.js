@@ -94,6 +94,10 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             this.focusCameraOn(content);
         }
 
+        planTo3DCoords(point) {
+            return { x: point.x, z: -point.y };
+        }
+
         buildFloors(floors, nodes, walls = []) {
             const group = new THREE.Group();
             const defaultColor = new THREE.Color('#dbeafe');
@@ -112,9 +116,9 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const shape = new THREE.Shape();
                 points.forEach((point, idx) => {
                     if (idx === 0) {
-                        shape.moveTo(point.x, point.y);
+                        shape.moveTo(point.x, -point.y);
                     } else {
-                        shape.lineTo(point.x, point.y);
+                        shape.lineTo(point.x, -point.y);
                     }
                 });
                 shape.closePath();
@@ -166,9 +170,10 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const length = Math.hypot(dx, dy) || 1;
                 const thickness = wall.thicknessPx || (scale * 0.5);
 
-                const wallDir = new THREE.Vector2(dx, dy).normalize();
-                const doorOpenings = this.getDoorOpeningsForWall(start, wallDir, length, thickness, doorObjects);
-                const windowOpenings = this.getWindowOpeningsForWall(start, wallDir, length, thickness, windowObjects);
+                const wallDirPlan = new THREE.Vector2(dx, dy).normalize();
+                const wallDirWorld = new THREE.Vector2(dx, -dy).normalize();
+                const doorOpenings = this.getDoorOpeningsForWall(start, wallDirPlan, length, thickness, doorObjects);
+                const windowOpenings = this.getWindowOpeningsForWall(start, wallDirPlan, length, thickness, windowObjects);
                 const allOpenings = [...doorOpenings, ...windowOpenings];
                 const bands = this.buildWallBands(allOpenings, length, wallHeightPx);
 
@@ -204,21 +209,22 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                         mesh.castShadow = true;
                         mesh.receiveShadow = true;
 
-                        const centerOffset = wallDir.clone().multiplyScalar(
+                        const centerOffset = wallDirWorld.clone().multiplyScalar(
                             segment.start + (segment.length / 2) + ((endPad - startPad) / 2)
                         );
+                        const start3D = this.planTo3DCoords(start);
                         mesh.position.set(
-                            start.x + centerOffset.x,
+                            start3D.x + centerOffset.x,
                             band.start + (height / 2),
-                            start.y + centerOffset.y
+                            start3D.z + centerOffset.y
                         );
-                        mesh.rotation.y = Math.atan2(dy, dx);
+                        mesh.rotation.y = Math.atan2(wallDirWorld.y, wallDirWorld.x);
                         group.add(mesh);
                     });
                 });
 
                 doorOpenings.forEach(opening => {
-                    const frame = this.createDoorFrame(opening, start, wallDir, thickness, dy, dx);
+                    const frame = this.createDoorFrame(opening, start, wallDirWorld, thickness);
                     if (frame) {
                         group.add(frame);
                     }
@@ -239,7 +245,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     roughness: 0.65
                 });
                 const connector = new THREE.Mesh(geometry, material);
-                connector.position.set(node.x, connectorHeight / 2, node.y);
+                const node3D = this.planTo3DCoords(node);
+                connector.position.set(node3D.x, connectorHeight / 2, node3D.z);
                 connector.castShadow = true;
                 connector.receiveShadow = true;
                 group.add(connector);
@@ -262,7 +269,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const alignment = Math.abs(wallDir.dot(doorOrientation));
                 if (alignment < 0.9) return;
 
-                const doorCenter = new THREE.Vector2(center.x, center.z);
+                const doorCenter = new THREE.Vector2(center.x, center.y);
                 const startVec = new THREE.Vector2(start.x, start.y);
                 const rel = doorCenter.clone().sub(startVec);
                 const along = rel.dot(wallDir);
@@ -357,7 +364,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const alignment = Math.abs(wallDir.dot(windowOrientation));
                 if (alignment < 0.9) return;
 
-                const windowCenter = new THREE.Vector2(center.x, center.z);
+                const windowCenter = new THREE.Vector2(center.x, center.y);
                 const startVec = new THREE.Vector2(start.x, start.y);
                 const rel = windowCenter.clone().sub(startVec);
                 const along = rel.dot(wallDir);
@@ -474,7 +481,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             return group;
         }
 
-        createDoorFrame(opening, wallStart, wallDir, wallThickness, dy, dx) {
+        createDoorFrame(opening, wallStart, wallDir, wallThickness) {
             const frameGroup = new THREE.Group();
             const { frameDepth, frameWidth } = this.getDoorFrameDimensions(wallThickness);
 
@@ -505,12 +512,13 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
             const alongOffset = wallDir.clone().multiplyScalar(opening.along);
             const normalOffset = new THREE.Vector2(-wallDir.y, wallDir.x).multiplyScalar(0);
+            const start3D = this.planTo3DCoords(wallStart);
             frameGroup.position.set(
-                wallStart.x + alongOffset.x + normalOffset.x,
+                start3D.x + alongOffset.x + normalOffset.x,
                 0,
-                wallStart.y + alongOffset.y + normalOffset.y
+                start3D.z + alongOffset.y + normalOffset.y
             );
-            frameGroup.rotation.y = Math.atan2(dy, dx);
+            frameGroup.rotation.y = Math.atan2(wallDir.y, wallDir.x);
 
             return frameGroup;
         }
@@ -523,7 +531,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     const { length, thickness, center } = this.getLinearSize(obj);
                     const panelCount = this.getWindowPanelCount(length);
                     const windowAssembly = this.createFrenchWindow(length, Math.max(thickness, 8), panelCount);
-                    windowAssembly.position.set(center.x, windowSillPx + (windowHeightPx / 2), center.z);
+                    const center3D = this.planTo3DCoords(center);
+                    windowAssembly.position.set(center3D.x, windowSillPx + (windowHeightPx / 2), center3D.z);
                     const fallbackRotation = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
                     windowAssembly.rotation.y = obj.attachedWallAngle ?? obj.rotation ?? fallbackRotation;
                     group.add(windowAssembly);
@@ -536,7 +545,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const thickness = obj.height || (scale * 0.5);
             const center = {
                 x: obj.x + (obj.width || length) / 2,
-                z: obj.y + (obj.height || thickness) / 2
+                y: obj.y + (obj.height || thickness) / 2
             };
             return { length, thickness, center };
         }
