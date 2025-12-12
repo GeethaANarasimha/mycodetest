@@ -94,6 +94,67 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             this.focusCameraOn(content);
         }
 
+        planTo3DCoords(point) {
+            return { x: point.x, z: -point.y };
+        }
+
+        createNodeClusters(walls, nodes) {
+            const tolerance = Math.max(0.5, (typeof scale === 'number' ? scale : 20) * 0.05);
+            const toleranceSq = tolerance * tolerance;
+            const clusters = [];
+
+            const includePoint = (point) => {
+                if (!point) return;
+                let found = null;
+                for (const cluster of clusters) {
+                    const dx = cluster.x - point.x;
+                    const dy = cluster.y - point.y;
+                    const distSq = (dx * dx) + (dy * dy);
+                    if (distSq <= toleranceSq) {
+                        found = cluster;
+                        break;
+                    }
+                }
+
+                if (found) {
+                    found.count += 1;
+                    found.x = (found.x * (found.count - 1) + point.x) / found.count;
+                    found.y = (found.y * (found.count - 1) + point.y) / found.count;
+                } else {
+                    clusters.push({ x: point.x, y: point.y, count: 1 });
+                }
+            };
+
+            walls.forEach(wall => {
+                const start = nodes.find(n => n.id === wall.startNodeId);
+                const end = nodes.find(n => n.id === wall.endNodeId);
+                includePoint(start);
+                includePoint(end);
+            });
+
+            const snapPoint = (point) => {
+                if (!point) return null;
+                let best = null;
+                let bestDistSq = Infinity;
+                clusters.forEach(cluster => {
+                    const dx = cluster.x - point.x;
+                    const dy = cluster.y - point.y;
+                    const distSq = (dx * dx) + (dy * dy);
+                    if (distSq < bestDistSq) {
+                        best = cluster;
+                        bestDistSq = distSq;
+                    }
+                });
+                if (!best) return point;
+                if (bestDistSq <= toleranceSq) {
+                    return { x: best.x, y: best.y };
+                }
+                return point;
+            };
+
+            return { clusters, snapPoint };
+        }
+
         buildFloors(floors, nodes, walls = []) {
             const group = new THREE.Group();
             const defaultColor = new THREE.Color('#dbeafe');
@@ -112,15 +173,16 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const shape = new THREE.Shape();
                 points.forEach((point, idx) => {
                     if (idx === 0) {
-                        shape.moveTo(point.x, point.y);
+                        shape.moveTo(point.x, -point.y);
                     } else {
-                        shape.lineTo(point.x, point.y);
+                        shape.lineTo(point.x, -point.y);
                     }
                 });
                 shape.closePath();
 
                 const geometry = new THREE.ShapeGeometry(shape);
-                geometry.rotateX(-Math.PI / 2);
+                // Keep floor geometry aligned with 2D coordinates so it lines up with walls
+                geometry.rotateX(Math.PI / 2);
                 if (floorInset > 0) {
                     geometry.computeBoundingBox();
                     const bbox = geometry.boundingBox;
@@ -154,19 +216,34 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const group = new THREE.Group();
             const doorObjects = objects.filter(obj => obj.type === 'door');
             const windowObjects = objects.filter(obj => obj.type === 'window');
+            const nodeUsage = new Map();
+            const nodeKey = (point) => `${point.x.toFixed(3)}|${point.y.toFixed(3)}`;
+            const { clusters, snapPoint } = this.createNodeClusters(walls, nodes);
             walls.forEach(wall => {
-                const start = nodes.find(n => n.id === wall.startNodeId);
-                const end = nodes.find(n => n.id === wall.endNodeId);
+                const rawStart = nodes.find(n => n.id === wall.startNodeId);
+                const rawEnd = nodes.find(n => n.id === wall.endNodeId);
+                const start = snapPoint(rawStart);
+                const end = snapPoint(rawEnd);
                 if (!start || !end) return;
 
                 const dx = end.x - start.x;
                 const dy = end.y - start.y;
-                const length = Math.hypot(dx, dy) || 1;
+                const start3D = this.planTo3DCoords(start);
+                const end3D = this.planTo3DCoords(end);
+
+                // Use the transformed 3D direction so rotations match the rendered layout
+                // even when the 2D plan axes are mirrored in 3D space.
+                const wallDirWorld = new THREE.Vector2(
+                    end3D.x - start3D.x,
+                    end3D.z - start3D.z
+                ).normalize();
+
+                const length = Math.hypot(end3D.x - start3D.x, end3D.z - start3D.z) || 1;
                 const thickness = wall.thicknessPx || (scale * 0.5);
 
-                const wallDir = new THREE.Vector2(dx, dy).normalize();
-                const doorOpenings = this.getDoorOpeningsForWall(start, wallDir, length, thickness, doorObjects);
-                const windowOpenings = this.getWindowOpeningsForWall(start, wallDir, length, thickness, windowObjects);
+                const wallDirPlan = new THREE.Vector2(dx, dy).normalize();
+                const doorOpenings = this.getDoorOpeningsForWall(start, wallDirPlan, length, thickness, doorObjects);
+                const windowOpenings = this.getWindowOpeningsForWall(start, wallDirPlan, length, thickness, windowObjects);
                 const allOpenings = [...doorOpenings, ...windowOpenings];
                 const bands = this.buildWallBands(allOpenings, length, wallHeightPx);
 
@@ -176,34 +253,75 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     roughness: 0.65
                 });
 
+                const thicknessAtNode = {
+                    thickness,
+                    height: wallHeightPx
+                };
+                [start, end].forEach(nodePoint => {
+                    const key = nodeKey(nodePoint);
+                    if (!nodeUsage.has(key)) {
+                        nodeUsage.set(key, { point: nodePoint, segments: [] });
+                    }
+                    nodeUsage.get(key).segments.push(thicknessAtNode);
+                });
+
                 bands.forEach(band => {
                     band.segments.forEach(segment => {
                         const height = band.height;
                         if (height <= 0) return;
 
-                        const geometry = new THREE.BoxGeometry(segment.length, height, thickness);
+                        const overlap = thickness * 0.5;
+                        const isAtWallStart = Math.abs(segment.start) < 1e-4;
+                        const isAtWallEnd = Math.abs((segment.start + segment.length) - length) < 1e-4;
+                        const startPad = isAtWallStart ? Math.min(overlap, segment.length * 0.5) : 0;
+                        const endPad = isAtWallEnd ? Math.min(overlap, segment.length * 0.5) : 0;
+                        const adjustedLength = segment.length + startPad + endPad;
+
+                        const geometry = new THREE.BoxGeometry(adjustedLength, height, thickness);
                         const mesh = new THREE.Mesh(geometry, material);
                         mesh.castShadow = true;
                         mesh.receiveShadow = true;
 
-                        const centerOffset = wallDir.clone().multiplyScalar(segment.start + (segment.length / 2));
-                        mesh.position.set(
-                            start.x + centerOffset.x,
-                            band.start + (height / 2),
-                            start.y + centerOffset.y
+                        const centerOffset = wallDirWorld.clone().multiplyScalar(
+                            segment.start + (segment.length / 2) + ((endPad - startPad) / 2)
                         );
-                        mesh.rotation.y = Math.atan2(dy, dx);
+                        mesh.position.set(
+                            start3D.x + centerOffset.x,
+                            band.start + (height / 2),
+                            start3D.z + centerOffset.y
+                        );
+                        mesh.rotation.y = Math.atan2(wallDirWorld.y, wallDirWorld.x);
                         group.add(mesh);
                     });
                 });
 
                 doorOpenings.forEach(opening => {
-                    const frame = this.createDoorFrame(opening, start, wallDir, thickness, dy, dx);
+                    const frame = this.createDoorFrame(opening, start, wallDirWorld, thickness);
                     if (frame) {
                         group.add(frame);
                     }
                 });
             });
+
+            // Add solid connectors at shared nodes to visually merge adjacent wall segments.
+            nodeUsage.forEach(({ point, segments }) => {
+                if (!Array.isArray(segments) || !segments.length || !point) return;
+                const connectorThickness = Math.max(...segments.map(s => s.thickness));
+                const connectorHeight = Math.max(...segments.map(s => s.height));
+                const geometry = new THREE.BoxGeometry(connectorThickness, connectorHeight, connectorThickness);
+                const material = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color('#1f2937'),
+                    metalness: 0.1,
+                    roughness: 0.65
+                });
+                const connector = new THREE.Mesh(geometry, material);
+                const node3D = this.planTo3DCoords(point);
+                connector.position.set(node3D.x, connectorHeight / 2, node3D.z);
+                connector.castShadow = true;
+                connector.receiveShadow = true;
+                group.add(connector);
+            });
+
             return group;
         }
 
@@ -222,7 +340,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const alignment = Math.abs(wallDir.dot(doorOrientation));
                 if (alignment < 0.9) return;
 
-                const doorCenter = new THREE.Vector2(center.x, center.z);
+                const doorCenter = new THREE.Vector2(center.x, center.y);
                 const startVec = new THREE.Vector2(start.x, start.y);
                 const rel = doorCenter.clone().sub(startVec);
                 const along = rel.dot(wallDir);
@@ -317,7 +435,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const alignment = Math.abs(wallDir.dot(windowOrientation));
                 if (alignment < 0.9) return;
 
-                const windowCenter = new THREE.Vector2(center.x, center.z);
+                const windowCenter = new THREE.Vector2(center.x, center.y);
                 const startVec = new THREE.Vector2(start.x, start.y);
                 const rel = windowCenter.clone().sub(startVec);
                 const along = rel.dot(wallDir);
@@ -434,7 +552,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             return group;
         }
 
-        createDoorFrame(opening, wallStart, wallDir, wallThickness, dy, dx) {
+        createDoorFrame(opening, wallStart, wallDir, wallThickness) {
             const frameGroup = new THREE.Group();
             const { frameDepth, frameWidth } = this.getDoorFrameDimensions(wallThickness);
 
@@ -465,12 +583,13 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
             const alongOffset = wallDir.clone().multiplyScalar(opening.along);
             const normalOffset = new THREE.Vector2(-wallDir.y, wallDir.x).multiplyScalar(0);
+            const start3D = this.planTo3DCoords(wallStart);
             frameGroup.position.set(
-                wallStart.x + alongOffset.x + normalOffset.x,
+                start3D.x + alongOffset.x + normalOffset.x,
                 0,
-                wallStart.y + alongOffset.y + normalOffset.y
+                start3D.z + alongOffset.y + normalOffset.y
             );
-            frameGroup.rotation.y = Math.atan2(dy, dx);
+            frameGroup.rotation.y = Math.atan2(wallDir.y, wallDir.x);
 
             return frameGroup;
         }
@@ -483,7 +602,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     const { length, thickness, center } = this.getLinearSize(obj);
                     const panelCount = this.getWindowPanelCount(length);
                     const windowAssembly = this.createFrenchWindow(length, Math.max(thickness, 8), panelCount);
-                    windowAssembly.position.set(center.x, windowSillPx + (windowHeightPx / 2), center.z);
+                    const center3D = this.planTo3DCoords(center);
+                    windowAssembly.position.set(center3D.x, windowSillPx + (windowHeightPx / 2), center3D.z);
                     const fallbackRotation = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
                     windowAssembly.rotation.y = obj.attachedWallAngle ?? obj.rotation ?? fallbackRotation;
                     group.add(windowAssembly);
@@ -496,7 +616,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const thickness = obj.height || (scale * 0.5);
             const center = {
                 x: obj.x + (obj.width || length) / 2,
-                z: obj.y + (obj.height || thickness) / 2
+                y: obj.y + (obj.height || thickness) / 2
             };
             return { length, thickness, center };
         }
