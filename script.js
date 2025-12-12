@@ -81,6 +81,7 @@ const pdfMobileNumberInput = document.getElementById('pdfMobileNumber');
 const pdfClientNameInput = document.getElementById('pdfClientName');
 const pdfClientAddressInput = document.getElementById('pdfClientAddress');
 const pdfClientMobileInput = document.getElementById('pdfClientMobile');
+const pdfTitleLineInput = document.getElementById('pdfTitleLine');
 const pdfHeaderInput = document.getElementById('pdfHeader');
 const pdfFooterInput = document.getElementById('pdfFooter');
 const pdfFormatSelect = document.getElementById('pdfFormat');
@@ -4059,6 +4060,7 @@ async function downloadPlanAsPDF(options = {}) {
         clientName = '',
         clientAddress = '',
         clientMobile = '',
+        presentationTitle = '',
         headerText = '',
         footerText = '',
         pageFormat = 'a4',
@@ -4095,6 +4097,10 @@ async function downloadPlanAsPDF(options = {}) {
     const textFontSize = 10;
     const infoLineHeight = 12;
     const padding = 20;
+    const exportScale = 2;
+    const titleFontSize = 14;
+    const titleBarHeight = presentationTitle ? 28 : 0;
+    const titleSpacing = presentationTitle ? 6 : 0;
 
     try {
         captureLayerSnapshot(activeLayerBeforeExport);
@@ -4110,15 +4116,17 @@ async function downloadPlanAsPDF(options = {}) {
             const bounds = getContentBounds();
             const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
             const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
+            const scaledExportWidth = exportWidth * exportScale;
+            const scaledExportHeight = exportHeight * exportScale;
 
-            canvas.width = exportWidth;
-            canvas.height = exportHeight;
-            canvas.style.width = `${exportWidth}px`;
-            canvas.style.height = `${exportHeight}px`;
+            canvas.width = scaledExportWidth;
+            canvas.height = scaledExportHeight;
+            canvas.style.width = `${scaledExportWidth}px`;
+            canvas.style.height = `${scaledExportHeight}px`;
 
-            viewScale = 1;
-            viewOffsetX = padding - bounds.minX;
-            viewOffsetY = padding - bounds.minY;
+            viewScale = exportScale;
+            viewOffsetX = (padding - bounds.minX) * exportScale;
+            viewOffsetY = (padding - bounds.minY) * exportScale;
 
             redrawCanvas();
 
@@ -4142,17 +4150,33 @@ async function downloadPlanAsPDF(options = {}) {
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
             const availableWidth = pageWidth - margins.left - margins.right;
-            const availableHeight = pageHeight - margins.top - margins.bottom;
+            const availableHeight = Math.max(1, pageHeight - margins.top - margins.bottom - titleBarHeight - titleSpacing);
             const scaleFactor = Math.min(availableWidth / exportWidth, availableHeight / exportHeight, 1);
             const renderWidth = exportWidth * scaleFactor;
             const renderHeight = exportHeight * scaleFactor;
             const imageX = margins.left + (availableWidth - renderWidth) / 2;
-            const imageY = margins.top;
+            const imageY = margins.top + titleBarHeight + titleSpacing;
 
             // Use lossless compression to preserve maximum quality in the generated PDF.
             pdf.addImage(dataUrl, 'PNG', imageX, imageY, renderWidth, renderHeight, undefined, 'NONE');
 
             pdf.setFontSize(textFontSize);
+
+            if (presentationTitle) {
+                const barX = margins.left;
+                const barWidth = pageWidth - margins.left - margins.right;
+                const barY = margins.top;
+
+                pdf.setFillColor(244, 248, 255);
+                pdf.rect(barX, barY, barWidth, titleBarHeight, 'F');
+                pdf.setTextColor(33, 37, 41);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(titleFontSize);
+                pdf.text(presentationTitle, pageWidth / 2, barY + titleBarHeight / 2 + titleFontSize / 3, { align: 'center' });
+                pdf.setTextColor(0, 0, 0);
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(textFontSize);
+            }
 
             if (headerText) {
                 pdf.text(headerText, pageWidth / 2, margins.top / 2, { align: 'center' });
@@ -10655,6 +10679,7 @@ function submitPdfOptions() {
         clientName: pdfClientNameInput?.value?.trim() || '',
         clientAddress: pdfClientAddressInput?.value?.trim() || '',
         clientMobile: pdfClientMobileInput?.value?.trim() || '',
+        presentationTitle: pdfTitleLineInput?.value?.trim() || '',
         headerText: pdfHeaderInput?.value?.trim() || '',
         footerText: pdfFooterInput?.value?.trim() || '',
         pageFormat: pdfFormatSelect?.value || 'a4',
