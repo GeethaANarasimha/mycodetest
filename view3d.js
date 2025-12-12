@@ -95,7 +95,9 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
         }
 
         planTo3DCoords(point) {
-            return { x: point.x, z: point.y };
+            // Mirror the Y axis from the 2D plan into the 3D Z axis so angled walls
+            // keep the same orientation when viewed in 3D.
+            return { x: point.x, z: -point.y };
         }
 
         createNodeClusters(walls, nodes) {
@@ -166,16 +168,17 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             floors.forEach(floor => {
                 const points = (floor.nodeIds || [])
                     .map(id => nodes.find(n => n.id === id))
-                    .filter(Boolean);
+                    .filter(Boolean)
+                    .map(point => this.planTo3DCoords(point));
 
                 if (points.length < 3) return;
 
                 const shape = new THREE.Shape();
                 points.forEach((point, idx) => {
                     if (idx === 0) {
-                        shape.moveTo(point.x, -point.y);
+                        shape.moveTo(point.x, point.z);
                     } else {
-                        shape.lineTo(point.x, -point.y);
+                        shape.lineTo(point.x, point.z);
                     }
                 });
                 shape.closePath();
