@@ -173,9 +173,9 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 const shape = new THREE.Shape();
                 points.forEach((point, idx) => {
                     if (idx === 0) {
-                        shape.moveTo(point.x, point.y);
+                        shape.moveTo(point.x, -point.y);
                     } else {
-                        shape.lineTo(point.x, point.y);
+                        shape.lineTo(point.x, -point.y);
                     }
                 });
                 shape.closePath();
