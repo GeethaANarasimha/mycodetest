@@ -6013,27 +6013,8 @@ function startNodeDrag(node, mouseX, mouseY) {
 
     if (attachedWalls.length === 0 && !belongsToFloor) return;
 
-    // If the selected wall is vertical, lock dragging to the vertical axis so its endpoints
-    // only move up/down; otherwise allow free dragging so connected walls follow naturally.
-    const wall = attachedWalls.find(w => selectedWalls.has(w)) || attachedWalls[0];
-    if (wall) {
-        const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
-        const other = getNodeById(otherNodeId);
-
-        if (other) {
-            const dx = node.x - other.x;
-            const dy = node.y - other.y;
-            const len = Math.hypot(dx, dy) || 1;
-            const dirX = dx / len;
-
-            // Lock vertical walls strictly to the Y axis; otherwise allow free drag.
-            dragDir = Math.abs(dirX) < 1e-3 ? { x: 0, y: Math.sign(dy) || 1 } : null;
-        } else {
-            dragDir = null;
-        }
-    } else {
-        dragDir = null;
-    }
+    // Allow node dragging to follow the user's cursor so walls can rotate to any angle.
+    dragDir = null;
     dragOriginNodePos = { x: node.x, y: node.y };
     dragOriginMousePos = { x: mouseX, y: mouseY };
     selectedNode = node;
