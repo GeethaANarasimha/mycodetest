@@ -480,19 +480,19 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     const panelCount = this.getWindowPanelCount(length);
                     const windowAssembly = this.createFrenchWindow(length, Math.max(thickness, 8), panelCount);
                     windowAssembly.position.set(center.x, windowSillPx + (windowHeightPx / 2), center.z);
-                    windowAssembly.rotation.y = obj.rotation || (obj.orientation === 'vertical' ? Math.PI / 2 : 0);
+                    const fallbackRotation = obj.orientation === 'vertical' ? Math.PI / 2 : 0;
+                    windowAssembly.rotation.y = obj.attachedWallAngle ?? obj.rotation ?? fallbackRotation;
                     group.add(windowAssembly);
                 });
             return group;
         }
 
         getLinearSize(obj) {
-            const horizontal = obj.orientation !== 'vertical';
-            const length = horizontal ? obj.width || obj.lengthPx || (scale * 3) : obj.height || obj.lengthPx || (scale * 3);
-            const thickness = horizontal ? obj.height || (scale * 0.5) : obj.width || (scale * 0.5);
+            const length = obj.lengthPx || obj.width || obj.height || (scale * 3);
+            const thickness = obj.height || (scale * 0.5);
             const center = {
-                x: obj.x + (horizontal ? length / 2 : thickness / 2),
-                z: obj.y + (horizontal ? thickness / 2 : length / 2)
+                x: obj.x + (obj.width || length) / 2,
+                z: obj.y + (obj.height || thickness) / 2
             };
             return { length, thickness, center };
         }
