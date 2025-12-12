@@ -355,10 +355,14 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
         getWindowPanelCount(lengthPx) {
             const pxPerFoot = typeof scale === 'number' ? scale : 20;
             const totalInches = (lengthPx / pxPerFoot) * 12;
-            if (totalInches >= 50) {
-                return 3; // e.g., 4'6" French window
-            }
-            return 2; // 3' window defaults to a two-part style
+            const targetPanelInches = 18; // 1'6" default panel width
+
+            // Aim for 1'6" panels, but if the final remainder is smaller than
+            // a full panel, redistribute it across all panels to keep widths equal.
+            const approximatePanels = totalInches / targetPanelInches;
+            const panelCount = Math.max(1, Math.round(approximatePanels));
+
+            return panelCount;
         }
 
         createFrenchWindow(length, thickness, panelCount = 2) {
