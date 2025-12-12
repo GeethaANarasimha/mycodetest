@@ -102,17 +102,8 @@ function sizeWindowToWall(windowObj, snapTarget, defaultScale = 20) {
         centerY = n1.y + (n2.y - n1.y) * clampedT;
     }
 
-    if (windowObj.orientation === 'horizontal') {
-        windowObj.width = lengthPx;
-        windowObj.height = depthPx;
-    } else {
-        // For vertical walls, rotate the window footprint so the depth runs across
-        // the wall thickness and the length follows the wall direction without
-        // leaving side gaps.
-        windowObj.width = depthPx;
-        windowObj.height = lengthPx;
-    }
-
+    windowObj.width = lengthPx;
+    windowObj.height = depthPx;
     windowObj.x = centerX - windowObj.width / 2;
     windowObj.y = centerY - windowObj.height / 2;
 }
