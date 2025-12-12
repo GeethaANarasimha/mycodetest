@@ -8992,9 +8992,11 @@ function drawDoorGraphic(obj, localX, localY, drawWidth, drawHeight) {
 
 function getObjectTransformInfo(obj) {
     const isVerticalDoor = obj.type === 'door' && obj.orientation === 'vertical';
-    const drawWidth = isVerticalDoor ? obj.height : obj.width;
-    const drawHeight = isVerticalDoor ? obj.width : obj.height;
-    let orientationRotation = isVerticalDoor ? Math.PI / 2 : 0;
+    const isVerticalWindow = obj.type === 'window' && obj.orientation === 'vertical';
+    const needsVerticalOrientation = isVerticalDoor || isVerticalWindow;
+    const drawWidth = needsVerticalOrientation ? obj.height : obj.width;
+    const drawHeight = needsVerticalOrientation ? obj.width : obj.height;
+    let orientationRotation = needsVerticalOrientation ? Math.PI / 2 : 0;
     let angleRad = ((obj.rotation || 0) * Math.PI) / 180;
 
     if ((obj.type === 'door' || obj.type === 'window') && obj.attachedWallId) {

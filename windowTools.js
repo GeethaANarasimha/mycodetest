@@ -86,11 +86,35 @@ function sizeWindowToWall(windowObj, snapTarget, defaultScale = 20) {
     windowObj.attachedWallAngle = snapTarget.angle;
     windowObj.attachedWallId = snapTarget.wall.id;
     windowObj.lengthPx = lengthPx;
+    const { n1, n2, projection } = snapTarget;
 
-    windowObj.width = lengthPx;
-    windowObj.height = depthPx;
-    windowObj.x = snapTarget.projection.x - windowObj.width / 2;
-    windowObj.y = snapTarget.projection.y - windowObj.height / 2;
+    let centerX = projection?.x ?? (windowObj.x + windowObj.width / 2);
+    let centerY = projection?.y ?? (windowObj.y + windowObj.height / 2);
+
+    // Keep the window frame within the wall segment so it touches the wall without
+    // overlapping nearby corners.
+    if (n1 && n2 && projection && typeof projection.t === 'number') {
+        const wallLength = Math.hypot(n2.x - n1.x, n2.y - n1.y) || 1;
+        const halfWindowLength = lengthPx / 2;
+        const normalizedHalf = Math.min(0.5, halfWindowLength / wallLength);
+        const clampedT = Math.min(1 - normalizedHalf, Math.max(normalizedHalf, projection.t));
+        centerX = n1.x + (n2.x - n1.x) * clampedT;
+        centerY = n1.y + (n2.y - n1.y) * clampedT;
+    }
+
+    if (windowObj.orientation === 'horizontal') {
+        windowObj.width = lengthPx;
+        windowObj.height = depthPx;
+    } else {
+        // For vertical walls, rotate the window footprint so the depth runs across
+        // the wall thickness and the length follows the wall direction without
+        // leaving side gaps.
+        windowObj.width = depthPx;
+        windowObj.height = lengthPx;
+    }
+
+    windowObj.x = centerX - windowObj.width / 2;
+    windowObj.y = centerY - windowObj.height / 2;
 }
 
 function snapWindowToNearestWall(windowObj, walls, defaultScale = 20) {
