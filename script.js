@@ -375,6 +375,7 @@ let objectDragUndoApplied = false;
 let windowHandleDrag = null;
 let trackDoorHandleDrag = null;
 let trackDoorDistancePreview = null;
+let furnitureResizePreview = null;
 let windowDistancePreview = null;
 let staircaseHandleDrag = null;
 let staircaseEditTargetIndex = null;
@@ -7212,6 +7213,7 @@ function handleMouseMove(e) {
         const data = furnitureHandleDrag;
         const obj = objects[data.index];
         if (obj) {
+            furnitureResizePreview = null;
             ({ x, y } = snapToGridPoint(x, y));
             const reference = data.initial.transform;
             const pointerLocal = worldToObjectLocalPoint({ x, y }, reference);
@@ -7285,7 +7287,13 @@ function handleMouseMove(e) {
             obj.x = newCenterWorld.x - obj.width / 2;
             obj.y = newCenterWorld.y - obj.height / 2;
 
-            coordinatesDisplay.textContent = `Resize: ${width.toFixed(1)} x ${height.toFixed(1)}`;
+            const widthInches = (width / scale) * 12;
+            const heightInches = (height / scale) * 12;
+            const widthText = formatMeasurementText(widthInches);
+            const heightText = formatMeasurementText(heightInches);
+
+            furnitureResizePreview = buildFurnitureResizePreview(obj, widthText, heightText);
+            coordinatesDisplay.textContent = `Resize: ${widthText} × ${heightText}`;
             redrawCanvas();
         }
         return;
@@ -7650,6 +7658,7 @@ function handleMouseUp() {
 
     if (furnitureHandleDrag) {
         furnitureHandleDrag = null;
+        furnitureResizePreview = null;
         redrawCanvas();
         return;
     }
@@ -9297,9 +9306,18 @@ function drawDistancePreviewOverlay(preview, color = '#d35400') {
     ctx.restore();
 }
 
+function drawFurnitureResizePreview(preview) {
+    if (!preview) return;
+
+    const color = '#2980b9';
+    drawDistancePreviewOverlay(preview.width, color);
+    drawDistancePreviewOverlay(preview.height, color);
+}
+
 function drawDistancePreviews() {
     drawDistancePreviewOverlay(trackDoorDistancePreview, '#d35400');
     drawDistancePreviewOverlay(windowDistancePreview, '#3b83bd');
+    drawFurnitureResizePreview(furnitureResizePreview);
 }
 
 function getSnapshotFloorPoints(floor, nodesById) {
@@ -9517,6 +9535,37 @@ function buildDistancePreview(obj, handles, label, formatFn = formatMeasurementT
         text: formatFn(totalInches),
         index: objects.indexOf(obj)
     };
+}
+
+function buildFurnitureResizePreview(obj, widthText, heightText) {
+    const corners = getObjectTransformedCorners(obj);
+    if (!corners || corners.length !== 4) return null;
+
+    const [c0, c1, c2, c3] = corners;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+    const left = mid(c0, c3);
+    const right = mid(c1, c2);
+    const top = mid(c0, c1);
+    const bottom = mid(c2, c3);
+
+    const widthSegment = {
+        start: left,
+        end: right,
+        isHorizontal: Math.abs(right.x - left.x) >= Math.abs(right.y - left.y),
+        label: 'Furniture width',
+        text: widthText
+    };
+
+    const heightSegment = {
+        start: top,
+        end: bottom,
+        isHorizontal: Math.abs(bottom.x - top.x) >= Math.abs(bottom.y - top.y),
+        label: 'Furniture height',
+        text: heightText
+    };
+
+    return { width: widthSegment, height: heightSegment };
 }
 
 function buildTrackDoorDistancePreview(obj) {
