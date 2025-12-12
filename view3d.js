@@ -160,6 +160,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const doorObjects = objects.filter(obj => obj.type === 'door');
             const windowObjects = objects.filter(obj => obj.type === 'window');
             const nodeUsage = new Map();
+            const nodeKey = (point) => `${point.x.toFixed(3)}|${point.y.toFixed(3)}`;
             walls.forEach(wall => {
                 const start = nodes.find(n => n.id === wall.startNodeId);
                 const end = nodes.find(n => n.id === wall.endNodeId);
@@ -187,9 +188,12 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     thickness,
                     height: wallHeightPx
                 };
-                [start.id, end.id].forEach(nodeId => {
-                    if (!nodeUsage.has(nodeId)) nodeUsage.set(nodeId, []);
-                    nodeUsage.get(nodeId).push(thicknessAtNode);
+                [start, end].forEach(nodePoint => {
+                    const key = nodeKey(nodePoint);
+                    if (!nodeUsage.has(key)) {
+                        nodeUsage.set(key, { point: nodePoint, segments: [] });
+                    }
+                    nodeUsage.get(key).segments.push(thicknessAtNode);
                 });
 
                 bands.forEach(band => {
@@ -232,10 +236,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             });
 
             // Add solid connectors at shared nodes to visually merge adjacent wall segments.
-            nodeUsage.forEach((segments, nodeId) => {
-                if (!Array.isArray(segments) || !segments.length) return;
-                const node = nodes.find(n => n.id === nodeId);
-                if (!node) return;
+            nodeUsage.forEach(({ point, segments }) => {
+                if (!Array.isArray(segments) || !segments.length || !point) return;
                 const connectorThickness = Math.max(...segments.map(s => s.thickness));
                 const connectorHeight = Math.max(...segments.map(s => s.height));
                 const geometry = new THREE.BoxGeometry(connectorThickness, connectorHeight, connectorThickness);
@@ -245,7 +247,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     roughness: 0.65
                 });
                 const connector = new THREE.Mesh(geometry, material);
-                const node3D = this.planTo3DCoords(node);
+                const node3D = this.planTo3DCoords(point);
                 connector.position.set(node3D.x, connectorHeight / 2, node3D.z);
                 connector.castShadow = true;
                 connector.receiveShadow = true;
