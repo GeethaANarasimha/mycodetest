@@ -120,7 +120,8 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 shape.closePath();
 
                 const geometry = new THREE.ShapeGeometry(shape);
-                geometry.rotateX(-Math.PI / 2);
+                // Keep floor geometry aligned with 2D coordinates so it lines up with walls
+                geometry.rotateX(Math.PI / 2);
                 if (floorInset > 0) {
                     geometry.computeBoundingBox();
                     const bbox = geometry.boundingBox;
@@ -154,6 +155,7 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
             const group = new THREE.Group();
             const doorObjects = objects.filter(obj => obj.type === 'door');
             const windowObjects = objects.filter(obj => obj.type === 'window');
+            const nodeUsage = new Map();
             walls.forEach(wall => {
                 const start = nodes.find(n => n.id === wall.startNodeId);
                 const end = nodes.find(n => n.id === wall.endNodeId);
@@ -176,17 +178,35 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                     roughness: 0.65
                 });
 
+                const thicknessAtNode = {
+                    thickness,
+                    height: wallHeightPx
+                };
+                [start.id, end.id].forEach(nodeId => {
+                    if (!nodeUsage.has(nodeId)) nodeUsage.set(nodeId, []);
+                    nodeUsage.get(nodeId).push(thicknessAtNode);
+                });
+
                 bands.forEach(band => {
                     band.segments.forEach(segment => {
                         const height = band.height;
                         if (height <= 0) return;
 
-                        const geometry = new THREE.BoxGeometry(segment.length, height, thickness);
+                        const overlap = thickness * 0.5;
+                        const isAtWallStart = Math.abs(segment.start) < 1e-4;
+                        const isAtWallEnd = Math.abs((segment.start + segment.length) - length) < 1e-4;
+                        const startPad = isAtWallStart ? Math.min(overlap, segment.length * 0.5) : 0;
+                        const endPad = isAtWallEnd ? Math.min(overlap, segment.length * 0.5) : 0;
+                        const adjustedLength = segment.length + startPad + endPad;
+
+                        const geometry = new THREE.BoxGeometry(adjustedLength, height, thickness);
                         const mesh = new THREE.Mesh(geometry, material);
                         mesh.castShadow = true;
                         mesh.receiveShadow = true;
 
-                        const centerOffset = wallDir.clone().multiplyScalar(segment.start + (segment.length / 2));
+                        const centerOffset = wallDir.clone().multiplyScalar(
+                            segment.start + (segment.length / 2) + ((endPad - startPad) / 2)
+                        );
                         mesh.position.set(
                             start.x + centerOffset.x,
                             band.start + (height / 2),
@@ -203,6 +223,26 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                         group.add(frame);
                     }
                 });
+            });
+
+            // Add solid connectors at shared nodes to visually merge adjacent wall segments.
+            nodeUsage.forEach((segments, nodeId) => {
+                if (!Array.isArray(segments) || !segments.length) return;
+                const node = nodes.find(n => n.id === nodeId);
+                if (!node) return;
+                const connectorThickness = Math.max(...segments.map(s => s.thickness));
+                const connectorHeight = Math.max(...segments.map(s => s.height));
+                const geometry = new THREE.BoxGeometry(connectorThickness, connectorHeight, connectorThickness);
+                const material = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color('#1f2937'),
+                    metalness: 0.1,
+                    roughness: 0.65
+                });
+                const connector = new THREE.Mesh(geometry, material);
+                connector.position.set(node.x, connectorHeight / 2, node.y);
+                connector.castShadow = true;
+                connector.receiveShadow = true;
+                group.add(connector);
             });
             return group;
         }
