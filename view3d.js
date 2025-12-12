@@ -95,10 +95,9 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
         }
 
         planTo3DCoords(point) {
-            // Flip the plan's Y axis so screen coordinates (Y grows downward) map
-            // to 3D space without mirroring angled walls. This keeps ">" shaped
-            // runs in 2D appearing the same way in 3D rather than as "<".
-            return { x: point.x, z: -point.y };
+            // Keep the plan's Y axis as-is so angled walls match the 2D layout
+            // direction (e.g. ">" in 2D remains ">" in 3D).
+            return { x: point.x, z: point.y };
         }
 
         createNodeClusters(walls, nodes) {
@@ -259,15 +258,26 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
 
                 const thicknessAtNode = {
                     thickness,
-                    height: wallHeightPx
+                    height: wallHeightPx,
+                    dir: wallDirWorld.clone()
                 };
-                [start, end].forEach(nodePoint => {
+                const pushNodeUsage = (nodePoint, dirSign) => {
                     const key = nodeKey(nodePoint);
                     if (!nodeUsage.has(key)) {
                         nodeUsage.set(key, { point: nodePoint, segments: [] });
                     }
-                    nodeUsage.get(key).segments.push(thicknessAtNode);
-                });
+                    const entry = nodeUsage.get(key);
+                    entry.segments.push({
+                        thickness,
+                        height: wallHeightPx,
+                        dir: thicknessAtNode.dir.clone().multiplyScalar(dirSign)
+                    });
+                };
+
+                // Track both directions so we can tell when two walls simply align
+                // (180 degrees) versus forming a visible junction that needs a cap.
+                pushNodeUsage(start, 1);
+                pushNodeUsage(end, -1);
 
                 bands.forEach(band => {
                     band.segments.forEach(segment => {
@@ -307,10 +317,30 @@ import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/exampl
                 });
             });
 
-            // Add solid connectors at shared nodes to visually merge adjacent wall segments.
+            // Add subtle connectors only where angled junctions exist; skip straight runs
+            // so we don't create extra "walls" at aligned points.
             nodeUsage.forEach(({ point, segments }) => {
-                if (!Array.isArray(segments) || !segments.length || !point) return;
-                const connectorThickness = Math.max(...segments.map(s => s.thickness));
+                if (!Array.isArray(segments) || segments.length < 2 || !point) return;
+
+                const normalizedDirs = segments
+                    .map(s => s.dir.clone().normalize())
+                    .filter(dir => Number.isFinite(dir.x) && Number.isFinite(dir.y));
+
+                // Determine if this junction is more than a straight 180-degree continuation.
+                let hasAngledJoin = false;
+                for (let i = 0; i < normalizedDirs.length; i++) {
+                    for (let j = i + 1; j < normalizedDirs.length; j++) {
+                        const dot = normalizedDirs[i].dot(normalizedDirs[j]);
+                        if (Math.abs(dot) < 0.98) {
+                            hasAngledJoin = true;
+                            break;
+                        }
+                    }
+                    if (hasAngledJoin) break;
+                }
+                if (!hasAngledJoin) return;
+
+                const connectorThickness = Math.min(...segments.map(s => s.thickness));
                 const connectorHeight = Math.max(...segments.map(s => s.height));
                 const geometry = new THREE.BoxGeometry(connectorThickness, connectorHeight, connectorThickness);
                 const material = new THREE.MeshStandardMaterial({
