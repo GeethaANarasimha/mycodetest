@@ -389,6 +389,7 @@ let isWallDrawing = false;
 let wallChain = [];
 let wallPreviewX = null;
 let wallPreviewY = null;
+let isWallDragActive = false;
 let alignmentHints = [];
 
 // node drag
@@ -6012,24 +6013,9 @@ function startNodeDrag(node, mouseX, mouseY) {
 
     if (attachedWalls.length === 0 && !belongsToFloor) return;
 
-    // Prefer a wall that is currently selected so dragging honours the intended segment
-    const wall = attachedWalls.find(w => selectedWalls.has(w)) || attachedWalls[0];
-    if (wall) {
-        const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
-        const other = getNodeById(otherNodeId);
-
-        if (other) {
-            const dx = node.x - other.x;
-            const dy = node.y - other.y;
-            const len = Math.hypot(dx, dy) || 1;
-
-            dragDir = { x: dx / len, y: dy / len };
-        } else {
-            dragDir = null;
-        }
-    } else {
-        dragDir = null;
-    }
+    // Allow endpoints and jointed nodes to move freely so connected walls follow the drag
+    // in any direction instead of being locked to the current wall direction.
+    dragDir = null;
     dragOriginNodePos = { x: node.x, y: node.y };
     dragOriginMousePos = { x: mouseX, y: mouseY };
     selectedNode = node;
@@ -6488,6 +6474,17 @@ function handleMouseDown(e) {
 
     if (currentTool === 'dimension') {
         // Dimension clicks are handled on the click event to avoid interference with selection logic
+        return;
+    }
+
+    if (currentTool === 'wall') {
+        ({ x, y } = snapPointToInch(x, y));
+
+        if (!isWallDrawing) {
+            startWallChainAt(x, y);
+        }
+
+        isWallDragActive = true;
         return;
     }
 
@@ -7763,6 +7760,23 @@ function handleMouseUp() {
         return;
     }
 
+    if (isWallDragActive) {
+        if (isWallDrawing && wallChain.length > 0) {
+            const anchor = wallChain[wallChain.length - 1];
+            const targetX = wallPreviewX ?? anchor.x;
+            const targetY = wallPreviewY ?? anchor.y;
+            const moved = Math.hypot(targetX - anchor.x, targetY - anchor.y) > 0;
+
+            if (moved) {
+                finalizeWallPreviewSegment();
+                redrawCanvas();
+            }
+        }
+
+        isWallDragActive = false;
+        return;
+    }
+
     if (isSelectionBoxActive) {
         finalizeSelectionBox();
         return;
@@ -7877,40 +7891,52 @@ function handleCanvasClick(e) {
     ({ x, y } = snapPointToInch(x, y));
 
     if (!isWallDrawing) {
-        // FIRST CLICK: Start new wall chain
-        
-        // Check if we're clicking on an existing wall (for partition)
-        const existingWall = findWallAtPoint(x, y, 10);
-        let firstNode;
-        
-        if (existingWall) {
-            // We're clicking on an existing wall - auto-split it
-            pushUndoState();
-            const closestPoint = getClosestPointOnWall(x, y, existingWall);
-            firstNode = splitWallAtPointWithNode(existingWall, closestPoint.x, closestPoint.y);
-        } else {
-            // Not on an existing wall, create new node
-            firstNode = findOrCreateNode(x, y);
-        }
-        
-        wallChain = [firstNode];
-        isWallDrawing = true;
-        wallPreviewX = wallPreviewY = null;
-        alignmentHints = [];
-        selectedWalls.clear();
-        selectedObjectIndices.clear();
-        selectAllMode = false;
+        startWallChainAt(x, y);
         return;
     }
 
-    if (wallPreviewX === null || wallPreviewY === null) return;
+    if (finalizeWallPreviewSegment()) {
+        redrawCanvas();
+    }
+}
+
+function startWallChainAt(x, y) {
+    // FIRST CLICK: Start new wall chain
+
+    // Check if we're clicking on an existing wall (for partition)
+    const existingWall = findWallAtPoint(x, y, 10);
+    let firstNode;
+
+    if (existingWall) {
+        // We're clicking on an existing wall - auto-split it
+        pushUndoState();
+        const closestPoint = getClosestPointOnWall(x, y, existingWall);
+        firstNode = splitWallAtPointWithNode(existingWall, closestPoint.x, closestPoint.y);
+    } else {
+        // Not on an existing wall, create new node
+        firstNode = findOrCreateNode(x, y);
+    }
+
+    wallChain = [firstNode];
+    isWallDrawing = true;
+    wallPreviewX = wallPreviewY = null;
+    alignmentHints = [];
+    selectedWalls.clear();
+    selectedObjectIndices.clear();
+    selectAllMode = false;
+
+    return firstNode;
+}
+
+function finalizeWallPreviewSegment() {
+    if (wallPreviewX === null || wallPreviewY === null || wallChain.length === 0) return false;
 
     pushUndoState();
 
     // Check if end point is on an existing wall
     const existingWall = findWallAtPoint(wallPreviewX, wallPreviewY, 10);
     let newNode;
-    
+
     if (existingWall) {
         // End point is on an existing wall - auto-split it
         const closestPoint = getClosestPointOnWall(wallPreviewX, wallPreviewY, existingWall);
@@ -7919,19 +7945,19 @@ function handleCanvasClick(e) {
         // Not on an existing wall, create new node
         newNode = findOrCreateNode(wallPreviewX, wallPreviewY);
     }
-    
+
     // Get the last node in the chain
     const lastNode = wallChain[wallChain.length - 1];
-    
+
     // Create wall from last node to new node
     createWall(lastNode, newNode);
-    
+
     // Add new node to the chain
     wallChain.push(newNode);
-    
+
     wallPreviewX = wallPreviewY = null;
     alignmentHints = [];
-    redrawCanvas();
+    return true;
 }
 
 function getDimensionHandleHit(x, y) {
