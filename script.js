@@ -417,8 +417,11 @@ let selectionBoxEnd = null;
 let selectionBoxAdditive = false;
 let selectionBoxPending = false;
 
-function snapRotation(angle, step = 5) {
+function snapRotation(angle, step) {
     const normalized = ((angle % 360) + 360) % 360;
+    if (typeof step !== 'number' || step <= 0) {
+        return normalized;
+    }
     return (Math.round(normalized / step) * step) % 360;
 }
 
