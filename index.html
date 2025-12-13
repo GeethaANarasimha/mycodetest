@@ -81,6 +81,10 @@
         <span class="tool-icon text-icon">T</span>
         <span class="tool-label">Text</span>
     </button>
+    <button class="tool-btn" data-tool="polylines" aria-label="Polylines">
+        <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_7978b03ee9bf4a96b4288f2ed8c0b9f7.svg" alt="">
+        <span class="tool-label">Polylines</span>
+    </button>
     <button class="tool-btn" data-tool="dimension" aria-label="Dimension">
         <img class="tool-icon" src="https://static.wixstatic.com/shapes/602ad4_30f8437bfae148a38aca059207dc1ce2.svg" alt="">
         <span class="tool-label">Dimension</span>
@@ -155,17 +159,33 @@
         </div>
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,directline,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,directline,polylines,select,erase,pan">
         <label>Line Width</label>
         <input id="lineWidth" type="number" value="2">
     </div>
 
-    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,directline,select,erase,pan">
+    <div class="property-group" data-contexts="wall,door,window,staircase,furniture,dimension,directline,polylines,select,erase,pan">
         <label>Line Color</label>
         <div class="property-input-row">
             <input id="lineColor" type="color" value="#000000">
             <span id="lineColorPreview"></span>
         </div>
+    </div>
+
+    <div class="property-group" data-contexts="polylines">
+        <label>Polyline Colors</label>
+        <div id="polylineColorChoices" class="color-swatch-row" role="listbox" aria-label="Polyline colors">
+            <button type="button" class="color-swatch" data-color="#000000" aria-label="Black"></button>
+            <button type="button" class="color-swatch" data-color="#e74c3c" aria-label="Red"></button>
+            <button type="button" class="color-swatch" data-color="#3498db" aria-label="Blue"></button>
+            <button type="button" class="color-swatch" data-color="#27ae60" aria-label="Green"></button>
+            <button type="button" class="color-swatch" data-color="#f1c40f" aria-label="Yellow"></button>
+            <button type="button" class="color-swatch" data-color="#9b59b6" aria-label="Purple"></button>
+        </div>
+    </div>
+
+    <div class="property-group inline" data-contexts="polylines,select">
+        <label class="checkbox"><input type="checkbox" id="showPolylineMeasurements" checked> Show Polyline Dimensions</label>
     </div>
 
     <div class="property-group" data-contexts="text">

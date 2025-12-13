@@ -90,6 +90,28 @@ body {
     color: #000;
 }
 
+.color-swatch-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.color-swatch {
+    width: 26px;
+    height: 26px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0;
+    background: transparent;
+}
+
+.color-swatch.selected {
+    outline: 2px solid #1f78d1;
+    outline-offset: 1px;
+    box-shadow: 0 0 0 2px rgba(31, 120, 209, 0.2);
+}
+
 .tool-label {
     display: none;
     position: absolute;
