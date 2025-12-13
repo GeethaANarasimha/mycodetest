@@ -10498,8 +10498,8 @@ function drawPolylineMeasurements(points = [], strokeColor = '#1f78d1') {
         const length = Math.hypot(dx, dy);
         if (length < 2) continue;
 
-        const lengthFeet = length / (scale || 1);
-        const label = `${lengthFeet.toFixed(2)} ft`;
+        const totalInches = Math.round((length / (scale || 1)) * 12);
+        const label = formatMeasurementText(totalInches);
         const midX = (start.x + end.x) / 2;
         const midY = (start.y + end.y) / 2;
         const angle = Math.atan2(dy, dx);
