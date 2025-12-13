@@ -182,6 +182,27 @@ const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
+const MAX_PROJECT_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB upload limit
+const PROJECT_STATE_KEYS = new Set([
+    'version',
+    'nodes',
+    'walls',
+    'objects',
+    'directLines',
+    'floors',
+    'dimensions',
+    'clipboard',
+    'layerState',
+    'layerDrawings',
+    'backgroundsByLayer',
+    'settings',
+    'view',
+    'ids',
+    'background',
+    'measurementDistanceFeet',
+    'backgroundImageVisible'
+]);
+const FORBIDDEN_OBJECT_KEYS = ['__proto__', 'prototype', 'constructor'];
 
 // ---------------- IMAGE HELPERS ----------------
 const LOCAL_IMAGE_PREFIX = /^(data:|blob:)/i;
@@ -4233,6 +4254,78 @@ async function downloadPlanAsPDF(options = {}) {
     }
 }
 
+function isPlainObject(value) {
+    return (
+        !!value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+    );
+}
+
+function hasForbiddenKeys(objectToCheck) {
+    return Object.keys(objectToCheck).some((key) => FORBIDDEN_OBJECT_KEYS.includes(key));
+}
+
+function hasOnlyAllowedProjectKeys(state) {
+    return Object.keys(state).every((key) => PROJECT_STATE_KEYS.has(key) && !FORBIDDEN_OBJECT_KEYS.includes(key));
+}
+
+function validateSettings(settings) {
+    if (!isPlainObject(settings)) return false;
+
+    const numericSettings = ['scale', 'gridSize', 'measurementFontSize', 'textFontSize', 'lineWidth'];
+    const booleanSettings = ['showDimensions', 'showGrid', 'textIsBold', 'textIsItalic'];
+
+    const hasInvalidNumber = numericSettings.some((key) => key in settings && !Number.isFinite(settings[key]));
+    if (hasInvalidNumber) return false;
+
+    const hasInvalidBoolean = booleanSettings.some((key) => key in settings && typeof settings[key] !== 'boolean');
+    if (hasInvalidBoolean) return false;
+
+    if (settings.lineColor && typeof settings.lineColor !== 'string') return false;
+    if (settings.fillColor && typeof settings.fillColor !== 'string') return false;
+
+    return true;
+}
+
+function validateProjectState(state) {
+    if (!isPlainObject(state) || hasForbiddenKeys(state)) return false;
+    if (!hasOnlyAllowedProjectKeys(state)) return false;
+    if (state.version !== 1) return false;
+
+    const arrayKeys = ['nodes', 'walls', 'objects', 'directLines', 'floors', 'dimensions'];
+    const arraysAreValid = arrayKeys.every((key) => !state[key] || Array.isArray(state[key]));
+    if (!arraysAreValid) return false;
+
+    if (state.clipboard && (!isPlainObject(state.clipboard) || hasForbiddenKeys(state.clipboard))) return false;
+    if (state.layerState && (!isPlainObject(state.layerState) || hasForbiddenKeys(state.layerState))) return false;
+    if (state.layerDrawings && (!isPlainObject(state.layerDrawings) || hasForbiddenKeys(state.layerDrawings))) return false;
+    if (state.backgroundsByLayer && (!isPlainObject(state.backgroundsByLayer) || hasForbiddenKeys(state.backgroundsByLayer))) return false;
+    if (state.settings && (!validateSettings(state.settings) || hasForbiddenKeys(state.settings))) return false;
+
+    if (state.view) {
+        if (!isPlainObject(state.view) || hasForbiddenKeys(state.view)) return false;
+        const { scale: viewScaleValue, offsetX, offsetY } = state.view;
+        if (![viewScaleValue, offsetX, offsetY].every((value) => Number.isFinite(value))) return false;
+    }
+
+    if (state.ids) {
+        if (!isPlainObject(state.ids) || hasForbiddenKeys(state.ids)) return false;
+        const { nextNodeId, nextWallId, nextFloorId, nextStairGroupId } = state.ids;
+        if (![nextNodeId, nextWallId, nextFloorId, nextStairGroupId].every((value) => Number.isFinite(value))) return false;
+    }
+
+    if (state.background) {
+        if (!isPlainObject(state.background) || hasForbiddenKeys(state.background)) return false;
+        const numericFields = ['x', 'y', 'width', 'height'];
+        const hasInvalidBackgroundNumbers = numericFields.some((field) => field in state.background && !Number.isFinite(state.background[field]));
+        if (hasInvalidBackgroundNumbers) return false;
+    }
+
+    return true;
+}
+
 function saveProjectToFile() {
     try {
         const state = buildProjectState();
@@ -4263,11 +4356,19 @@ function handleProjectFileUpload(event) {
         return;
     }
 
+    if (file.size > MAX_PROJECT_FILE_SIZE_BYTES) {
+        alert('Project file is too large. Please upload a file smaller than 5MB.');
+        return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
         try {
             const decrypted = xorDecrypt(reader.result, SAVE_SECRET);
             const state = JSON.parse(decrypted);
+            if (!validateProjectState(state)) {
+                throw new Error('Invalid project structure');
+            }
             applyProjectState(state);
         } catch (error) {
             console.error('Failed to load project', error);
