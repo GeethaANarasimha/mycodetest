@@ -19,6 +19,7 @@ const textItalicButton = document.getElementById('textItalic');
 const textFontIncreaseButton = document.getElementById('textFontIncrease');
 const textFontDecreaseButton = document.getElementById('textFontDecrease');
 const polylineColorChoices = document.getElementById('polylineColorChoices');
+const showPolylineMeasurementsCheckbox = document.getElementById('showPolylineMeasurements');
 const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
 const showDimensionsCheckbox = document.getElementById('showDimensions');
@@ -257,6 +258,7 @@ let gridSize = parseInt(gridSizeInput.value, 10);
 let showGrid = true;
 let gridSnappingEnabled = true;
 let showDimensions = showDimensionsCheckbox.checked;
+let showPolylineMeasurements = showPolylineMeasurementsCheckbox ? showPolylineMeasurementsCheckbox.checked : true;
 let belowFloorTransparency = layerTransparencySlider ? parseInt(layerTransparencySlider.value, 10) || 0 : 20;
 let textFontSize = 18;
 let textIsBold = false;
@@ -3611,6 +3613,7 @@ function buildProjectState() {
             scale,
             gridSize,
             showDimensions,
+            showPolylineMeasurements,
             showGrid,
             measurementFontSize,
             textFontSize,
@@ -3949,6 +3952,7 @@ function applyProjectState(state) {
     gridSize = settings.gridSize ?? gridSize;
     showGrid = settings.showGrid ?? showGrid;
     showDimensions = settings.showDimensions ?? showDimensions;
+    showPolylineMeasurements = settings.showPolylineMeasurements ?? showPolylineMeasurements;
     measurementFontSize = settings.measurementFontSize ?? measurementFontSize;
      textFontSize = settings.textFontSize ?? textFontSize;
      textIsBold = settings.textIsBold ?? textIsBold;
@@ -3968,6 +3972,7 @@ function applyProjectState(state) {
 
     if (gridSizeInput) gridSizeInput.value = Math.round(gridSize);
     if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
+    if (showPolylineMeasurementsCheckbox) showPolylineMeasurementsCheckbox.checked = showPolylineMeasurements;
      if (lineWidthInput && Number.isFinite(settings.lineWidth)) lineWidthInput.value = settings.lineWidth;
      if (lineColorInput && settings.lineColor) lineColorInput.value = settings.lineColor;
      if (fillColorInput && settings.fillColor) fillColorInput.value = settings.fillColor;
@@ -4320,7 +4325,7 @@ function validateSettings(settings) {
     if (!isPlainObject(settings)) return false;
 
     const numericSettings = ['scale', 'gridSize', 'measurementFontSize', 'textFontSize', 'lineWidth'];
-    const booleanSettings = ['showDimensions', 'showGrid', 'textIsBold', 'textIsItalic'];
+    const booleanSettings = ['showDimensions', 'showPolylineMeasurements', 'showGrid', 'textIsBold', 'textIsItalic'];
 
     const hasInvalidNumber = numericSettings.some((key) => key in settings && !Number.isFinite(settings[key]));
     if (hasInvalidNumber) return false;
@@ -5048,6 +5053,7 @@ function buildConvertedProject(parsed) {
             scale,
             gridSize,
             showDimensions,
+            showPolylineMeasurements,
             showGrid,
             measurementFontSize,
             textFontSize,
@@ -5630,6 +5636,9 @@ function init() {
 
     gridSizeInput.addEventListener('input', () => setGridSizeValue(gridSizeInput.value));
     showDimensionsCheckbox.addEventListener('change', () => setShowDimensionsEnabled(showDimensionsCheckbox.checked));
+    if (showPolylineMeasurementsCheckbox) {
+        showPolylineMeasurementsCheckbox.addEventListener('change', () => setShowPolylineMeasurementsEnabled(showPolylineMeasurementsCheckbox.checked));
+    }
 
     if (snapToGridCheckbox) {
         gridSnappingEnabled = snapToGridCheckbox.checked;
@@ -8467,6 +8476,13 @@ function handleCanvasDoubleClick(e) {
         ({ x, y } = snapPointToInch(x, y));
         if (polylinePoints.length > 0) {
             polylinePoints[polylinePoints.length - 1] = { x, y };
+            if (polylinePoints.length >= 2) {
+                const last = polylinePoints[polylinePoints.length - 1];
+                const prev = polylinePoints[polylinePoints.length - 2];
+                if (Math.hypot(last.x - prev.x, last.y - prev.y) < 0.001) {
+                    polylinePoints.pop();
+                }
+            }
         }
         ignoreNextClick = true;
         finalizePolyline();
@@ -10393,7 +10409,12 @@ function drawDirectLinePath(points, options = {}) {
 }
 
 function drawPolylines() {
-    polylines.forEach(line => drawPolylinePath(line.points, line));
+    polylines.forEach(line => {
+        drawPolylinePath(line.points, line);
+        if (showPolylineMeasurements) {
+            drawPolylineMeasurements(line.points, line.lineColor);
+        }
+    });
 
     if (isPolylineDrawing && polylinePoints.length > 0) {
         const previewPoints = polylinePreview
@@ -10404,6 +10425,10 @@ function drawPolylines() {
             lineColor: selectedPolylineColor,
             lineWidth: parseInt(lineWidthInput?.value, 10) || 2
         });
+
+        if (showPolylineMeasurements) {
+            drawPolylineMeasurements(previewPoints, selectedPolylineColor);
+        }
 
         drawPolylineReferenceGuide();
 
@@ -10450,6 +10475,54 @@ function drawPolylines() {
         });
         ctx.restore();
     });
+}
+
+function drawPolylineMeasurements(points = [], strokeColor = '#1f78d1') {
+    if (!points || points.length < 2) return;
+
+    ctx.save();
+    ctx.font = `${Math.max(10, measurementFontSize - 2)}px Inter, Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (let i = 1; i < points.length; i++) {
+        const start = points[i - 1];
+        const end = points[i];
+        if (!start || !end) continue;
+
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const length = Math.hypot(dx, dy);
+        if (length < 2) continue;
+
+        const lengthFeet = length / (scale || 1);
+        const label = `${lengthFeet.toFixed(2)} ft`;
+        const midX = (start.x + end.x) / 2;
+        const midY = (start.y + end.y) / 2;
+        const angle = Math.atan2(dy, dx);
+
+        const padding = 4;
+        const textWidth = ctx.measureText(label).width + padding * 2;
+        const textHeight = measurementFontSize + 4;
+
+        ctx.save();
+        ctx.translate(midX, midY);
+        ctx.rotate(angle);
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.strokeStyle = strokeColor || '#1f78d1';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.rect(-textWidth / 2, -textHeight / 2, textWidth, textHeight);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#2c3e50';
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
+    }
+
+    ctx.restore();
 }
 
 function drawDirectLines() {
@@ -11145,6 +11218,12 @@ function setShowDimensionsEnabled(enabled) {
     showDimensions = !!enabled;
     if (showDimensionsCheckbox) showDimensionsCheckbox.checked = showDimensions;
     if (settingsShowDimensionsCheckbox) settingsShowDimensionsCheckbox.checked = showDimensions;
+    redrawCanvas();
+}
+
+function setShowPolylineMeasurementsEnabled(enabled) {
+    showPolylineMeasurements = !!enabled;
+    if (showPolylineMeasurementsCheckbox) showPolylineMeasurementsCheckbox.checked = showPolylineMeasurements;
     redrawCanvas();
 }
 
