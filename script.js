@@ -3606,12 +3606,6 @@ function buildProjectState() {
         clipboard: JSON.parse(JSON.stringify(clipboard)),
         layerState: typeof getLayerState === 'function' ? getLayerState() : null,
         layerDrawings: exportLayerDrawings(),
-        objects: JSON.parse(JSON.stringify(objects)),
-        polylines: JSON.parse(JSON.stringify(polylines)),
-        floors: (floors || []).map(stripFloorPattern),
-        dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
-        clipboard: JSON.parse(JSON.stringify(clipboard)),
-        layerState: typeof getLayerState === 'function' ? getLayerState() : null,
         backgroundsByLayer,
         settings: {
             scale,
@@ -3947,6 +3941,8 @@ function applyProjectState(state) {
 
      directLines = JSON.parse(JSON.stringify(state.directLines || []));
      resetDirectLineDrawing();
+     polylines = JSON.parse(JSON.stringify(state.polylines || []));
+     resetPolylineDrawing();
 
     const settings = state.settings || {};
     scale = settings.scale ?? scale;
@@ -3991,6 +3987,8 @@ function applyProjectState(state) {
      ignoreNextClick = false;
      selectedFloorIds.clear();
      selectedObjectIndices.clear();
+     selectedDirectLineIndices.clear();
+     selectedPolylineIndices.clear();
      selectAllMode = false;
      resetFloorLasso();
 
@@ -4341,7 +4339,7 @@ function validateProjectState(state) {
     if (!hasOnlyAllowedProjectKeys(state)) return false;
     if (state.version !== 1) return false;
 
-    const arrayKeys = ['nodes', 'walls', 'objects', 'directLines', 'floors', 'dimensions'];
+    const arrayKeys = ['nodes', 'walls', 'objects', 'directLines', 'polylines', 'floors', 'dimensions'];
     const arraysAreValid = arrayKeys.every((key) => !state[key] || Array.isArray(state[key]));
     if (!arraysAreValid) return false;
 
@@ -6470,6 +6468,8 @@ function finalizeSelectionBox() {
         }
     });
 
+    showSelectedPolylineMeasurement();
+
     if (window.dimensions && window.dimensions.length > 0) {
         for (let i = window.dimensions.length - 1; i >= 0; i--) {
             const dim = window.dimensions[i];
@@ -6789,6 +6789,7 @@ function handleMouseDown(e) {
             selectedPolylineIndices.add(polyPointHit.lineIndex);
             polylinePointSelection = polyPointHit;
             startPolylineDrag(polyPointHit.lineIndex, polyPointHit.pointIndex, 'point', x, y);
+            showSelectedPolylineMeasurement();
             redrawCanvas();
             return;
         }
@@ -6802,6 +6803,7 @@ function handleMouseDown(e) {
             selectedPolylineIndices.add(polyHit.lineIndex);
             polylinePointSelection = null;
             startPolylineDrag(polyHit.lineIndex, null, 'line', x, y);
+            showSelectedPolylineMeasurement();
             redrawCanvas();
             return;
         }
@@ -10520,6 +10522,36 @@ function resetPolylineDrawing() {
     polylineReferenceGuide = null;
 }
 
+function getPolylineLengthFeet(points = []) {
+    if (!Array.isArray(points) || points.length < 2) return 0;
+    let totalPixels = 0;
+    for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1];
+        const curr = points[i];
+        totalPixels += Math.hypot(curr.x - prev.x, curr.y - prev.y);
+    }
+    return totalPixels / (scale || 1);
+}
+
+function showSelectedPolylineMeasurement() {
+    if (!coordinatesDisplay || selectedPolylineIndices.size === 0) return;
+
+    let totalFeet = 0;
+    selectedPolylineIndices.forEach(index => {
+        const line = polylines[index];
+        if (line?.points?.length >= 2) {
+            totalFeet += getPolylineLengthFeet(line.points);
+        }
+    });
+
+    if (totalFeet > 0) {
+        const label = selectedPolylineIndices.size > 1
+            ? `Selected polylines: ${selectedPolylineIndices.size}, total length: ${totalFeet.toFixed(2)} ft`
+            : `Polyline length: ${totalFeet.toFixed(2)} ft`;
+        coordinatesDisplay.textContent = label;
+    }
+}
+
 function finalizeDirectLine() {
     if (directLinePoints.length < 2) {
         resetDirectLineDrawing();
@@ -10747,6 +10779,7 @@ function selectAllEntities() {
     selectAllMode = true;
     expandSelectionWithGroups();
     groupSelectionElements({ silent: true });
+    showSelectedPolylineMeasurement();
     redrawCanvas();
 }
 
