@@ -8494,35 +8494,46 @@ function drawCornerPoint(point, { radius = 4, stroke = '#e67e22', fill = '#fffff
 }
 
 function getWallCornerHandleHit(x, y, hitRadius = NODE_HIT_RADIUS) {
-    let closest = null;
-    let bestDist = Infinity;
+    const findClosestHandle = wallList => {
+        let closest = null;
+        let bestDist = Infinity;
 
-    for (const wall of walls) {
-        const geometry = getWallCornerGeometry(wall);
-        if (!geometry) continue;
+        for (const wall of wallList) {
+            const geometry = getWallCornerGeometry(wall);
+            if (!geometry) continue;
 
-        const startNode = getNodeById(wall.startNodeId);
-        const endNode = getNodeById(wall.endNodeId);
-        if (!startNode || !endNode) continue;
+            const startNode = getNodeById(wall.startNodeId);
+            const endNode = getNodeById(wall.endNodeId);
+            if (!startNode || !endNode) continue;
 
-        geometry.startCorners.forEach(corner => {
-            const d = Math.hypot(x - corner.x, y - corner.y);
-            if (d <= hitRadius && d < bestDist) {
-                bestDist = d;
-                closest = { wall, node: startNode };
-            }
-        });
+            geometry.startCorners.forEach(corner => {
+                const d = Math.hypot(x - corner.x, y - corner.y);
+                if (d <= hitRadius && d < bestDist) {
+                    bestDist = d;
+                    closest = { wall, node: startNode };
+                }
+            });
 
-        geometry.endCorners.forEach(corner => {
-            const d = Math.hypot(x - corner.x, y - corner.y);
-            if (d <= hitRadius && d < bestDist) {
-                bestDist = d;
-                closest = { wall, node: endNode };
-            }
-        });
+            geometry.endCorners.forEach(corner => {
+                const d = Math.hypot(x - corner.x, y - corner.y);
+                if (d <= hitRadius && d < bestDist) {
+                    bestDist = d;
+                    closest = { wall, node: endNode };
+                }
+            });
+        }
+
+        return closest;
+    };
+
+    // When a wall is selected, prefer its handles so vertical-only walls expose their own endpoints
+    // instead of snapping to overlapping handles on perpendicular walls.
+    if (selectedWalls.size > 0) {
+        const prioritized = findClosestHandle(selectedWalls);
+        if (prioritized) return prioritized;
     }
 
-    return closest;
+    return findClosestHandle(walls);
 }
 
 function getWallDirectionFromNode(wall, nodeId) {
