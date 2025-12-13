@@ -6123,11 +6123,17 @@ function startNodeDrag(node, mouseX, mouseY, wallContext = null) {
     if (constrainWall) {
         const dir = getWallDirectionFromNode(constrainWall, node.id);
         if (dir) {
-            // Snap purely vertical or horizontal directions so wall endpoints don't drift off-axis.
-            if (Math.abs(dir.x) <= 0.01 && Math.abs(dir.y) > Math.abs(dir.x)) {
+            const isVertical = Math.abs(dir.x) <= 0.01 && Math.abs(dir.y) > Math.abs(dir.x);
+            const isHorizontal = Math.abs(dir.y) <= 0.01 && Math.abs(dir.x) > Math.abs(dir.y);
+
+            // Keep perfectly axis-aligned walls locked to their axis to avoid slow drift.
+            if (isVertical) {
                 dragDir = { x: 0, y: Math.sign(dir.y) || 1 };
-            } else if (Math.abs(dir.y) <= 0.01 && Math.abs(dir.x) > Math.abs(dir.y)) {
+            } else if (isHorizontal) {
                 dragDir = { x: Math.sign(dir.x) || 1, y: 0 };
+            } else {
+                // For any other angle, constrain movement along the actual wall direction.
+                dragDir = dir;
             }
         }
     }
