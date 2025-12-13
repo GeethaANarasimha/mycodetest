@@ -443,6 +443,21 @@ input[type="number"] {
     max-width: 90vw;
 }
 
+.upload-option {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.upload-option:last-child {
+    margin-bottom: 0;
+}
+
+.upload-option .modal-input-row {
+    gap: 8px;
+}
+
 .modal-header {
     display: flex;
     align-items: flex-start;
