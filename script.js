@@ -64,6 +64,11 @@ const finishBackgroundMeasurementButton = document.getElementById('finishBackgro
 const backgroundMeasurementHint = document.getElementById('backgroundMeasurementHint');
 const backgroundStartPointStatus = document.getElementById('backgroundStartPointStatus');
 const toggleBackgroundImageButton = document.getElementById('toggleBackgroundImage');
+const furnitureModal = document.getElementById('furnitureModal');
+const furnitureList = document.getElementById('furnitureList');
+const closeFurnitureModalButton = document.getElementById('closeFurnitureModal');
+const furnitureSearchInput = document.getElementById('furnitureSearch');
+const furnitureToolButton = document.querySelector('.tool-btn[data-tool="furniture"]');
  
 const textModal = document.getElementById('textModal');
 const textModalInput = document.getElementById('textModalInput');
@@ -76,6 +81,7 @@ const pdfMobileNumberInput = document.getElementById('pdfMobileNumber');
 const pdfClientNameInput = document.getElementById('pdfClientName');
 const pdfClientAddressInput = document.getElementById('pdfClientAddress');
 const pdfClientMobileInput = document.getElementById('pdfClientMobile');
+const pdfTitleLineInput = document.getElementById('pdfTitleLine');
 const pdfHeaderInput = document.getElementById('pdfHeader');
 const pdfFooterInput = document.getElementById('pdfFooter');
 const pdfFormatSelect = document.getElementById('pdfFormat');
@@ -102,6 +108,12 @@ const staircaseCancelButton = document.getElementById('staircaseCancel');
 const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
+const projectUploadModal = document.getElementById('projectUploadModal');
+const closeProjectUploadButton = document.getElementById('closeProjectUpload');
+const directProjectUploadButton = document.getElementById('directProjectUpload');
+const planNumberInput = document.getElementById('planNumberInput');
+const loadPlanButton = document.getElementById('loadPlanButton');
+const planLoadStatus = document.getElementById('planLoadStatus');
 const downloadPdfButton = document.getElementById('downloadPdf');
 const openXmlConverterButton = document.getElementById('openXmlConverter');
 const xmlConverterModal = document.getElementById('xmlConverterModal');
@@ -176,6 +188,61 @@ const DIRECT_LINE_HIT_TOLERANCE = 8;
 const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
+const MAX_PROJECT_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB upload limit
+const PROJECT_STATE_KEYS = new Set([
+    'version',
+    'nodes',
+    'walls',
+    'objects',
+    'directLines',
+    'floors',
+    'dimensions',
+    'clipboard',
+    'layerState',
+    'layerDrawings',
+    'backgroundsByLayer',
+    'settings',
+    'view',
+    'ids',
+    'background',
+    'measurementDistanceFeet',
+    'backgroundImageVisible'
+]);
+const FORBIDDEN_OBJECT_KEYS = ['__proto__', 'prototype', 'constructor'];
+
+// ---------------- IMAGE HELPERS ----------------
+const LOCAL_IMAGE_PREFIX = /^(data:|blob:)/i;
+
+function toAbsoluteUrl(url) {
+    if (!url) return '';
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    return anchor.href;
+}
+
+function shouldRequestCors(url) {
+    if (!url) return false;
+    if (LOCAL_IMAGE_PREFIX.test(url)) return false;
+    return !toAbsoluteUrl(url).startsWith(window.location.origin);
+}
+
+function createSafeImageElement(src) {
+    const image = new Image();
+    if (shouldRequestCors(src)) {
+        image.crossOrigin = 'anonymous';
+        image.referrerPolicy = 'no-referrer';
+    }
+    if (src) image.src = src;
+    return image;
+}
+
+function ensureSafeImageElement(existing, src) {
+    const needsReload = !existing
+        || toAbsoluteUrl(existing.src) !== toAbsoluteUrl(src)
+        || (shouldRequestCors(src) && existing.crossOrigin !== 'anonymous');
+
+    return needsReload ? createSafeImageElement(src) : existing;
+}
 // ---------------- STATE ----------------
 let currentTool = 'select';
 let isDrawing = false;
@@ -194,6 +261,7 @@ let measurementFontSize = 12;
 
 let selectionNudgePreviewUntil = 0;
 let keyboardHoverPreviewLocked = false;
+let furnitureHandleDrag = null;
 
 let nodes = [];
 let walls = [];
@@ -348,6 +416,7 @@ let isWallDrawing = false;
 let wallChain = [];
 let wallPreviewX = null;
 let wallPreviewY = null;
+let isWallDragActive = false;
 let alignmentHints = [];
 
 // node drag
@@ -369,6 +438,7 @@ let objectDragUndoApplied = false;
 let windowHandleDrag = null;
 let trackDoorHandleDrag = null;
 let trackDoorDistancePreview = null;
+let furnitureResizePreview = null;
 let windowDistancePreview = null;
 let staircaseHandleDrag = null;
 let staircaseEditTargetIndex = null;
@@ -506,6 +576,8 @@ function loadLayerSnapshot(layerId = currentLayerId()) {
     walls = JSON.parse(JSON.stringify(snapshot.walls));
     objects = JSON.parse(JSON.stringify(snapshot.objects));
     floors = JSON.parse(JSON.stringify(snapshot.floors));
+
+    hydrateFurnitureObjects(objects);
 
     if (snapshot.dimensions) {
         window.dimensions = JSON.parse(JSON.stringify(snapshot.dimensions));
@@ -3165,6 +3237,8 @@ function findRoomPolygonAtPoint(x, y) {
 function ensureFloorPattern(floor) {
     if (!floor?.texture?.imageSrc) return Promise.resolve();
 
+    const source = floor.texture.imageSrc;
+
     const applyPatternFromImage = (image) => {
         const widthPx = floor.texture.widthPx || image.width;
         const heightPx = floor.texture.heightPx || image.height;
@@ -3180,21 +3254,26 @@ function ensureFloorPattern(floor) {
         floor.texture.pattern = ctx.createPattern(tileCanvas, 'repeat');
     };
 
-    if (floor.texture.patternImage?.complete) {
-        applyPatternFromImage(floor.texture.patternImage);
+    const safeImage = ensureSafeImageElement(floor.texture.patternImage, source);
+    floor.texture.patternImage = safeImage;
+
+    if (safeImage.complete && safeImage.naturalWidth > 0 && safeImage.naturalHeight > 0) {
+        applyPatternFromImage(safeImage);
         return Promise.resolve();
     }
 
     return new Promise(resolve => {
-        const image = new Image();
+        const image = ensureSafeImageElement(floor.texture.patternImage, source);
+        floor.texture.patternImage = image;
         image.onload = () => {
-            floor.texture.patternImage = image;
             applyPatternFromImage(image);
             redrawCanvas();
             resolve();
         };
-        image.onerror = () => resolve();
-        image.src = floor.texture.imageSrc;
+        image.onerror = () => {
+            floor.texture.pattern = null;
+            resolve();
+        };
     });
 }
 
@@ -3297,6 +3376,28 @@ function cloneState() {
     };
 }
 
+function hydrateFurnitureObjects(list = objects) {
+    if (!Array.isArray(list)) return;
+
+    list.forEach(obj => {
+        if (!obj || obj.type !== 'furniture') return;
+
+        const asset = obj.assetId && typeof getFurnitureAssetById === 'function'
+            ? getFurnitureAssetById(obj.assetId)
+            : null;
+
+        if (asset && typeof ensureFurnitureAssetImage === 'function') {
+            obj.imageElement = ensureFurnitureAssetImage(asset);
+            obj.imageUrl = obj.imageUrl || asset.url;
+            return;
+        }
+
+        if (!obj.imageElement && obj.imageUrl) {
+            obj.imageElement = ensureSafeImageElement(obj.imageElement, obj.imageUrl);
+        }
+    });
+}
+
 function restoreState(state) {
     nodes = JSON.parse(JSON.stringify(state.nodes));
     walls = JSON.parse(JSON.stringify(state.walls));
@@ -3304,6 +3405,8 @@ function restoreState(state) {
     directLines = JSON.parse(JSON.stringify(state.directLines || []));
     floors = JSON.parse(JSON.stringify(state.floors || []));
     nextFloorId = floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1;
+
+    hydrateFurnitureObjects(objects);
 
     if (state.dimensions) {
         window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
@@ -3721,8 +3824,8 @@ function hydrateBackgroundLayerState(layerId, payload = {}) {
     state.backgroundImageData = null;
 
     if (payload.background?.src) {
-        const img = new Image();
-        img.onload = () => {
+        const img = ensureSafeImageElement(null, payload.background.src);
+        const finalizeBackground = () => {
             state.backgroundImageData = {
                 image: img,
                 x: payload.background.x,
@@ -3737,7 +3840,12 @@ function hydrateBackgroundLayerState(layerId, payload = {}) {
                 redrawCanvas();
             }
         };
-        img.src = payload.background.src;
+
+        if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+            finalizeBackground();
+        } else {
+            img.onload = finalizeBackground;
+        }
     }
 }
 
@@ -3780,6 +3888,8 @@ function applyProjectState(state) {
          walls = JSON.parse(JSON.stringify(state.walls || []));
          objects = JSON.parse(JSON.stringify(state.objects || []));
          floors = (state.floors || []).map(stripFloorPattern);
+
+         hydrateFurnitureObjects(objects);
 
          if (state.dimensions) {
              window.dimensions = JSON.parse(JSON.stringify(state.dimensions));
@@ -3954,13 +4064,19 @@ function getContentBounds() {
         };
     }
 
+    const strokeAllowance = 4;
+    const minX = bounds.minX - strokeAllowance;
+    const minY = bounds.minY - strokeAllowance;
+    const maxX = bounds.maxX + strokeAllowance;
+    const maxY = bounds.maxY + strokeAllowance;
+
     return {
-        minX: bounds.minX,
-        minY: bounds.minY,
-        maxX: bounds.maxX,
-        maxY: bounds.maxY,
-        width: bounds.maxX - bounds.minX,
-        height: bounds.maxY - bounds.minY
+        minX,
+        minY,
+        maxX,
+        maxY,
+        width: maxX - minX,
+        height: maxY - minY
     };
 }
 
@@ -3972,6 +4088,7 @@ async function downloadPlanAsPDF(options = {}) {
         clientName = '',
         clientAddress = '',
         clientMobile = '',
+        presentationTitle = '',
         headerText = '',
         footerText = '',
         pageFormat = 'a4',
@@ -4008,6 +4125,10 @@ async function downloadPlanAsPDF(options = {}) {
     const textFontSize = 10;
     const infoLineHeight = 12;
     const padding = 20;
+    const exportScale = 2;
+    const titleFontSize = 14;
+    const titleBarHeight = presentationTitle ? 28 : 0;
+    const titleSpacing = presentationTitle ? 6 : 0;
 
     try {
         captureLayerSnapshot(activeLayerBeforeExport);
@@ -4023,15 +4144,17 @@ async function downloadPlanAsPDF(options = {}) {
             const bounds = getContentBounds();
             const exportWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
             const exportHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
+            const scaledExportWidth = exportWidth * exportScale;
+            const scaledExportHeight = exportHeight * exportScale;
 
-            canvas.width = exportWidth;
-            canvas.height = exportHeight;
-            canvas.style.width = `${exportWidth}px`;
-            canvas.style.height = `${exportHeight}px`;
+            canvas.width = scaledExportWidth;
+            canvas.height = scaledExportHeight;
+            canvas.style.width = `${scaledExportWidth}px`;
+            canvas.style.height = `${scaledExportHeight}px`;
 
-            viewScale = 1;
-            viewOffsetX = padding - bounds.minX;
-            viewOffsetY = padding - bounds.minY;
+            viewScale = exportScale;
+            viewOffsetX = (padding - bounds.minX) * exportScale;
+            viewOffsetY = (padding - bounds.minY) * exportScale;
 
             redrawCanvas();
 
@@ -4055,17 +4178,33 @@ async function downloadPlanAsPDF(options = {}) {
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
             const availableWidth = pageWidth - margins.left - margins.right;
-            const availableHeight = pageHeight - margins.top - margins.bottom;
+            const availableHeight = Math.max(1, pageHeight - margins.top - margins.bottom - titleBarHeight - titleSpacing);
             const scaleFactor = Math.min(availableWidth / exportWidth, availableHeight / exportHeight, 1);
             const renderWidth = exportWidth * scaleFactor;
             const renderHeight = exportHeight * scaleFactor;
             const imageX = margins.left + (availableWidth - renderWidth) / 2;
-            const imageY = margins.top;
+            const imageY = margins.top + titleBarHeight + titleSpacing;
 
             // Use lossless compression to preserve maximum quality in the generated PDF.
             pdf.addImage(dataUrl, 'PNG', imageX, imageY, renderWidth, renderHeight, undefined, 'NONE');
 
             pdf.setFontSize(textFontSize);
+
+            if (presentationTitle) {
+                const barX = margins.left;
+                const barWidth = pageWidth - margins.left - margins.right;
+                const barY = margins.top;
+
+                pdf.setFillColor(244, 248, 255);
+                pdf.rect(barX, barY, barWidth, titleBarHeight, 'F');
+                pdf.setTextColor(33, 37, 41);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(titleFontSize);
+                pdf.text(presentationTitle, pageWidth / 2, barY + titleBarHeight / 2 + titleFontSize / 3, { align: 'center' });
+                pdf.setTextColor(0, 0, 0);
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(textFontSize);
+            }
 
             if (headerText) {
                 pdf.text(headerText, pageWidth / 2, margins.top / 2, { align: 'center' });
@@ -4121,6 +4260,78 @@ async function downloadPlanAsPDF(options = {}) {
     }
 }
 
+function isPlainObject(value) {
+    return (
+        !!value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+    );
+}
+
+function hasForbiddenKeys(objectToCheck) {
+    return Object.keys(objectToCheck).some((key) => FORBIDDEN_OBJECT_KEYS.includes(key));
+}
+
+function hasOnlyAllowedProjectKeys(state) {
+    return Object.keys(state).every((key) => PROJECT_STATE_KEYS.has(key) && !FORBIDDEN_OBJECT_KEYS.includes(key));
+}
+
+function validateSettings(settings) {
+    if (!isPlainObject(settings)) return false;
+
+    const numericSettings = ['scale', 'gridSize', 'measurementFontSize', 'textFontSize', 'lineWidth'];
+    const booleanSettings = ['showDimensions', 'showGrid', 'textIsBold', 'textIsItalic'];
+
+    const hasInvalidNumber = numericSettings.some((key) => key in settings && !Number.isFinite(settings[key]));
+    if (hasInvalidNumber) return false;
+
+    const hasInvalidBoolean = booleanSettings.some((key) => key in settings && typeof settings[key] !== 'boolean');
+    if (hasInvalidBoolean) return false;
+
+    if (settings.lineColor && typeof settings.lineColor !== 'string') return false;
+    if (settings.fillColor && typeof settings.fillColor !== 'string') return false;
+
+    return true;
+}
+
+function validateProjectState(state) {
+    if (!isPlainObject(state) || hasForbiddenKeys(state)) return false;
+    if (!hasOnlyAllowedProjectKeys(state)) return false;
+    if (state.version !== 1) return false;
+
+    const arrayKeys = ['nodes', 'walls', 'objects', 'directLines', 'floors', 'dimensions'];
+    const arraysAreValid = arrayKeys.every((key) => !state[key] || Array.isArray(state[key]));
+    if (!arraysAreValid) return false;
+
+    if (state.clipboard && (!isPlainObject(state.clipboard) || hasForbiddenKeys(state.clipboard))) return false;
+    if (state.layerState && (!isPlainObject(state.layerState) || hasForbiddenKeys(state.layerState))) return false;
+    if (state.layerDrawings && (!isPlainObject(state.layerDrawings) || hasForbiddenKeys(state.layerDrawings))) return false;
+    if (state.backgroundsByLayer && (!isPlainObject(state.backgroundsByLayer) || hasForbiddenKeys(state.backgroundsByLayer))) return false;
+    if (state.settings && (!validateSettings(state.settings) || hasForbiddenKeys(state.settings))) return false;
+
+    if (state.view) {
+        if (!isPlainObject(state.view) || hasForbiddenKeys(state.view)) return false;
+        const { scale: viewScaleValue, offsetX, offsetY } = state.view;
+        if (![viewScaleValue, offsetX, offsetY].every((value) => Number.isFinite(value))) return false;
+    }
+
+    if (state.ids) {
+        if (!isPlainObject(state.ids) || hasForbiddenKeys(state.ids)) return false;
+        const { nextNodeId, nextWallId, nextFloorId, nextStairGroupId } = state.ids;
+        if (![nextNodeId, nextWallId, nextFloorId, nextStairGroupId].every((value) => Number.isFinite(value))) return false;
+    }
+
+    if (state.background) {
+        if (!isPlainObject(state.background) || hasForbiddenKeys(state.background)) return false;
+        const numericFields = ['x', 'y', 'width', 'height'];
+        const hasInvalidBackgroundNumbers = numericFields.some((field) => field in state.background && !Number.isFinite(state.background[field]));
+        if (hasInvalidBackgroundNumbers) return false;
+    }
+
+    return true;
+}
+
 function saveProjectToFile() {
     try {
         const state = buildProjectState();
@@ -4151,18 +4362,100 @@ function handleProjectFileUpload(event) {
         return;
     }
 
+    if (file.size > MAX_PROJECT_FILE_SIZE_BYTES) {
+        alert('Project file is too large. Please upload a file smaller than 5MB.');
+        return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
-        try {
-            const decrypted = xorDecrypt(reader.result, SAVE_SECRET);
-            const state = JSON.parse(decrypted);
-            applyProjectState(state);
-        } catch (error) {
-            console.error('Failed to load project', error);
-            alert('Could not load project. Ensure you selected a valid .ipynb file.');
+        const loaded = loadProjectFromText(reader.result, file.name);
+        if (loaded) {
+            closeProjectUploadModal();
         }
     };
     reader.readAsText(file);
+}
+
+function loadProjectFromText(content, sourceLabel = 'file', options = {}) {
+    const { showAlerts = true } = options;
+    try {
+        const decrypted = xorDecrypt(content, SAVE_SECRET);
+        const state = JSON.parse(decrypted);
+        if (!validateProjectState(state)) {
+            throw new Error('Invalid project structure');
+        }
+        applyProjectState(state);
+        return true;
+    } catch (error) {
+        console.error(`Failed to load project from ${sourceLabel}`, error);
+        if (showAlerts) {
+            alert('Could not load project. Ensure you selected a valid .ipynb file.');
+        }
+        return false;
+    }
+}
+
+function setPlanLoadStatus(message, isError = false) {
+    if (!planLoadStatus) return;
+    planLoadStatus.textContent = message;
+    planLoadStatus.style.color = isError ? '#c0392b' : '#555';
+}
+
+function openProjectUploadModal() {
+    if (!projectUploadModal) return;
+    projectUploadModal.classList.remove('hidden');
+    projectUploadModal.setAttribute('aria-hidden', 'false');
+    if (planNumberInput) {
+        planNumberInput.value = '';
+    }
+    setPlanLoadStatus('');
+}
+
+function closeProjectUploadModal() {
+    if (!projectUploadModal) return;
+    projectUploadModal.classList.add('hidden');
+    projectUploadModal.setAttribute('aria-hidden', 'true');
+}
+
+async function handlePlanNumberLoad() {
+    if (!planNumberInput) return;
+
+    const planNumber = planNumberInput.value.trim().toUpperCase();
+    if (!planNumber) {
+        setPlanLoadStatus('Enter a plan number to continue.', true);
+        return;
+    }
+
+    if (typeof getProtectedPlanUrl !== 'function') {
+        setPlanLoadStatus('Plan lookup is unavailable.', true);
+        return;
+    }
+
+    const planUrl = getProtectedPlanUrl(planNumber);
+    if (!planUrl) {
+        setPlanLoadStatus('No plan found for that number.', true);
+        return;
+    }
+
+    setPlanLoadStatus('Loading plan...');
+    try {
+        const response = await fetch(planUrl, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`Failed request with status ${response.status}`);
+        }
+        const content = await response.text();
+        const loaded = loadProjectFromText(content, planNumber, { showAlerts: false });
+        if (!loaded) {
+            setPlanLoadStatus('Could not load the selected plan.', true);
+            return;
+        }
+        setPlanLoadStatus('Plan loaded successfully.');
+        closeProjectUploadModal();
+    } catch (error) {
+        console.error('Error loading plan by number', error);
+        setPlanLoadStatus('Could not load the selected plan.', true);
+    }
 }
 
 function resetXmlConvertStatus(message, isError = false) {
@@ -4875,6 +5168,7 @@ function init() {
             closeTextModal();
             closeStaircaseModal();
             closeSettingsModal();
+            if (furnitureModal) furnitureModal.classList.add('hidden');
             resetDirectLineDrawing();
         }
     });
@@ -4980,11 +5274,29 @@ function init() {
     if (saveProjectButton) {
         saveProjectButton.addEventListener('click', saveProjectToFile);
     }
-    if (uploadProjectButton && projectFileInput) {
-        uploadProjectButton.addEventListener('click', () => projectFileInput.click());
+    if (uploadProjectButton && projectUploadModal) {
+        uploadProjectButton.addEventListener('click', openProjectUploadModal);
+    }
+    if (directProjectUploadButton && projectFileInput) {
+        directProjectUploadButton.addEventListener('click', () => projectFileInput.click());
+    }
+    if (projectFileInput) {
         projectFileInput.addEventListener('change', (event) => {
             handleProjectFileUpload(event);
             projectFileInput.value = '';
+        });
+    }
+    if (closeProjectUploadButton) {
+        closeProjectUploadButton.addEventListener('click', closeProjectUploadModal);
+    }
+    if (loadPlanButton) {
+        loadPlanButton.addEventListener('click', handlePlanNumberLoad);
+    }
+    if (planNumberInput) {
+        planNumberInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                handlePlanNumberLoad();
+            }
         });
     }
     if (openXmlConverterButton) {
@@ -5031,6 +5343,24 @@ function init() {
     }
     if (exitStayButton) {
         exitStayButton.addEventListener('click', hideExitWarning);
+    }
+
+    if (typeof initFurniturePalette === 'function' && furnitureModal && furnitureList) {
+        initFurniturePalette({
+            modal: furnitureModal,
+            listElement: furnitureList,
+            closeButton: closeFurnitureModalButton,
+            triggerButton: furnitureToolButton,
+            searchInput: furnitureSearchInput,
+            onSelect: () => {
+                currentTool = 'furniture';
+                toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'furniture'));
+                updateToolInfo();
+            },
+            onAdd: (asset) => {
+                addFurnitureToGrid(asset, { switchToSelectTool: true });
+            }
+        });
     }
 
     [
@@ -5870,7 +6200,7 @@ function getObjectAt(x, y, includeSelectionPadding = false) {
 // ============================================================
 // NODE DRAG
 // ============================================================
-function startNodeDrag(node, mouseX, mouseY) {
+function startNodeDrag(node, mouseX, mouseY, wallContext = null) {
     pushUndoState();
 
     // Find a wall that contains this node
@@ -5882,24 +6212,30 @@ function startNodeDrag(node, mouseX, mouseY) {
 
     if (attachedWalls.length === 0 && !belongsToFloor) return;
 
-    // Prefer a wall that is currently selected so dragging honours the intended segment
-    const wall = attachedWalls.find(w => selectedWalls.has(w)) || attachedWalls[0];
-    if (wall) {
-        const otherNodeId = node.id === wall.startNodeId ? wall.endNodeId : wall.startNodeId;
-        const other = getNodeById(otherNodeId);
+    // Constrain dragging along the axis of the selected wall when it's axis-aligned (e.g., vertical only).
+    dragDir = null;
+    const constrainWall = wallContext || Array.from(selectedWalls).find(w =>
+        (w.startNodeId === node.id || w.endNodeId === node.id)
+    );
 
-        if (other) {
-            const dx = node.x - other.x;
-            const dy = node.y - other.y;
-            const len = Math.hypot(dx, dy) || 1;
+    if (constrainWall) {
+        const dir = getWallDirectionFromNode(constrainWall, node.id);
+        if (dir) {
+            const isVertical = Math.abs(dir.x) <= 0.01 && Math.abs(dir.y) > Math.abs(dir.x);
+            const isHorizontal = Math.abs(dir.y) <= 0.01 && Math.abs(dir.x) > Math.abs(dir.y);
 
-            dragDir = { x: dx / len, y: dy / len };
-        } else {
-            dragDir = null;
+            // Keep perfectly axis-aligned walls locked to their axis to avoid slow drift.
+            if (isVertical) {
+                dragDir = { x: 0, y: Math.sign(dir.y) || 1 };
+            } else if (isHorizontal) {
+                dragDir = { x: Math.sign(dir.x) || 1, y: 0 };
+            } else {
+                // For any other angle, constrain movement along the actual wall direction.
+                dragDir = dir;
+            }
         }
-    } else {
-        dragDir = null;
     }
+
     dragOriginNodePos = { x: node.x, y: node.y };
     dragOriginMousePos = { x: mouseX, y: mouseY };
     selectedNode = node;
@@ -6361,6 +6697,17 @@ function handleMouseDown(e) {
         return;
     }
 
+    if (currentTool === 'wall') {
+        ({ x, y } = snapPointToInch(x, y));
+
+        if (!isWallDrawing) {
+            startWallChainAt(x, y);
+        }
+
+        isWallDragActive = true;
+        return;
+    }
+
     if (currentTool === 'select') {
         keyboardHoverPreviewLocked = false;
         const pointHit = findDirectLinePointHit(x, y, DIRECT_LINE_HANDLE_RADIUS + 2);
@@ -6537,6 +6884,32 @@ function handleMouseDown(e) {
             return;
         }
 
+        const furnitureHandle = getFurnitureHandleHit(x, y);
+        if (furnitureHandle) {
+            const obj = objects[furnitureHandle.index];
+            if (obj) {
+                pushUndoState();
+                const transform = getObjectTransformInfo(obj);
+                furnitureHandleDrag = {
+                    index: furnitureHandle.index,
+                    handle: furnitureHandle.handle,
+                    anchorLocal: getFurnitureAnchorForHandle(furnitureHandle.handle, obj),
+                    startPointerAngle: Math.atan2(y - transform.cy, x - transform.cx),
+                    initial: {
+                        width: obj.width,
+                        height: obj.height,
+                        rotation: obj.rotation || 0,
+                        center: { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 },
+                        transform
+                    }
+                };
+                selectAllMode = false;
+                selectedObjectIndices = new Set([furnitureHandle.index]);
+                redrawCanvas();
+            }
+            return;
+        }
+
         const dimensionHit = getDimensionHandleHit(x, y);
         if (dimensionHit) {
             selectAllMode = false;
@@ -6563,7 +6936,7 @@ function handleMouseDown(e) {
             selectedFloorIds.clear();
             selectAllMode = false;
 
-            startNodeDrag(cornerHandle.node, x, y);
+            startNodeDrag(cornerHandle.node, x, y, cornerHandle.wall);
             selectedWalls.add(cornerHandle.wall);
             redrawCanvas();
             return;
@@ -6575,11 +6948,11 @@ function handleMouseDown(e) {
             const n2 = getNodeById(wall.endNodeId);
             
             if (n1 && Math.hypot(x - n1.x, y - n1.y) <= NODE_HIT_RADIUS) {
-                startNodeDrag(n1, x, y);
+                startNodeDrag(n1, x, y, wall);
                 return;
             }
             if (n2 && Math.hypot(x - n2.x, y - n2.y) <= NODE_HIT_RADIUS) {
-                startNodeDrag(n2, x, y);
+                startNodeDrag(n2, x, y, wall);
                 return;
             }
         }
@@ -6778,6 +7151,81 @@ function getDefaultStyleForType(type) {
     }
 
     return { lineColor: baseLine, fillColor: baseFill };
+}
+
+const DEFAULT_FURNITURE_WIDTH_PX = 150;
+
+function getFurnitureAspectRatio(asset) {
+    const img = typeof ensureFurnitureAssetImage === 'function' ? ensureFurnitureAssetImage(asset) : null;
+    if (img && img.naturalWidth && img.naturalHeight) {
+        return img.naturalHeight / img.naturalWidth;
+    }
+    if (asset?.defaultWidth && asset?.defaultHeight) {
+        return asset.defaultHeight / asset.defaultWidth;
+    }
+    return 1;
+}
+
+function getDefaultFurnitureSize(asset) {
+    const ratio = getFurnitureAspectRatio(asset);
+    const width = DEFAULT_FURNITURE_WIDTH_PX;
+    const height = width * ratio;
+    return { width, height };
+}
+
+function getFurniturePlacementPoint() {
+    const rect = canvasContainer?.getBoundingClientRect?.() || canvas.getBoundingClientRect();
+    const screenX = rect.left + rect.width / 2;
+    const screenY = rect.top + rect.height / 2;
+    return screenToWorld(screenX, screenY);
+}
+
+function addFurnitureToGrid(asset, options = {}) {
+    const { switchToSelectTool = false } = options;
+    const targetAsset = asset || (typeof getActiveFurnitureAsset === 'function' ? getActiveFurnitureAsset() : null);
+    if (!targetAsset) return;
+
+    const styles = getDefaultStyleForType('furniture');
+    const { width, height } = getDefaultFurnitureSize(targetAsset);
+    const placementCenter = getFurniturePlacementPoint();
+    const snappedCenter = snapPointToInch(placementCenter.x, placementCenter.y);
+    const x = snappedCenter.x - width / 2;
+    const y = snappedCenter.y - height / 2;
+
+    pushUndoState();
+
+    const newObj = {
+        type: 'furniture',
+        x,
+        y,
+        width,
+        height,
+        lineWidth: parseInt(lineWidthInput.value, 10) || 2,
+        lineColor: styles.lineColor,
+        fillColor: styles.fillColor,
+        rotation: 0,
+        flipH: false,
+        flipV: false,
+        orientation: width >= height ? 'horizontal' : 'vertical',
+        assetId: targetAsset.id,
+        imageUrl: targetAsset.url,
+        assetName: targetAsset.label
+    };
+
+    if (typeof ensureFurnitureAssetImage === 'function') {
+        newObj.imageElement = ensureFurnitureAssetImage(targetAsset);
+    }
+
+    objects.push(newObj);
+    selectedObjectIndices = new Set([objects.length - 1]);
+
+    if (switchToSelectTool) {
+        currentTool = 'select';
+        toolButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tool') === 'select'));
+    }
+
+    redrawCanvas();
+    updateToolInfo();
 }
 
 function getStairSettings(obj = {}) {
@@ -7047,6 +7495,96 @@ function handleMouseMove(e) {
             }
 
             coordinatesDisplay.textContent = `X: ${obj.x.toFixed(1)}, Y: ${obj.y.toFixed(1)}`;
+            redrawCanvas();
+        }
+        return;
+    }
+
+    if (furnitureHandleDrag) {
+        const data = furnitureHandleDrag;
+        const obj = objects[data.index];
+        if (obj) {
+            furnitureResizePreview = null;
+            ({ x, y } = snapToGridPoint(x, y));
+            const reference = data.initial.transform;
+            const pointerLocal = worldToObjectLocalPoint({ x, y }, reference);
+            const minSize = scale * 0.5;
+            const aspectRatio = data.initial.height && data.initial.width
+                ? data.initial.height / data.initial.width
+                : 1;
+
+            if (data.handle === 'rotate-top-left' || data.handle === 'rotate-top-right') {
+                const angle = Math.atan2(y - reference.cy, x - reference.cx);
+                let newRotation = data.initial.rotation + ((angle - data.startPointerAngle) * 180) / Math.PI;
+                obj.rotation = snapRotation(newRotation);
+                redrawCanvas();
+                return;
+            }
+
+            let width = data.initial.width;
+            let height = data.initial.height;
+            let centerLocal = { x: 0, y: 0 };
+
+            const anchor = data.anchorLocal;
+
+            switch (data.handle) {
+                case 'top':
+                    height = Math.max(minSize, anchor.y - pointerLocal.y);
+                    centerLocal = { x: 0, y: anchor.y - height / 2 };
+                    break;
+                case 'bottom':
+                    height = Math.max(minSize, pointerLocal.y - anchor.y);
+                    centerLocal = { x: 0, y: anchor.y + height / 2 };
+                    break;
+                case 'left':
+                    width = Math.max(minSize, anchor.x - pointerLocal.x);
+                    centerLocal = { x: anchor.x - width / 2, y: 0 };
+                    break;
+                case 'right':
+                    width = Math.max(minSize, pointerLocal.x - anchor.x);
+                    centerLocal = { x: anchor.x + width / 2, y: 0 };
+                    break;
+                case 'bottom-right':
+                    {
+                        const dx = pointerLocal.x - anchor.x;
+                        const dy = pointerLocal.y - anchor.y;
+                        const widthCandidate = Math.max(minSize, dx);
+                        const widthFromHeight = Math.max(minSize, dy) / aspectRatio;
+                        width = Math.max(minSize, Math.max(widthCandidate, widthFromHeight));
+                        height = Math.max(minSize, width * aspectRatio);
+                    }
+                    centerLocal = { x: anchor.x + width / 2, y: anchor.y + height / 2 };
+                    break;
+                case 'bottom-left':
+                    {
+                        const dx = anchor.x - pointerLocal.x;
+                        const dy = pointerLocal.y - anchor.y;
+                        const widthCandidate = Math.max(minSize, dx);
+                        const widthFromHeight = Math.max(minSize, dy) / aspectRatio;
+                        width = Math.max(minSize, Math.max(widthCandidate, widthFromHeight));
+                        height = Math.max(minSize, width * aspectRatio);
+                    }
+                    centerLocal = { x: anchor.x - width / 2, y: anchor.y + height / 2 };
+                    break;
+                case 'rotate-top-left':
+                case 'rotate-top-right':
+                default:
+                    break;
+            }
+
+            const newCenterWorld = objectLocalToWorldPoint(centerLocal, reference);
+            obj.width = width;
+            obj.height = height;
+            obj.x = newCenterWorld.x - obj.width / 2;
+            obj.y = newCenterWorld.y - obj.height / 2;
+
+            const widthInches = (width / scale) * 12;
+            const heightInches = (height / scale) * 12;
+            const widthText = formatMeasurementText(widthInches);
+            const heightText = formatMeasurementText(heightInches);
+
+            furnitureResizePreview = buildFurnitureResizePreview(obj, widthText, heightText);
+            coordinatesDisplay.textContent = `Resize: ${widthText} × ${heightText}`;
             redrawCanvas();
         }
         return;
@@ -7409,6 +7947,13 @@ function handleMouseUp() {
         return;
     }
 
+    if (furnitureHandleDrag) {
+        furnitureHandleDrag = null;
+        furnitureResizePreview = null;
+        redrawCanvas();
+        return;
+    }
+
     if (trackDoorHandleDrag) {
         trackDoorHandleDrag = null;
         trackDoorDistancePreview = null;
@@ -7432,6 +7977,23 @@ function handleMouseUp() {
     if (floorDragData) {
         stopFloorDrag();
         redrawCanvas();
+        return;
+    }
+
+    if (isWallDragActive) {
+        if (isWallDrawing && wallChain.length > 0) {
+            const anchor = wallChain[wallChain.length - 1];
+            const targetX = wallPreviewX ?? anchor.x;
+            const targetY = wallPreviewY ?? anchor.y;
+            const moved = Math.hypot(targetX - anchor.x, targetY - anchor.y) > 0;
+
+            if (moved) {
+                finalizeWallPreviewSegment();
+                redrawCanvas();
+            }
+        }
+
+        isWallDragActive = false;
         return;
     }
 
@@ -7508,6 +8070,16 @@ function handleMouseUp() {
         }
     } else if (currentTool === 'staircase') {
         newObj.staircase = { ...staircaseSettings };
+    } else if (currentTool === 'furniture') {
+        const activeAsset = typeof getActiveFurnitureAsset === 'function' ? getActiveFurnitureAsset() : null;
+        if (activeAsset) {
+            newObj.assetId = activeAsset.id;
+            newObj.imageUrl = activeAsset.url;
+            newObj.assetName = activeAsset.label;
+            if (typeof ensureFurnitureAssetImage === 'function') {
+                newObj.imageElement = ensureFurnitureAssetImage(activeAsset);
+            }
+        }
     }
 
     objects.push(newObj);
@@ -7539,40 +8111,52 @@ function handleCanvasClick(e) {
     ({ x, y } = snapPointToInch(x, y));
 
     if (!isWallDrawing) {
-        // FIRST CLICK: Start new wall chain
-        
-        // Check if we're clicking on an existing wall (for partition)
-        const existingWall = findWallAtPoint(x, y, 10);
-        let firstNode;
-        
-        if (existingWall) {
-            // We're clicking on an existing wall - auto-split it
-            pushUndoState();
-            const closestPoint = getClosestPointOnWall(x, y, existingWall);
-            firstNode = splitWallAtPointWithNode(existingWall, closestPoint.x, closestPoint.y);
-        } else {
-            // Not on an existing wall, create new node
-            firstNode = findOrCreateNode(x, y);
-        }
-        
-        wallChain = [firstNode];
-        isWallDrawing = true;
-        wallPreviewX = wallPreviewY = null;
-        alignmentHints = [];
-        selectedWalls.clear();
-        selectedObjectIndices.clear();
-        selectAllMode = false;
+        startWallChainAt(x, y);
         return;
     }
 
-    if (wallPreviewX === null || wallPreviewY === null) return;
+    if (finalizeWallPreviewSegment()) {
+        redrawCanvas();
+    }
+}
+
+function startWallChainAt(x, y) {
+    // FIRST CLICK: Start new wall chain
+
+    // Check if we're clicking on an existing wall (for partition)
+    const existingWall = findWallAtPoint(x, y, 10);
+    let firstNode;
+
+    if (existingWall) {
+        // We're clicking on an existing wall - auto-split it
+        pushUndoState();
+        const closestPoint = getClosestPointOnWall(x, y, existingWall);
+        firstNode = splitWallAtPointWithNode(existingWall, closestPoint.x, closestPoint.y);
+    } else {
+        // Not on an existing wall, create new node
+        firstNode = findOrCreateNode(x, y);
+    }
+
+    wallChain = [firstNode];
+    isWallDrawing = true;
+    wallPreviewX = wallPreviewY = null;
+    alignmentHints = [];
+    selectedWalls.clear();
+    selectedObjectIndices.clear();
+    selectAllMode = false;
+
+    return firstNode;
+}
+
+function finalizeWallPreviewSegment() {
+    if (wallPreviewX === null || wallPreviewY === null || wallChain.length === 0) return false;
 
     pushUndoState();
 
     // Check if end point is on an existing wall
     const existingWall = findWallAtPoint(wallPreviewX, wallPreviewY, 10);
     let newNode;
-    
+
     if (existingWall) {
         // End point is on an existing wall - auto-split it
         const closestPoint = getClosestPointOnWall(wallPreviewX, wallPreviewY, existingWall);
@@ -7581,19 +8165,19 @@ function handleCanvasClick(e) {
         // Not on an existing wall, create new node
         newNode = findOrCreateNode(wallPreviewX, wallPreviewY);
     }
-    
+
     // Get the last node in the chain
     const lastNode = wallChain[wallChain.length - 1];
-    
+
     // Create wall from last node to new node
     createWall(lastNode, newNode);
-    
+
     // Add new node to the chain
     wallChain.push(newNode);
-    
+
     wallPreviewX = wallPreviewY = null;
     alignmentHints = [];
-    redrawCanvas();
+    return true;
 }
 
 function getDimensionHandleHit(x, y) {
@@ -8008,35 +8592,46 @@ function drawCornerPoint(point, { radius = 4, stroke = '#e67e22', fill = '#fffff
 }
 
 function getWallCornerHandleHit(x, y, hitRadius = NODE_HIT_RADIUS) {
-    let closest = null;
-    let bestDist = Infinity;
+    const findClosestHandle = wallList => {
+        let closest = null;
+        let bestDist = Infinity;
 
-    for (const wall of walls) {
-        const geometry = getWallCornerGeometry(wall);
-        if (!geometry) continue;
+        for (const wall of wallList) {
+            const geometry = getWallCornerGeometry(wall);
+            if (!geometry) continue;
 
-        const startNode = getNodeById(wall.startNodeId);
-        const endNode = getNodeById(wall.endNodeId);
-        if (!startNode || !endNode) continue;
+            const startNode = getNodeById(wall.startNodeId);
+            const endNode = getNodeById(wall.endNodeId);
+            if (!startNode || !endNode) continue;
 
-        geometry.startCorners.forEach(corner => {
-            const d = Math.hypot(x - corner.x, y - corner.y);
-            if (d <= hitRadius && d < bestDist) {
-                bestDist = d;
-                closest = { wall, node: startNode };
-            }
-        });
+            geometry.startCorners.forEach(corner => {
+                const d = Math.hypot(x - corner.x, y - corner.y);
+                if (d <= hitRadius && d < bestDist) {
+                    bestDist = d;
+                    closest = { wall, node: startNode };
+                }
+            });
 
-        geometry.endCorners.forEach(corner => {
-            const d = Math.hypot(x - corner.x, y - corner.y);
-            if (d <= hitRadius && d < bestDist) {
-                bestDist = d;
-                closest = { wall, node: endNode };
-            }
-        });
+            geometry.endCorners.forEach(corner => {
+                const d = Math.hypot(x - corner.x, y - corner.y);
+                if (d <= hitRadius && d < bestDist) {
+                    bestDist = d;
+                    closest = { wall, node: endNode };
+                }
+            });
+        }
+
+        return closest;
+    };
+
+    // When a wall is selected, prefer its handles so vertical-only walls expose their own endpoints
+    // instead of snapping to overlapping handles on perpendicular walls.
+    if (selectedWalls.size > 0) {
+        const prioritized = findClosestHandle(selectedWalls);
+        if (prioritized) return prioritized;
     }
 
-    return closest;
+    return findClosestHandle(walls);
 }
 
 function getWallDirectionFromNode(wall, nodeId) {
@@ -8721,6 +9316,16 @@ function getObjectTransformedCorners(obj) {
         { x: -halfW, y: halfH }
     ];
 
+    // Doors have an arc that extends beyond their rectangular body.
+    // Add swing-extreme points so the computed bounds include the arc for export.
+    if (obj.type === 'door' && obj.doorType !== 'rollingShutter' && obj.doorType !== 'slidingDoor') {
+        const swingRadius = Math.abs(drawWidth);
+        locals.push(
+            { x: halfW, y: -swingRadius },
+            { x: halfW, y: swingRadius }
+        );
+    }
+
     return locals.map(({ x, y }) => {
         const lx = x * sx;
         const ly = y * sy;
@@ -8745,6 +9350,111 @@ function getObjectHandlePoints(corners) {
         c3,
         mid(c3, c0)
     ];
+}
+
+function drawFurnitureGraphic(obj, localX, localY, width, height) {
+    const asset = obj.assetId && typeof getFurnitureAssetById === 'function'
+        ? getFurnitureAssetById(obj.assetId)
+        : null;
+    const sourceUrl = obj.imageUrl || asset?.url || obj.imageElement?.src || null;
+    let img = sourceUrl ? ensureSafeImageElement(obj.imageElement, sourceUrl) : obj.imageElement;
+
+    if (!img && asset && typeof ensureFurnitureAssetImage === 'function') {
+        img = ensureFurnitureAssetImage(asset);
+        obj.imageElement = img;
+        obj.imageUrl = obj.imageUrl || asset.url;
+    }
+
+    if (!img && obj.imageUrl) {
+        img = ensureSafeImageElement(null, obj.imageUrl);
+        obj.imageElement = img;
+    }
+
+    if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+        ctx.drawImage(img, localX, localY, width, height);
+        return;
+    }
+
+    if (img && !img.complete) {
+        img.onload = () => redrawCanvas();
+        img.onerror = () => {
+            obj.imageElement = null;
+            redrawCanvas();
+        };
+    }
+
+    ctx.fillRect(localX, localY, width, height);
+    ctx.strokeRect(localX, localY, width, height);
+}
+
+function objectLocalToWorldPoint(local, reference) {
+    const { cx, cy, angle, sx = 1, sy = 1 } = reference;
+    const rx = local.x * sx;
+    const ry = local.y * sy;
+    return {
+        x: cx + rx * Math.cos(angle) - ry * Math.sin(angle),
+        y: cy + rx * Math.sin(angle) + ry * Math.cos(angle)
+    };
+}
+
+function worldToObjectLocalPoint(world, reference) {
+    const { cx, cy, angle, sx = 1, sy = 1 } = reference;
+    const dx = world.x - cx;
+    const dy = world.y - cy;
+    const cos = Math.cos(-angle);
+    const sin = Math.sin(-angle);
+    return {
+        x: (dx * cos - dy * sin) / sx,
+        y: (dx * sin + dy * cos) / sy
+    };
+}
+
+function getFurnitureHandles(obj, cachedCorners = null) {
+    const handleSize = 10;
+    const corners = cachedCorners || getObjectTransformedCorners(obj);
+    if (!corners || corners.length !== 4) return { handleSize, handles: [] };
+    const [c0, c1, c2, c3] = corners;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+    return {
+        handleSize,
+        handles: [
+            { type: 'rotate-top-left', hx: c0.x, hy: c0.y },
+            { type: 'top', hx: mid(c0, c1).x, hy: mid(c0, c1).y },
+            { type: 'rotate-top-right', hx: c1.x, hy: c1.y },
+            { type: 'right', hx: mid(c1, c2).x, hy: mid(c1, c2).y },
+            { type: 'bottom-right', hx: c2.x, hy: c2.y },
+            { type: 'bottom', hx: mid(c2, c3).x, hy: mid(c2, c3).y },
+            { type: 'bottom-left', hx: c3.x, hy: c3.y },
+            { type: 'left', hx: mid(c3, c0).x, hy: mid(c3, c0).y }
+        ]
+    };
+}
+
+function getFurnitureAnchorForHandle(handle, obj) {
+    const halfW = obj.width / 2;
+    const halfH = obj.height / 2;
+
+    switch (handle) {
+        case 'top':
+            return { x: 0, y: halfH };
+        case 'bottom':
+            return { x: 0, y: -halfH };
+        case 'left':
+            return { x: halfW, y: 0 };
+        case 'right':
+            return { x: -halfW, y: 0 };
+        case 'top-right':
+        case 'rotate-top-right':
+            return { x: -halfW, y: halfH };
+        case 'bottom-right':
+            return { x: -halfW, y: -halfH };
+        case 'bottom-left':
+            return { x: halfW, y: -halfH };
+        case 'rotate-top-left':
+        default:
+            return { x: halfW, y: halfH };
+    }
 }
 
 function drawObjects() {
@@ -8804,8 +9514,7 @@ function drawObjects() {
         } else if (obj.type === 'staircase') {
             drawStaircaseGraphic(obj, localX, localY, width, height);
         } else if (obj.type === 'furniture') {
-            ctx.fillRect(localX, localY, width, height);
-            ctx.strokeRect(localX, localY, width, height);
+            drawFurnitureGraphic(obj, localX, localY, drawWidth, drawHeight);
         }
 
         ctx.restore();
@@ -8856,29 +9565,44 @@ function drawObjects() {
                     ctx.strokeRect(pt.x - half, pt.y - half, handleSize, handleSize);
                 });
             } else {
-                const handleSize = 8;
-                const handles = getObjectHandlePoints(corners);
+                if (obj.type === 'furniture') {
+                    const { handleSize, handles } = getFurnitureHandles(obj, corners);
+                    const half = handleSize / 2;
 
-                ctx.fillStyle = '#ffffff';
-                ctx.strokeStyle = '#2980b9';
-                ctx.lineWidth = 1;
-                handles.forEach(({ x: hx, y: hy }) => {
-                    ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
-                    ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
-                });
+                    handles.forEach(handle => {
+                        const isRotate = handle.type === 'rotate-top-left' || handle.type === 'rotate-top-right';
+                        ctx.fillStyle = '#ffffff';
+                        ctx.strokeStyle = isRotate ? '#f39c12' : '#2980b9';
+                        ctx.lineWidth = 1.5;
 
-                if (isTrackDoor(obj)) {
-                    const { handleSize: shutterHandleSize, start, end } = getTrackDoorHandles(obj);
-                    const shutterHalf = shutterHandleSize / 2;
+                        ctx.fillRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
+                        ctx.strokeRect(handle.hx - half, handle.hy - half, handleSize, handleSize);
+                    });
+                } else {
+                    const handleSize = 8;
+                    const handles = getObjectHandlePoints(corners);
 
                     ctx.fillStyle = '#ffffff';
-                    ctx.strokeStyle = '#d35400';
-                    ctx.lineWidth = 1.5;
-
-                    [start, end].forEach(pt => {
-                        ctx.fillRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
-                        ctx.strokeRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
+                    ctx.strokeStyle = '#2980b9';
+                    ctx.lineWidth = 1;
+                    handles.forEach(({ x: hx, y: hy }) => {
+                        ctx.fillRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
+                        ctx.strokeRect(hx - 1, hy - 1, handleSize + 2, handleSize + 2);
                     });
+
+                    if (isTrackDoor(obj)) {
+                        const { handleSize: shutterHandleSize, start, end } = getTrackDoorHandles(obj);
+                        const shutterHalf = shutterHandleSize / 2;
+
+                        ctx.fillStyle = '#ffffff';
+                        ctx.strokeStyle = '#d35400';
+                        ctx.lineWidth = 1.5;
+
+                        [start, end].forEach(pt => {
+                            ctx.fillRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
+                            ctx.strokeRect(pt.x - shutterHalf, pt.y - shutterHalf, shutterHandleSize, shutterHandleSize);
+                        });
+                    }
                 }
             }
             ctx.restore();
@@ -8929,9 +9653,18 @@ function drawDistancePreviewOverlay(preview, color = '#d35400') {
     ctx.restore();
 }
 
+function drawFurnitureResizePreview(preview) {
+    if (!preview) return;
+
+    const color = '#2980b9';
+    drawDistancePreviewOverlay(preview.width, color);
+    drawDistancePreviewOverlay(preview.height, color);
+}
+
 function drawDistancePreviews() {
     drawDistancePreviewOverlay(trackDoorDistancePreview, '#d35400');
     drawDistancePreviewOverlay(windowDistancePreview, '#3b83bd');
+    drawFurnitureResizePreview(furnitureResizePreview);
 }
 
 function getSnapshotFloorPoints(floor, nodesById) {
@@ -9060,6 +9793,23 @@ function drawFloorVertices(points, isSelected) {
     ctx.restore();
 }
 
+function getFurnitureHandleHit(x, y) {
+    for (const index of selectedObjectIndices) {
+        const obj = objects[index];
+        if (!obj || obj.type !== 'furniture') continue;
+
+        const { handleSize, handles } = getFurnitureHandles(obj);
+        const half = handleSize / 2;
+
+        for (const handle of handles) {
+            if (x >= handle.hx - half && x <= handle.hx + half && y >= handle.hy - half && y <= handle.hy + half) {
+                return { index, handle: handle.type };
+            }
+        }
+    }
+    return null;
+}
+
 function getWindowHandles(obj) {
     const handleSize = 10;
     const { cx, cy, angle, drawWidth } = getObjectTransformInfo(obj);
@@ -9132,6 +9882,37 @@ function buildDistancePreview(obj, handles, label, formatFn = formatMeasurementT
         text: formatFn(totalInches),
         index: objects.indexOf(obj)
     };
+}
+
+function buildFurnitureResizePreview(obj, widthText, heightText) {
+    const corners = getObjectTransformedCorners(obj);
+    if (!corners || corners.length !== 4) return null;
+
+    const [c0, c1, c2, c3] = corners;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+    const left = mid(c0, c3);
+    const right = mid(c1, c2);
+    const top = mid(c0, c1);
+    const bottom = mid(c2, c3);
+
+    const widthSegment = {
+        start: left,
+        end: right,
+        isHorizontal: Math.abs(right.x - left.x) >= Math.abs(right.y - left.y),
+        label: 'Furniture width',
+        text: widthText
+    };
+
+    const heightSegment = {
+        start: top,
+        end: bottom,
+        isHorizontal: Math.abs(bottom.x - top.x) >= Math.abs(bottom.y - top.y),
+        label: 'Furniture height',
+        text: heightText
+    };
+
+    return { width: widthSegment, height: heightSegment };
 }
 
 function buildTrackDoorDistancePreview(obj) {
@@ -10155,6 +10936,7 @@ function submitPdfOptions() {
         clientName: pdfClientNameInput?.value?.trim() || '',
         clientAddress: pdfClientAddressInput?.value?.trim() || '',
         clientMobile: pdfClientMobileInput?.value?.trim() || '',
+        presentationTitle: pdfTitleLineInput?.value?.trim() || '',
         headerText: pdfHeaderInput?.value?.trim() || '',
         footerText: pdfFooterInput?.value?.trim() || '',
         pageFormat: pdfFormatSelect?.value || 'a4',
