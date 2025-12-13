@@ -18,6 +18,7 @@ const textBoldButton = document.getElementById('textBold');
 const textItalicButton = document.getElementById('textItalic');
 const textFontIncreaseButton = document.getElementById('textFontIncrease');
 const textFontDecreaseButton = document.getElementById('textFontDecrease');
+const polylineColorChoices = document.getElementById('polylineColorChoices');
 const fillColorInput = document.getElementById('fillColor');
 const gridSizeInput = document.getElementById('gridSize');
 const showDimensionsCheckbox = document.getElementById('showDimensions');
@@ -189,12 +190,15 @@ const SNAP_RESOLUTION_INCHES = 0.125;
 const DRAFT_STORAGE_KEY = 'apzok-project-draft';
 const EXIT_WARNING_TEXT = 'Project not saved. Download the file to keep your work before leaving the page.';
 const MAX_PROJECT_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB upload limit
+const DEFAULT_POLYLINE_COLORS = ['#000000', '#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
+const POLYLINE_ALIGN_TOLERANCE = 6;
 const PROJECT_STATE_KEYS = new Set([
     'version',
     'nodes',
     'walls',
     'objects',
     'directLines',
+    'polylines',
     'floors',
     'dimensions',
     'clipboard',
@@ -390,6 +394,17 @@ let selectedDirectLineIndices = new Set();
 let directLinePointSelection = null;
 let directLineDrag = null;
 
+// Polylines tool
+let polylines = [];
+let isPolylineDrawing = false;
+let polylinePoints = [];
+let polylinePreview = null;
+let selectedPolylineIndices = new Set();
+let polylinePointSelection = null;
+let polylineDrag = null;
+let polylineReferenceGuide = null;
+let selectedPolylineColor = DEFAULT_POLYLINE_COLORS[0];
+
 let selectedWalls = new Set(); // MULTIPLE wall selection
 let rightClickedWall = null;
 
@@ -498,6 +513,8 @@ function createEmptyLayerSnapshot() {
         nodes: [],
         walls: [],
         objects: [],
+        directLines: [],
+        polylines: [],
         floors: [],
         dimensions: [],
         ids: {
@@ -524,6 +541,7 @@ function cloneLayerStatePayload() {
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
         directLines: JSON.parse(JSON.stringify(directLines)),
+        polylines: JSON.parse(JSON.stringify(polylines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         ids: {
@@ -559,9 +577,11 @@ function resetTransientState() {
     ignoreNextClick = false;
     selectedFloorIds.clear();
     selectedObjectIndices.clear();
+    selectedPolylineIndices.clear();
     selectAllMode = false;
     resetFloorLasso();
     resetDirectLineDrawing();
+    resetPolylineDrawing();
     clearDimensionSelection();
 
     if (typeof window.resetDimensionTool === 'function') {
@@ -575,6 +595,8 @@ function loadLayerSnapshot(layerId = currentLayerId()) {
     nodes = JSON.parse(JSON.stringify(snapshot.nodes));
     walls = JSON.parse(JSON.stringify(snapshot.walls));
     objects = JSON.parse(JSON.stringify(snapshot.objects));
+    directLines = JSON.parse(JSON.stringify(snapshot.directLines || []));
+    polylines = JSON.parse(JSON.stringify(snapshot.polylines || []));
     floors = JSON.parse(JSON.stringify(snapshot.floors));
 
     hydrateFurnitureObjects(objects);
@@ -2444,6 +2466,7 @@ function deleteSelection() {
         selectedObjectIndices.size > 0 ||
         selectedFloorIds.size > 0 ||
         selectedDirectLineIndices.size > 0 ||
+        selectedPolylineIndices.size > 0 ||
         selectedDimensionIndex !== null;
 
     if (!hasSelection) return;
@@ -2469,6 +2492,12 @@ function deleteSelection() {
         directLines = directLines.filter((_, idx) => !selectedDirectLineIndices.has(idx));
         selectedDirectLineIndices.clear();
         directLinePointSelection = null;
+    }
+
+    if (selectedPolylineIndices.size > 0) {
+        polylines = polylines.filter((_, idx) => !selectedPolylineIndices.has(idx));
+        selectedPolylineIndices.clear();
+        polylinePointSelection = null;
     }
 
     if (selectedDimensionIndex !== null && window.dimensions?.[selectedDimensionIndex]) {
@@ -3371,6 +3400,7 @@ function cloneState() {
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
         directLines: JSON.parse(JSON.stringify(directLines)),
+        polylines: JSON.parse(JSON.stringify(polylines)),
         floors: JSON.parse(JSON.stringify(floors)),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || []))
     };
@@ -3403,6 +3433,7 @@ function restoreState(state) {
     walls = JSON.parse(JSON.stringify(state.walls));
     objects = JSON.parse(JSON.stringify(state.objects));
     directLines = JSON.parse(JSON.stringify(state.directLines || []));
+    polylines = JSON.parse(JSON.stringify(state.polylines || []));
     floors = JSON.parse(JSON.stringify(state.floors || []));
     nextFloorId = floors.length ? Math.max(...floors.map(f => f.id || 0)) + 1 : 1;
 
@@ -3435,8 +3466,12 @@ function restoreState(state) {
     selectedFloorIds.clear();
     selectedObjectIndices.clear();
     selectedDirectLineIndices.clear();
+    selectedPolylineIndices.clear();
     directLinePointSelection = null;
     directLineDrag = null;
+    polylinePointSelection = null;
+    polylineDrag = null;
+    polylineReferenceGuide = null;
     selectAllMode = false;
     resetFloorLasso();
 
@@ -3565,12 +3600,14 @@ function buildProjectState() {
         walls: JSON.parse(JSON.stringify(walls)),
         objects: JSON.parse(JSON.stringify(objects)),
         directLines: JSON.parse(JSON.stringify(directLines)),
+        polylines: JSON.parse(JSON.stringify(polylines)),
         floors: (floors || []).map(stripFloorPattern),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
         layerState: typeof getLayerState === 'function' ? getLayerState() : null,
         layerDrawings: exportLayerDrawings(),
         objects: JSON.parse(JSON.stringify(objects)),
+        polylines: JSON.parse(JSON.stringify(polylines)),
         floors: (floors || []).map(stripFloorPattern),
         dimensions: JSON.parse(JSON.stringify(window.dimensions || [])),
         clipboard: JSON.parse(JSON.stringify(clipboard)),
@@ -4026,6 +4063,10 @@ function getContentBounds() {
     });
 
     (directLines || []).forEach(line => {
+        (line?.points || []).forEach(pt => expandBounds(bounds, pt.x, pt.y));
+    });
+
+    (polylines || []).forEach(line => {
         (line?.points || []).forEach(pt => expandBounds(bounds, pt.x, pt.y));
     });
 
@@ -4999,6 +5040,7 @@ function buildConvertedProject(parsed) {
         walls: wallsFromXml,
         objects: objectsFromXml,
         directLines: [],
+        polylines: [],
         floors: floorsFromXml,
         dimensions: dimensionsFromXml,
         clipboard: { walls: [], objects: [], floors: [], nodes: [], referenceX: 0, referenceY: 0 },
@@ -5101,6 +5143,17 @@ function init() {
 
     document.getElementById('lineColorPreview').style.backgroundColor = lineColorInput.value || DEFAULT_WALL_COLOR;
     document.getElementById('fillColorPreview').style.backgroundColor = fillColorInput.value || '#d9d9d9';
+
+    if (polylineColorChoices) {
+        const swatches = polylineColorChoices.querySelectorAll('.color-swatch');
+        swatches.forEach((btn, index) => {
+            const color = btn.dataset.color || DEFAULT_POLYLINE_COLORS[index] || DEFAULT_POLYLINE_COLORS[0];
+            btn.dataset.color = color;
+            btn.style.backgroundColor = color;
+            btn.addEventListener('click', () => setSelectedPolylineColor(color));
+        });
+        setSelectedPolylineColor(selectedPolylineColor);
+    }
 
     if (typeof initLayerTools === 'function') {
         initLayerTools();
@@ -5209,6 +5262,10 @@ function init() {
 
             if (currentTool !== 'directline') {
                 resetDirectLineDrawing();
+            }
+
+            if (currentTool !== 'polylines') {
+                resetPolylineDrawing();
             }
 
             if (currentTool === 'staircase') {
@@ -6348,7 +6405,9 @@ function finalizeSelectionBox() {
         selectedNode = null;
         selectAllMode = false;
         selectedDirectLineIndices.clear();
+        selectedPolylineIndices.clear();
         directLinePointSelection = null;
+        polylinePointSelection = null;
         selectedFloorIds.clear();
         clearDimensionSelection();
     }
@@ -6394,6 +6453,18 @@ function finalizeSelectionBox() {
             const p2 = pts[i];
             if (rectIntersectsSegment(rect, p1.x, p1.y, p2.x, p2.y)) {
                 selectedDirectLineIndices.add(index);
+                break;
+            }
+        }
+    });
+
+    polylines.forEach((line, index) => {
+        const pts = line?.points || [];
+        for (let i = 1; i < pts.length; i++) {
+            const p1 = pts[i - 1];
+            const p2 = pts[i];
+            if (rectIntersectsSegment(rect, p1.x, p1.y, p2.x, p2.y)) {
+                selectedPolylineIndices.add(index);
                 break;
             }
         }
@@ -6710,6 +6781,31 @@ function handleMouseDown(e) {
 
     if (currentTool === 'select') {
         keyboardHoverPreviewLocked = false;
+        const polyPointHit = findPolylinePointHit(x, y, DIRECT_LINE_HANDLE_RADIUS + 2);
+        if (polyPointHit) {
+            if (!selectedPolylineIndices.has(polyPointHit.lineIndex)) {
+                selectedPolylineIndices.clear();
+            }
+            selectedPolylineIndices.add(polyPointHit.lineIndex);
+            polylinePointSelection = polyPointHit;
+            startPolylineDrag(polyPointHit.lineIndex, polyPointHit.pointIndex, 'point', x, y);
+            redrawCanvas();
+            return;
+        }
+
+        const polyHit = findPolylineHit(x, y, DIRECT_LINE_HIT_TOLERANCE * 1.5);
+        if (polyHit) {
+            if (!e.shiftKey) {
+                selectedPolylineIndices.clear();
+                polylinePointSelection = null;
+            }
+            selectedPolylineIndices.add(polyHit.lineIndex);
+            polylinePointSelection = null;
+            startPolylineDrag(polyHit.lineIndex, null, 'line', x, y);
+            redrawCanvas();
+            return;
+        }
+
         const pointHit = findDirectLinePointHit(x, y, DIRECT_LINE_HANDLE_RADIUS + 2);
         if (pointHit) {
             if (!selectedDirectLineIndices.has(pointHit.lineIndex)) {
@@ -6747,6 +6843,22 @@ function handleMouseDown(e) {
 
         directLinePreview = null;
         coordinatesDisplay.textContent = `Direct line: ${directLinePoints.length} point(s)`;
+        redrawCanvas();
+        return;
+    }
+
+    if (currentTool === 'polylines') {
+        ({ x, y } = snapPointToInch(x, y));
+        if (!isPolylineDrawing) {
+            isPolylineDrawing = true;
+            polylinePoints = [{ x, y }];
+        } else {
+            polylinePoints.push({ x, y });
+        }
+
+        polylinePreview = null;
+        polylineReferenceGuide = null;
+        coordinatesDisplay.textContent = `Polylines: ${polylinePoints.length} point(s)`;
         redrawCanvas();
         return;
     }
@@ -7390,6 +7502,33 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (polylineDrag) {
+        const { lineIndex, pointIndex, mode, startMouse, originalPoints } = polylineDrag;
+        const line = polylines[lineIndex];
+        if (line) {
+            if (!polylineDrag.undoApplied) {
+                pushUndoState();
+                polylineDrag.undoApplied = true;
+            }
+
+            const dx = x - startMouse.x;
+            const dy = y - startMouse.y;
+
+            if (mode === 'point' && pointIndex !== null && pointIndex !== undefined) {
+                const original = originalPoints[pointIndex];
+                const snapped = snapPointToInch(original.x + dx, original.y + dy);
+                line.points[pointIndex] = { x: snapped.x, y: snapped.y };
+            } else {
+                line.points = originalPoints.map(pt => {
+                    const snapped = snapPointToInch(pt.x + dx, pt.y + dy);
+                    return { x: snapped.x, y: snapped.y };
+                });
+            }
+            redrawCanvas();
+        }
+        return;
+    }
+
     if (selectionBoxPending && selectionBoxStart) {
         selectionBoxEnd = { x, y };
         const dx = selectionBoxEnd.x - selectionBoxStart.x;
@@ -7753,6 +7892,38 @@ function handleMouseMove(e) {
         return;
     }
 
+    if (currentTool === 'polylines') {
+        ({ x, y } = snapPointToInch(x, y));
+        polylineReferenceGuide = null;
+        if (isPolylineDrawing && polylinePoints.length > 0) {
+            const lastPoint = polylinePoints[polylinePoints.length - 1];
+            let previewX = x;
+            let previewY = y;
+            const tolerance = Math.max(POLYLINE_ALIGN_TOLERANCE, scale / 10);
+
+            for (const pt of polylinePoints) {
+                if (Math.abs(previewX - pt.x) <= tolerance) {
+                    previewX = pt.x;
+                    polylineReferenceGuide = { type: 'vertical', x: pt.x, start: Math.min(pt.y, lastPoint.y), end: Math.max(pt.y, lastPoint.y) };
+                    break;
+                }
+                if (Math.abs(previewY - pt.y) <= tolerance) {
+                    previewY = pt.y;
+                    polylineReferenceGuide = { type: 'horizontal', y: pt.y, start: Math.min(pt.x, lastPoint.x), end: Math.max(pt.x, lastPoint.x) };
+                    break;
+                }
+            }
+
+            polylinePreview = { x: previewX, y: previewY };
+            coordinatesDisplay.textContent = `Polylines: ${(Math.hypot(previewX - lastPoint.x, previewY - lastPoint.y) / scale).toFixed(2)}ft segment preview`;
+        } else {
+            polylinePreview = null;
+            coordinatesDisplay.textContent = `Polylines: ${x.toFixed(1)}, ${y.toFixed(1)}`;
+        }
+        redrawCanvas();
+        return;
+    }
+
     if (currentTool === 'floor') {
         ({ x, y } = snapPointToInch(x, y));
         floorHoverCorner = getClosestNodeWithinRadius(x, y);
@@ -7970,6 +8141,12 @@ function handleMouseUp() {
 
     if (directLineDrag) {
         directLineDrag = null;
+        redrawCanvas();
+        return;
+    }
+
+    if (polylineDrag) {
+        polylineDrag = null;
         redrawCanvas();
         return;
     }
@@ -8281,6 +8458,16 @@ function handleCanvasDoubleClick(e) {
         }
         ignoreNextClick = true;
         finalizeDirectLine();
+        return;
+    }
+
+    if (currentTool === 'polylines' && isPolylineDrawing) {
+        ({ x, y } = snapPointToInch(x, y));
+        if (polylinePoints.length > 0) {
+            polylinePoints[polylinePoints.length - 1] = { x, y };
+        }
+        ignoreNextClick = true;
+        finalizePolyline();
         return;
     }
 
@@ -10121,6 +10308,47 @@ function drawDirectLineArrow(start, end, options = {}) {
     ctx.restore();
 }
 
+function drawPolylineReferenceGuide() {
+    if (!polylineReferenceGuide) return;
+
+    const { type, x, y, start, end } = polylineReferenceGuide;
+    ctx.save();
+    ctx.strokeStyle = ALIGN_HINT_COLOR;
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    if (type === 'vertical') {
+        ctx.moveTo(x, start);
+        ctx.lineTo(x, end);
+    } else if (type === 'horizontal') {
+        ctx.moveTo(start, y);
+        ctx.lineTo(end, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawPolylinePath(points, options = {}) {
+    if (!points || points.length < 2) return;
+    const { lineColor, lineWidth } = options;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+    }
+    const strokeColor = lineColor || selectedPolylineColor || (lineColorInput?.value || DEFAULT_WALL_COLOR);
+    const strokeWidth = lineWidth || (parseInt(lineWidthInput?.value, 10) || 2);
+
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = strokeWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+}
+
 function drawDirectLinePath(points, options = {}) {
     if (!points || points.length < 2) return;
     const { lineColor, lineWidth } = options;
@@ -10160,6 +10388,66 @@ function drawDirectLinePath(points, options = {}) {
         drawDirectLineArrow(arrowStart, end, { color: strokeColor });
     }
     ctx.restore();
+}
+
+function drawPolylines() {
+    polylines.forEach(line => drawPolylinePath(line.points, line));
+
+    if (isPolylineDrawing && polylinePoints.length > 0) {
+        const previewPoints = polylinePreview
+            ? polylinePoints.concat([polylinePreview])
+            : polylinePoints;
+
+        drawPolylinePath(previewPoints, {
+            lineColor: selectedPolylineColor,
+            lineWidth: parseInt(lineWidthInput?.value, 10) || 2
+        });
+
+        drawPolylineReferenceGuide();
+
+        ctx.save();
+        previewPoints.forEach(pt => {
+            ctx.beginPath();
+            ctx.fillStyle = 'rgba(46, 204, 113, 0.35)';
+            ctx.strokeStyle = '#27ae60';
+            ctx.lineWidth = 1.25;
+            ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+        ctx.restore();
+    }
+
+    selectedPolylineIndices.forEach(index => {
+        const line = polylines[index];
+        if (!line) return;
+
+        ctx.save();
+        ctx.strokeStyle = '#1f78d1';
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = Math.max(2, (line.lineWidth || 2) / 2);
+        ctx.beginPath();
+        ctx.moveTo(line.points[0].x, line.points[0].y);
+        for (let i = 1; i < line.points.length; i++) {
+            ctx.lineTo(line.points[i].x, line.points[i].y);
+        }
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        line.points.forEach((pt, idx) => {
+            ctx.beginPath();
+            const isSelectedPoint = polylinePointSelection &&
+                polylinePointSelection.lineIndex === index &&
+                polylinePointSelection.pointIndex === idx;
+            ctx.fillStyle = isSelectedPoint ? '#1f78d1' : 'rgba(46, 204, 113, 0.35)';
+            ctx.strokeStyle = '#27ae60';
+            ctx.lineWidth = 1.5;
+            ctx.arc(pt.x, pt.y, DIRECT_LINE_HANDLE_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+        ctx.restore();
+    });
 }
 
 function drawDirectLines() {
@@ -10225,6 +10513,13 @@ function resetDirectLineDrawing() {
     directLinePreview = null;
 }
 
+function resetPolylineDrawing() {
+    isPolylineDrawing = false;
+    polylinePoints = [];
+    polylinePreview = null;
+    polylineReferenceGuide = null;
+}
+
 function finalizeDirectLine() {
     if (directLinePoints.length < 2) {
         resetDirectLineDrawing();
@@ -10243,10 +10538,35 @@ function finalizeDirectLine() {
     redrawCanvas();
 }
 
+function finalizePolyline() {
+    if (polylinePoints.length < 2) {
+        resetPolylineDrawing();
+        redrawCanvas();
+        return;
+    }
+
+    pushUndoState();
+    polylines.push({
+        points: JSON.parse(JSON.stringify(polylinePoints)),
+        lineColor: selectedPolylineColor,
+        lineWidth: parseInt(lineWidthInput?.value, 10) || 2
+    });
+
+    resetPolylineDrawing();
+    redrawCanvas();
+}
+
 function clearDirectLineSelection() {
     selectedDirectLineIndices.clear();
     directLinePointSelection = null;
     directLineDrag = null;
+    clearPolylineSelection();
+}
+
+function clearPolylineSelection() {
+    selectedPolylineIndices.clear();
+    polylinePointSelection = null;
+    polylineDrag = null;
 }
 
 function findDirectLinePointHit(x, y, radius = NODE_HIT_RADIUS) {
@@ -10321,6 +10641,65 @@ function moveSelectedDirectLines(dx, dy, { skipUndo = false } = {}) {
     redrawCanvas();
 }
 
+function findPolylinePointHit(x, y, radius = NODE_HIT_RADIUS) {
+    for (let i = polylines.length - 1; i >= 0; i--) {
+        const line = polylines[i];
+        if (!line?.points) continue;
+        for (let j = 0; j < line.points.length; j++) {
+            const pt = line.points[j];
+            if (Math.hypot(x - pt.x, y - pt.y) <= radius) {
+                return { lineIndex: i, pointIndex: j };
+            }
+        }
+    }
+    return null;
+}
+
+function findPolylineHit(x, y, tolerance = DIRECT_LINE_HIT_TOLERANCE) {
+    for (let i = polylines.length - 1; i >= 0; i--) {
+        const line = polylines[i];
+        const pts = line?.points || [];
+        for (let j = 1; j < pts.length; j++) {
+            const p1 = pts[j - 1];
+            const p2 = pts[j];
+            const dist = pointToSegmentDistance(x, y, p1.x, p1.y, p2.x, p2.y);
+            if (dist <= tolerance) {
+                return { lineIndex: i };
+            }
+        }
+    }
+    return null;
+}
+
+function startPolylineDrag(lineIndex, pointIndex, mode, startX, startY) {
+    const line = polylines[lineIndex];
+    if (!line) return;
+    polylineDrag = {
+        lineIndex,
+        pointIndex,
+        mode,
+        startMouse: { x: startX, y: startY },
+        originalPoints: JSON.parse(JSON.stringify(line.points)),
+        undoApplied: false
+    };
+}
+
+function moveSelectedPolylines(dx, dy, { skipUndo = false } = {}) {
+    if (selectedPolylineIndices.size === 0) return;
+    if (!skipUndo) pushUndoState();
+
+    selectedPolylineIndices.forEach(index => {
+        const line = polylines[index];
+        if (!line?.points) return;
+        line.points = line.points.map(pt => {
+            const snapped = snapPointToInch(pt.x + dx, pt.y + dy);
+            return { x: snapped.x, y: snapped.y };
+        });
+    });
+
+    redrawCanvas();
+}
+
 function redrawCanvas() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -10335,6 +10714,7 @@ function redrawCanvas() {
     drawFloors();
     drawWalls();
     drawObjects();
+    drawPolylines();
     // Draw direct lines above objects (e.g., stair landings) so their paths stay visible
     drawDirectLines();
     drawDimensions();
@@ -10356,6 +10736,7 @@ function selectAllEntities() {
     selectedNode = null;
     selectedFloorIds = new Set(floors.map(f => f.id));
     selectedDirectLineIndices = new Set(directLines.map((_, i) => i));
+    selectedPolylineIndices = new Set(polylines.map((_, i) => i));
     if (window.dimensions && window.dimensions.length > 0) {
         setSelectedDimension(window.dimensions.length - 1);
     } else {
@@ -10449,6 +10830,7 @@ function handleKeyDown(e) {
                 selectedWalls.size > 0 ||
                 selectedFloorIds.size > 0 ||
                 selectedDirectLineIndices.size > 0 ||
+                selectedPolylineIndices.size > 0 ||
                 selectedDimensionIndex !== null;
             if (hasSelection) {
                 e.preventDefault();
@@ -10457,6 +10839,7 @@ function handleKeyDown(e) {
                 moveSelectedWalls(dx, dy, { skipUndo: true });
                 moveSelectedFloors(dx, dy, { skipUndo: true });
                 moveSelectedDirectLines(dx, dy, { skipUndo: true });
+                moveSelectedPolylines(dx, dy, { skipUndo: true });
                 moveSelectedDimension(dx, dy, { skipUndo: true });
                 maintainDoorAttachmentForSelection();
                 selectionNudgePreviewUntil = Date.now() + 600;
@@ -10497,6 +10880,8 @@ function handleKeyDown(e) {
             selectedObjectIndices.clear();
             selectedFloorIds.clear();
             clearDirectLineSelection();
+            clearPolylineSelection();
+            resetPolylineDrawing();
             selectAllMode = false;
             isSelectionBoxActive = false;
             selectionBoxStart = null;
@@ -10517,6 +10902,7 @@ function handleKeyDown(e) {
                 walls = [];
                 objects = [];
                 directLines = [];
+                polylines = [];
                 if (window.dimensions) window.dimensions = [];
             }
             selectedWalls.clear();
@@ -10529,7 +10915,8 @@ function handleKeyDown(e) {
                 selectedWalls.size > 0 ||
                 selectedObjectIndices.size > 0 ||
                 selectedFloorIds.size > 0 ||
-                selectedDirectLineIndices.size > 0;
+                selectedDirectLineIndices.size > 0 ||
+                selectedPolylineIndices.size > 0;
             const hasDimensions = window.dimensions && window.dimensions.length > 0;
             const hasSelectedDimension = selectedDimensionIndex !== null;
 
@@ -10615,15 +11002,55 @@ function getActivePropertyContext() {
     }
 
     if (selectedDirectLineIndices.size > 0) return 'directline';
+    if (selectedPolylineIndices.size > 0) return 'polylines';
 
     if (selectedFloorIds.size > 0) return 'floor';
     if (selectedWalls.size > 0) return 'wall';
     return currentTool || 'select';
 }
 
+function setSelectedPolylineColor(color) {
+    selectedPolylineColor = color || DEFAULT_POLYLINE_COLORS[0];
+
+    if (polylineColorChoices) {
+        const swatches = polylineColorChoices.querySelectorAll('.color-swatch');
+        swatches.forEach(btn => {
+            const btnColor = btn.dataset.color;
+            btn.classList.toggle('selected', btnColor === selectedPolylineColor);
+        });
+    }
+
+    if (lineColorInput) {
+        lineColorInput.value = selectedPolylineColor;
+        const preview = document.getElementById('lineColorPreview');
+        if (preview) {
+            preview.style.backgroundColor = selectedPolylineColor;
+        }
+    }
+}
+
+function syncPolylinePropertyUI() {
+    if (selectedPolylineIndices.size === 0) return;
+    const [firstIndex] = selectedPolylineIndices;
+    const line = polylines[firstIndex];
+    if (!line) return;
+
+    if (line.lineColor) {
+        setSelectedPolylineColor(line.lineColor);
+    }
+
+    if (lineWidthInput && line.lineWidth) {
+        lineWidthInput.value = line.lineWidth;
+    }
+}
+
 function updatePropertiesPanel() {
     const context = getActivePropertyContext();
     const normalizedContext = context === 'mixed' ? 'select' : context;
+    if (context === 'polylines') {
+        syncPolylinePropertyUI();
+    }
+
     if (context === lastPropertyContext) return;
     lastPropertyContext = context;
 
@@ -10751,6 +11178,7 @@ function updateToolInfo() {
         case 'erase': name = 'Eraser'; break;
         case 'dimension': name = 'Dimension'; break;
         case 'directline': name = 'Direct Line (click to add points, double-click to finish)'; break;
+        case 'polylines': name = 'Polylines (click to add points, double-click to finish)'; break;
         case 'text': name = 'Text'; break;
     }
 
