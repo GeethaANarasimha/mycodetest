@@ -417,7 +417,7 @@ let selectionBoxEnd = null;
 let selectionBoxAdditive = false;
 let selectionBoxPending = false;
 
-function snapRotation(angle, step) {
+function snapRotation(angle, step = 15) {
     const normalized = ((angle % 360) + 360) % 360;
     if (typeof step !== 'number' || step <= 0) {
         return normalized;
@@ -10621,9 +10621,11 @@ function showSelectedPolylineMeasurement() {
     });
 
     if (totalFeet > 0) {
+        const totalInches = Math.round(totalFeet * 12);
+        const lengthLabel = formatMeasurementText(totalInches);
         const label = selectedPolylineIndices.size > 1
-            ? `Selected polylines: ${selectedPolylineIndices.size}, total length: ${totalFeet.toFixed(2)} ft`
-            : `Polyline length: ${totalFeet.toFixed(2)} ft`;
+            ? `Selected polylines: ${selectedPolylineIndices.size}, total length: ${lengthLabel}`
+            : `Polyline length: ${lengthLabel}`;
         coordinatesDisplay.textContent = label;
     }
 }
