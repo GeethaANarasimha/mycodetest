@@ -6123,11 +6123,17 @@ function startNodeDrag(node, mouseX, mouseY, wallContext = null) {
     if (constrainWall) {
         const dir = getWallDirectionFromNode(constrainWall, node.id);
         if (dir) {
-            // Snap purely vertical or horizontal directions so wall endpoints don't drift off-axis.
-            if (Math.abs(dir.x) <= 0.01 && Math.abs(dir.y) > Math.abs(dir.x)) {
+            const isVertical = Math.abs(dir.x) <= 0.01 && Math.abs(dir.y) > Math.abs(dir.x);
+            const isHorizontal = Math.abs(dir.y) <= 0.01 && Math.abs(dir.x) > Math.abs(dir.y);
+
+            // Keep perfectly axis-aligned walls locked to their axis to avoid slow drift.
+            if (isVertical) {
                 dragDir = { x: 0, y: Math.sign(dir.y) || 1 };
-            } else if (Math.abs(dir.y) <= 0.01 && Math.abs(dir.x) > Math.abs(dir.y)) {
+            } else if (isHorizontal) {
                 dragDir = { x: Math.sign(dir.x) || 1, y: 0 };
+            } else {
+                // For any other angle, constrain movement along the actual wall direction.
+                dragDir = dir;
             }
         }
     }
@@ -8488,35 +8494,46 @@ function drawCornerPoint(point, { radius = 4, stroke = '#e67e22', fill = '#fffff
 }
 
 function getWallCornerHandleHit(x, y, hitRadius = NODE_HIT_RADIUS) {
-    let closest = null;
-    let bestDist = Infinity;
+    const findClosestHandle = wallList => {
+        let closest = null;
+        let bestDist = Infinity;
 
-    for (const wall of walls) {
-        const geometry = getWallCornerGeometry(wall);
-        if (!geometry) continue;
+        for (const wall of wallList) {
+            const geometry = getWallCornerGeometry(wall);
+            if (!geometry) continue;
 
-        const startNode = getNodeById(wall.startNodeId);
-        const endNode = getNodeById(wall.endNodeId);
-        if (!startNode || !endNode) continue;
+            const startNode = getNodeById(wall.startNodeId);
+            const endNode = getNodeById(wall.endNodeId);
+            if (!startNode || !endNode) continue;
 
-        geometry.startCorners.forEach(corner => {
-            const d = Math.hypot(x - corner.x, y - corner.y);
-            if (d <= hitRadius && d < bestDist) {
-                bestDist = d;
-                closest = { wall, node: startNode };
-            }
-        });
+            geometry.startCorners.forEach(corner => {
+                const d = Math.hypot(x - corner.x, y - corner.y);
+                if (d <= hitRadius && d < bestDist) {
+                    bestDist = d;
+                    closest = { wall, node: startNode };
+                }
+            });
 
-        geometry.endCorners.forEach(corner => {
-            const d = Math.hypot(x - corner.x, y - corner.y);
-            if (d <= hitRadius && d < bestDist) {
-                bestDist = d;
-                closest = { wall, node: endNode };
-            }
-        });
+            geometry.endCorners.forEach(corner => {
+                const d = Math.hypot(x - corner.x, y - corner.y);
+                if (d <= hitRadius && d < bestDist) {
+                    bestDist = d;
+                    closest = { wall, node: endNode };
+                }
+            });
+        }
+
+        return closest;
+    };
+
+    // When a wall is selected, prefer its handles so vertical-only walls expose their own endpoints
+    // instead of snapping to overlapping handles on perpendicular walls.
+    if (selectedWalls.size > 0) {
+        const prioritized = findClosestHandle(selectedWalls);
+        if (prioritized) return prioritized;
     }
 
-    return closest;
+    return findClosestHandle(walls);
 }
 
 function getWallDirectionFromNode(wall, nodeId) {
