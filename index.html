@@ -594,14 +594,46 @@
         </div>
 
         <div class="modal-actions">
-            <button id="startBackgroundMeasurement" class="tool-btn" type="button" disabled>Next</button>
-            <button id="backgroundStartPointStep" class="tool-btn secondary-btn hidden" type="button">Next</button>
-            <button id="finishBackgroundMeasurement" class="tool-btn secondary-btn" type="button" disabled>Finish</button>
-            <button id="cancelBackgroundImage" class="tool-btn secondary-btn" type="button">Cancel</button>
-        </div>
+        <button id="startBackgroundMeasurement" class="tool-btn" type="button" disabled>Next</button>
+        <button id="backgroundStartPointStep" class="tool-btn secondary-btn hidden" type="button">Next</button>
+        <button id="finishBackgroundMeasurement" class="tool-btn secondary-btn" type="button" disabled>Finish</button>
+        <button id="cancelBackgroundImage" class="tool-btn secondary-btn" type="button">Cancel</button>
+    </div>
 
         <div id="backgroundMeasurementHint" class="measurement-hint hidden">
             Drag the measurement line on the canvas to match the known distance, then press Finish.
+        </div>
+    </div>
+</div>
+
+<div id="projectUploadModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="projectUploadTitle">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <h3 id="projectUploadTitle">Upload Project</h3>
+                <p class="modal-subtitle">Choose a saved file or load a plan by its number.</p>
+            </div>
+            <div class="modal-actions">
+                <button id="closeProjectUpload" class="tool-btn secondary-btn" type="button">Close</button>
+            </div>
+        </div>
+
+        <div class="modal-body">
+            <div class="upload-option">
+                <h4 class="modal-subtitle">Upload from file</h4>
+                <p class="modal-subtitle small">Select a saved .ipynb project from your device.</p>
+                <button id="directProjectUpload" class="tool-btn" type="button">Choose file</button>
+            </div>
+
+            <div class="upload-option">
+                <h4 class="modal-subtitle">Load by plan number</h4>
+                <label class="modal-label" for="planNumberInput">Plan number</label>
+                <div class="modal-input-row">
+                    <input id="planNumberInput" type="text" placeholder="e.g., RA001" aria-label="Plan number">
+                    <button id="loadPlanButton" class="tool-btn" type="button">Load</button>
+                </div>
+                <p id="planLoadStatus" class="modal-subtitle small"></p>
+            </div>
         </div>
     </div>
 </div>
@@ -623,6 +655,7 @@
     }
 }
 </script>
+<script src="planSources.js"></script>
 <script src="furnitureTools.js"></script>
 <script src="transformTools.js"></script>
 <script src="userGuide.js"></script>

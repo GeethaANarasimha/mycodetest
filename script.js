@@ -108,6 +108,12 @@ const staircaseCancelButton = document.getElementById('staircaseCancel');
 const saveProjectButton = document.getElementById('saveProject');
 const uploadProjectButton = document.getElementById('uploadProject');
 const projectFileInput = document.getElementById('projectFileInput');
+const projectUploadModal = document.getElementById('projectUploadModal');
+const closeProjectUploadButton = document.getElementById('closeProjectUpload');
+const directProjectUploadButton = document.getElementById('directProjectUpload');
+const planNumberInput = document.getElementById('planNumberInput');
+const loadPlanButton = document.getElementById('loadPlanButton');
+const planLoadStatus = document.getElementById('planLoadStatus');
 const downloadPdfButton = document.getElementById('downloadPdf');
 const openXmlConverterButton = document.getElementById('openXmlConverter');
 const xmlConverterModal = document.getElementById('xmlConverterModal');
@@ -4363,19 +4369,93 @@ function handleProjectFileUpload(event) {
 
     const reader = new FileReader();
     reader.onload = () => {
-        try {
-            const decrypted = xorDecrypt(reader.result, SAVE_SECRET);
-            const state = JSON.parse(decrypted);
-            if (!validateProjectState(state)) {
-                throw new Error('Invalid project structure');
-            }
-            applyProjectState(state);
-        } catch (error) {
-            console.error('Failed to load project', error);
-            alert('Could not load project. Ensure you selected a valid .ipynb file.');
+        const loaded = loadProjectFromText(reader.result, file.name);
+        if (loaded) {
+            closeProjectUploadModal();
         }
     };
     reader.readAsText(file);
+}
+
+function loadProjectFromText(content, sourceLabel = 'file', options = {}) {
+    const { showAlerts = true } = options;
+    try {
+        const decrypted = xorDecrypt(content, SAVE_SECRET);
+        const state = JSON.parse(decrypted);
+        if (!validateProjectState(state)) {
+            throw new Error('Invalid project structure');
+        }
+        applyProjectState(state);
+        return true;
+    } catch (error) {
+        console.error(`Failed to load project from ${sourceLabel}`, error);
+        if (showAlerts) {
+            alert('Could not load project. Ensure you selected a valid .ipynb file.');
+        }
+        return false;
+    }
+}
+
+function setPlanLoadStatus(message, isError = false) {
+    if (!planLoadStatus) return;
+    planLoadStatus.textContent = message;
+    planLoadStatus.style.color = isError ? '#c0392b' : '#555';
+}
+
+function openProjectUploadModal() {
+    if (!projectUploadModal) return;
+    projectUploadModal.classList.remove('hidden');
+    projectUploadModal.setAttribute('aria-hidden', 'false');
+    if (planNumberInput) {
+        planNumberInput.value = '';
+    }
+    setPlanLoadStatus('');
+}
+
+function closeProjectUploadModal() {
+    if (!projectUploadModal) return;
+    projectUploadModal.classList.add('hidden');
+    projectUploadModal.setAttribute('aria-hidden', 'true');
+}
+
+async function handlePlanNumberLoad() {
+    if (!planNumberInput) return;
+
+    const planNumber = planNumberInput.value.trim().toUpperCase();
+    if (!planNumber) {
+        setPlanLoadStatus('Enter a plan number to continue.', true);
+        return;
+    }
+
+    if (typeof getProtectedPlanUrl !== 'function') {
+        setPlanLoadStatus('Plan lookup is unavailable.', true);
+        return;
+    }
+
+    const planUrl = getProtectedPlanUrl(planNumber);
+    if (!planUrl) {
+        setPlanLoadStatus('No plan found for that number.', true);
+        return;
+    }
+
+    setPlanLoadStatus('Loading plan...');
+    try {
+        const response = await fetch(planUrl, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`Failed request with status ${response.status}`);
+        }
+        const content = await response.text();
+        const loaded = loadProjectFromText(content, planNumber, { showAlerts: false });
+        if (!loaded) {
+            setPlanLoadStatus('Could not load the selected plan.', true);
+            return;
+        }
+        setPlanLoadStatus('Plan loaded successfully.');
+        closeProjectUploadModal();
+    } catch (error) {
+        console.error('Error loading plan by number', error);
+        setPlanLoadStatus('Could not load the selected plan.', true);
+    }
 }
 
 function resetXmlConvertStatus(message, isError = false) {
@@ -5194,11 +5274,29 @@ function init() {
     if (saveProjectButton) {
         saveProjectButton.addEventListener('click', saveProjectToFile);
     }
-    if (uploadProjectButton && projectFileInput) {
-        uploadProjectButton.addEventListener('click', () => projectFileInput.click());
+    if (uploadProjectButton && projectUploadModal) {
+        uploadProjectButton.addEventListener('click', openProjectUploadModal);
+    }
+    if (directProjectUploadButton && projectFileInput) {
+        directProjectUploadButton.addEventListener('click', () => projectFileInput.click());
+    }
+    if (projectFileInput) {
         projectFileInput.addEventListener('change', (event) => {
             handleProjectFileUpload(event);
             projectFileInput.value = '';
+        });
+    }
+    if (closeProjectUploadButton) {
+        closeProjectUploadButton.addEventListener('click', closeProjectUploadModal);
+    }
+    if (loadPlanButton) {
+        loadPlanButton.addEventListener('click', handlePlanNumberLoad);
+    }
+    if (planNumberInput) {
+        planNumberInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                handlePlanNumberLoad();
+            }
         });
     }
     if (openXmlConverterButton) {
